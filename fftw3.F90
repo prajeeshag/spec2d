@@ -83,7 +83,7 @@ module FFTW3
             c_rin = fftw_alloc_real(2*alloc_local)
             c_cout = fftw_alloc_complex(alloc_local)
 
-            call c_f_pointer(c_rin, rin, [nlat, nlev, M2, local_ni])
+            call c_f_pointer(c_rin, rin, [howmany3d, M2, local_ni])
             call c_f_pointer(c_cout, cout, [howmany3d, M, local_no])
 
             plan3d = fftw_mpi_plan_many_dft_r2c (rank, n, howmany3d, iblock, oblock, &
