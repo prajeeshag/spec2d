@@ -31,22 +31,19 @@ module grid_to_fourier_mod
         integer :: comm, idfft3d, n
 
         real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:)
-        complex, allocatable :: fldc1d(:,:), fldc(:,:,:), fldc1(:,:,:)
+        complex, allocatable :: fldc1d(:,:), fldc(:,:,:,:), fldc1(:,:,:)
         real :: AUX1CRS(42002)
         complex, allocatable :: four_fld(:,:,:)
         integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
         real :: scl, x, y, imgf=0.3, phi=0.15
-        integer :: clck_fftw3, clck_drcft, init, unit
+        integer :: clck_fftw3, clck_drcft, init, unit, cl, ck
         complex :: wgt, a, b, c, d, e
         complex(kind=4) :: cpout(3)
         logical :: oddeven=.true., ideal_data=.false.
         real, parameter :: PI=4.D0*DATAN(1.D0)
         complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
-        complex, parameter :: cone = cmplx(1.,0.), w1b2=exp(mui*2.*pi*0.5)
-        complex, parameter :: one_w1b2 = cone - w1b2
-        complex :: wlbN
 
-        namelist/grid_to_fourier_nml/kstart, kend, kstep, oddeven, ideal_data, imgf
+        namelist/grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl
 
         call mpp_init() 
  
@@ -57,7 +54,6 @@ module grid_to_fourier_mod
         clck_fftw3 = mpp_clock_id('fftw3')
 
         allocate(pelist(mpp_npes()))
-
 
         call mpp_define_domains( (/1,nlon/), mpp_npes(), domain, halo=0)
         
@@ -71,9 +67,10 @@ module grid_to_fourier_mod
         call init_fft_guru(nlon, ilen, nlon, ilen, comm, nlev, nlat)
 
         allocate(fld(nlev,nlat,isc:iec))
-        allocate(fldc(nlev,nlat,isc:iec))
+        allocate(fldc(isc:iec,2,nlat,nlev))
+
         allocate(fld1d(1:nlon))
-        allocate(fldc1d(2,1:nlon))
+        allocate(fldc1d(1:nlon,2))
         
         if(.not.ideal_data) call read_data('test_data.nc', 'tas', fld1d)
 
@@ -88,43 +85,55 @@ module grid_to_fourier_mod
             endif
          enddo
 
+         k = 0
          do l = 1, nlev
-            do m = 1, nlat
+            do m = 1, nlat/2
+                k = k + 1
                do i = isc, iec
-                   fld(l,m,i) = m*fld1d(i)
+                   fld(l,m,i) = k*fld1d(i)
+                   fld(l,nlat/2+m,i) = -k*fld1d(i)
+                   !fld(l,m,i) = (m+(l-1)*nlat)
                enddo
-            end do
-        end do
-      
+            enddo
+        enddo
         
         fldc=cmplx(0.,0.)
       
         call mpp_sync()
 
         call mpp_clock_begin(clck_fftw3)
-        do t = 1, 100
-            call fft(fld, fldc)
+        do t = 1, 1
+            call fft(fld,fldc)
         enddo
         call mpp_clock_end(clck_fftw3)
 
+        if(cl>nlat/2) cl = nlat/2
+        if(cl<1) cl = 1
+        if(ck>nlev) ck = nlev
+        if(ck<1) ck = 1
+
+        print *, 'printing for lev and lat index :',ck, cl
         do k = isc, iec
             i = k - 1
-            cpout(1) = (fldc(1,1,i+1) + fldc(1,2,i+1))*0.5
-            cpout(2) = (fldc(1,1,i+1) - fldc(1,2,i+1))*0.5
+            cpout(1) = (fldc(i+1,1,cl,ck) + fldc(i+1,2,cl,ck))*0.5
+            cpout(2) = (fldc(i+1,1,cl,ck) - fldc(i+1,2,cl,ck))*0.5
             !cpout(1:2) = fldc(1,:,i+1)
             if (ideal_data) print *, i, cpout(1:2)
         enddo
 
         if (mpp_npes()==1) then
 
-            call fft_1dr2c_serial(fld(1,1,:)*scl,fldc1d(1,:))
-            call fft_1dr2c_serial(fld(1,2,:)*scl,fldc1d(2,:))
+            call fft_1dr2c_serial(fld(ck,cl,:)*scl,fldc1d(:,1))
+            call fft_1dr2c_serial(fld(ck,nlat/2+cl,:)*scl,fldc1d(:,2))
 
             if (ideal_data) then
-            print *, '1dr2c'
-            do i = 0, nlon
-                cpout(1) = fldc1d(1,i+1)
-                cpout(2) = fldc1d(2,i+1)
+            print *, ''
+            print *, ''
+            print *, 'with 1dr2c'
+            print *, ''
+            do i = 0, nlon/2
+                cpout(1) = fldc1d(i+1,1)
+                cpout(2) = fldc1d(i+1,2)
                 print *, i, cpout(1:2)
             enddo
             print *, '1dr2c'

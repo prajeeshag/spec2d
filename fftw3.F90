@@ -10,7 +10,6 @@ module fft_guru
 
     private
 
-    integer(C_INTPTR_T), parameter :: M=2, M2=M*2
     integer :: nplan=0
     integer, parameter :: max_plans=3
     integer, parameter :: rank=2
@@ -19,8 +18,8 @@ module fft_guru
         integer(C_INTPTR_T) :: howmany
         type(C_PTR) :: plan, cdat, rdat
         type(C_PTR) :: tplan, tcdat
-        real(C_DOUBLE), pointer :: rin(:,:,:)
-        complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:,:)
+        real(C_DOUBLE), pointer :: rin(:,:,:,:,:)
+        complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:,:,:,:)
         integer(C_INTPTR_T) :: n0, iblock, oblock
         integer(C_INTPTR_T) :: iblockt, oblockt
         character(len=8) :: method
@@ -41,6 +40,7 @@ module fft_guru
 
     interface fft
         module procedure fft3d
+        module procedure fft2d
     end interface
 
     public :: init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru
@@ -129,7 +129,7 @@ module fft_guru
 
         myplans(n)%howmany = howmany
        
-        n0=(/NLON,M/) 
+        n0=(/NLON,2/) 
         !alloc_local = fftw_mpi_local_size_many_transposed(rank, (/NLON,M/), howmany, &
         !                   NLON_LOCAL, FFTW_MPI_DEFAULT_BLOCK, comm, local_n0, local_0_start, &
         !                   local_n1, local_1_start)
@@ -139,10 +139,10 @@ module fft_guru
                            nlons_local, comm_in, local_n0, local_0_start)
   
         myplans(n)%cdat = fftw_alloc_complex(alloc_local)
-        myplans(n)%rdat = fftw_alloc_real(alloc_local*2)
+        !myplans(n)%rdat = fftw_alloc_real(alloc_local*2)
 
-        call c_f_pointer(myplans(n)%rdat, myplans(n)%rin, [howmany, M2, local_n0])
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%cout, [howmany, M, local_n0])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, 4, local_n0])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%cout, [nvars, nlevs, nlats/2, 2, local_n0])
 
         flags = plan_flags
         myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, n0, howmany, nlons_local, &
@@ -151,25 +151,37 @@ module fft_guru
         register_plan = n
     end function register_plan
 
-
     subroutine fft3d(rinp, coutp)
         implicit none
         real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
-        complex, intent(out) :: coutp(:,:,:)
-        integer(C_INTPTR_T) :: howmany, nx, ny
-        integer :: id, i
+        complex, intent(out) :: coutp(:,:,:,:)
+        integer :: id
 
         id = id3d
 
-        howmany=myplans(id)%howmany
-
-        myplans(id)%rin(1:howmany,1:2,1:NLON_LOCAL) = reshape(rinp,(/howmany,M,NLON_LOCAL/))*RSCALE
-
+        myplans(id)%rin(1,:,:,1:2,:) = reshape(rinp,[NLEV,NLAT/2,2,NLON_LOCAL])*RSCALE
+       
         call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
 
-        coutp(:,:,:) = reshape(myplans(id)%cout(1:howmany,1:2,1:NLON_LOCAL), (/NLEV,NLAT,NLON_LOCAL/))
+        coutp(:,:,:,:) = reshape(myplans(id)%cout(1,:,:,:,:),shape=[NLON_LOCAL,2,NLAT/2,NLEV],order=[4,3,2,1])
 
     end subroutine fft3d
+
+    subroutine fft2d(rinp, coutp)
+        implicit none
+        real, intent(in) :: rinp(:,:) ! lev, lat, lon
+        complex, intent(out) :: coutp(:,:,:)
+        integer :: id
+
+        id = id2d
+
+        myplans(id)%rin(1,1,:,1:2,:) = reshape(rinp,[NLAT/2,2,NLON_LOCAL])*RSCALE
+       
+        call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
+
+        coutp(:,:,:) = reshape(myplans(id)%cout(1,1,:,:,:),shape=[NLON_LOCAL,2,NLAT/2],order=[3,2,1])
+
+    end subroutine fft2d
 
     subroutine end_fft_guru()
         implicit none
