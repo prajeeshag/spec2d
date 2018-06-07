@@ -4,17 +4,20 @@ module fft_guru
 
     use fms_mod, only : open_namelist_file, close_file, error_mesg, FATAL, WARNING, NOTE
 
+    implicit none
+
     include 'fftw3-mpi.f03'
 
     private
 
     integer(C_INTPTR_T), parameter :: M=2, M2=M*2
-    integer :: nplan=0, max_plans=10
+    integer :: nplan=0
+    integer, parameter :: max_plans=3
     integer, parameter :: rank=2
 
     type plan_type
         integer(C_INTPTR_T) :: howmany
-        type(C_PTR) :: plan, cdat
+        type(C_PTR) :: plan, cdat, rdat
         type(C_PTR) :: tplan, tcdat
         real(C_DOUBLE), pointer :: rin(:,:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:,:)
@@ -23,34 +26,54 @@ module fft_guru
         character(len=8) :: method
     endtype plan_type
 
-    integer(C_INTPTR_T) :: NTOTAL, FTOTAL, FTRUNC, NLOCAL, FLOCAL
+    integer(C_INTPTR_T) :: NLON, FTOTAL, FTRUNC, NLON_LOCAL, FLOCAL
+    integer(C_INTPTR_T) :: NLEV, NLAT, NVAR
+    integer :: COMM_FFT
+
     real :: RSCALE
-    integer :: COMM
-    integer :: plan_level = 1, plan_flags
+    integer :: plan_level = 1, plan_flags, id2d, id3d, id3dext
     logical :: transpos=.true.
     logical :: initialized=.false.
 
     character (len=16), parameter :: modul = 'fft_guru'
 
-    type(plan_type), allocatable :: myplans(:)
+    type(plan_type) :: myplans(max_plans)
 
-    public :: init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial
+    interface fft
+        module procedure fft3d
+    end interface
 
-    namelist/fft_guru_nml/plan_level, transpos, max_plans
+    public :: init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru
+
+    namelist/fft_guru_nml/plan_level, transpos
 
     contains
 
-    subroutine init_fft_guru (nlon, nlon_local, nfourier, nfourier_local, comm_in)
+    subroutine init_fft_guru (nlons, nlons_local, nfourier, nfourier_local, comm_in, nlevs, nlats, nvars)
         implicit none
 
-        integer, intent(in) :: nlon, comm_in, nlon_local, nfourier, nfourier_local
-        integer(C_INTPTR_T) :: i, j, alloc_local, local_ni, local_i_start, local_no, local_o_start
+        integer, intent(in) :: nlons, comm_in, nlons_local, nfourier, nfourier_local, nlats, nlevs
+        integer, intent(in), optional :: nvars
+        integer(C_INTPTR_T) :: alloc_local, local_ni, local_i_start, local_no, local_o_start, nvar1
+        integer(C_INTPTR_T) :: howmany
         character (len=32) :: routine = 'init_fft_guru'
         integer :: unit, flags, stat
 
         unit = open_namelist_file()
         read(unit, nml=fft_guru_nml,iostat=stat)
         call close_file(unit)
+
+        NLON = nlons
+        NLAT = nlats
+        NLEV = nlevs
+        NVAR = 1 
+        if (present(nvars))NVAR=nvars
+        COMM_FFT = comm_in
+        NLON_LOCAL = nlons_local
+        FTOTAL = nlons/2
+        FTRUNC = nfourier 
+        FLOCAL = nfourier_local 
+        RSCALE = 1./nlons
 
         select case (plan_level)
         case(0)
@@ -66,71 +89,35 @@ module fft_guru
             & set plan_level (accepted values are 0-3) in fft_guru_nml', FATAL)
         end select
 
-        if(mod(nlon,2)) call error_mesg(routine,'NLON must be an integer',FATAL)
-
-        NTOTAL = nlon
-        NLOCAL = nlon_local
-        FTOTAL = nlon/2
-        FTRUNC = nfourier 
-        FLOCAL = nfourier_local 
-        COMM = comm_in
-        RSCALE = 1./(nlon*2)
+        if(mod(NLON,2)) call error_mesg(routine,'NLON must be an integer',FATAL)
 
         call fftw_mpi_init()
 
-        allocate(myplans(max_plans))
+        !plan 2d
+        id2d = register_plan(1,1,NLAT,NLON_LOCAL,comm_in)
+
+        !plan 3d
+        id3d = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in)
+        
+        !plan 3d
+        id3dext = register_plan(NVAR,NLEV,NLAT,NLON_LOCAL,comm_in)
         
         initialized = .true.
 
-        call error_mesg(routine, 'FFT_GURU initialized with method !', NOTE)
+        call error_mesg(routine, 'FFT_GURU initialized !!!', NOTE)
 
     end subroutine init_fft_guru
 
-    subroutine fft(rinp, coutp, id, execute)
-        real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
-        complex, intent(out) :: coutp(:,:,:)
-        integer, intent(inout), optional :: id
-        logical, optional :: execute
-        integer(C_INTPTR_T) :: howmany, nx, ny
-        integer :: idl
-
-        nx = size(rinp,1); ny=size(rinp,2)
-        howmany=nx*ny/2
-
-        idl = 0
-        if(present(id).and.id>0) idl=id
-
-        if (idl<1) then
-            do i = 1, nplan
-                if (myplans(i)%howmany==howmany) then
-                    idl = i
-                    exit
-                endif
-            enddo
-        endif
-        
-        if (idl<1) then
-            idl = register_plan(howmany)
-        endif
-
-        if(present(id)) id = idl
-
-        if(present(execute).and..not.(execute)) return
-
-        myplans(idl)%rin(:,1:2,:) = reshape(rinp(:,:,:)*RSCALE,shape=[howmany,M,NLOCAL])
-
-        call fftw_mpi_execute_dft_r2c(myplans(idl)%plan, myplans(idl)%rin, myplans(idl)%cout) 
-
-        coutp(:,:,:) = reshape(myplans(idl)%cout(:,:,:),shape=[nx,ny,NLOCAL])
-
-    end subroutine fft
-
-    function register_plan(howmany)
+    function register_plan(nvars, nlevs, nlats, nlons_local, comm_in)
         implicit none
-        integer(C_INTPTR_T), intent(in) :: howmany
+        integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, nlons_local
+        integer, intent(in) :: comm_in
+        integer(C_INTPTR_T) :: howmany
         integer :: register_plan, n, flags
         integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
-        integer(C_INTPTR_T) :: alloc_local
+        integer(C_INTPTR_T) :: alloc_local, n0(2)
+
+        howmany = nvars*nlevs*nlats/2
 
         if (howmany<1) call error_mesg('register_plan', 'howmany cannot be Zero', FATAL)
 
@@ -141,25 +128,60 @@ module fft_guru
         n = nplan
 
         myplans(n)%howmany = howmany
-        
-        !alloc_local = fftw_mpi_local_size_many_transposed(rank, (/NTOTAL,M/), howmany, &
-        !                   NLOCAL, FFTW_MPI_DEFAULT_BLOCK, comm, local_n0, local_0_start, &
+       
+        n0=(/NLON,M/) 
+        !alloc_local = fftw_mpi_local_size_many_transposed(rank, (/NLON,M/), howmany, &
+        !                   NLON_LOCAL, FFTW_MPI_DEFAULT_BLOCK, comm, local_n0, local_0_start, &
         !                   local_n1, local_1_start)
 
-        alloc_local = fftw_mpi_local_size_many(rank, (/NTOTAL,M/), howmany, &
-                           NLOCAL, COMM, local_n0, local_0_start)
+        
+        alloc_local = fftw_mpi_local_size_many(rank, n0, howmany, &
+                           nlons_local, comm_in, local_n0, local_0_start)
   
         myplans(n)%cdat = fftw_alloc_complex(alloc_local)
+        myplans(n)%rdat = fftw_alloc_real(alloc_local*2)
 
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [howmany, M2, local_n0])
+        call c_f_pointer(myplans(n)%rdat, myplans(n)%rin, [howmany, M2, local_n0])
         call c_f_pointer(myplans(n)%cdat, myplans(n)%cout, [howmany, M, local_n0])
 
         flags = plan_flags
-        myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, (/NTOTAL,M/), howmany, NLOCAL, &
-                            NLOCAL, myplans(n)%rin, myplans(n)%cout, COMM, flags)
+        myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, n0, howmany, nlons_local, &
+                            nlons_local, myplans(n)%rin, myplans(n)%cout, comm_in, flags)
          
         register_plan = n
     end function register_plan
+
+
+    subroutine fft3d(rinp, coutp)
+        implicit none
+        real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
+        complex, intent(out) :: coutp(:,:,:)
+        integer(C_INTPTR_T) :: howmany, nx, ny
+        integer :: id, i
+
+        id = id3d
+
+        howmany=myplans(id)%howmany
+
+        myplans(id)%rin(1:howmany,1:2,1:NLON_LOCAL) = reshape(rinp,(/howmany,M,NLON_LOCAL/))*RSCALE
+
+        call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
+
+        coutp(:,:,:) = reshape(myplans(id)%cout(1:howmany,1:2,1:NLON_LOCAL), (/NLEV,NLAT,NLON_LOCAL/))
+
+    end subroutine fft3d
+
+    subroutine end_fft_guru()
+        implicit none
+        integer :: i
+
+        do i = 1, nplan
+    
+            call fftw_destroy_plan(myplans(i)%plan)
+            call fftw_free(myplans(i)%cdat)
+            call fftw_free(myplans(i)%rdat)
+        enddo 
+    end subroutine end_fft_guru
 
     subroutine fft_1dr2c_serial(rinp, coutp)
         real :: rinp(:)

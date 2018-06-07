@@ -1,6 +1,6 @@
 module grid_to_fourier_mod
 
-    use fft_guru, only : init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial
+    use fft_guru, only : init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru
 
     use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
     use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
@@ -31,7 +31,7 @@ module grid_to_fourier_mod
         integer :: comm, idfft3d, n
 
         real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:)
-        complex, allocatable :: fldc1d(:), fldc(:,:,:), fldc1(:,:,:)
+        complex, allocatable :: fldc1d(:,:), fldc(:,:,:), fldc1(:,:,:)
         real :: AUX1CRS(42002)
         complex, allocatable :: four_fld(:,:,:)
         integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
@@ -58,7 +58,6 @@ module grid_to_fourier_mod
 
         allocate(pelist(mpp_npes()))
 
-        call mpp_get_current_pelist(pelist,commid=comm)
 
         call mpp_define_domains( (/1,nlon/), mpp_npes(), domain, halo=0)
         
@@ -66,12 +65,15 @@ module grid_to_fourier_mod
        
         ilen = iec-isc+1
 
-        call init_fft_guru(nlon, ilen, nlon, ilen, comm)
+        call mpp_get_current_pelist(pelist,commid=comm)
+
+        !print *, 'comm=', comm
+        call init_fft_guru(nlon, ilen, nlon, ilen, comm, nlev, nlat)
 
         allocate(fld(nlev,nlat,isc:iec))
         allocate(fldc(nlev,nlat,isc:iec))
         allocate(fld1d(1:nlon))
-        allocate(fldc1d(1:nlon))
+        allocate(fldc1d(2,1:nlon))
         
         if(.not.ideal_data) call read_data('test_data.nc', 'tas', fld1d)
 
@@ -89,7 +91,7 @@ module grid_to_fourier_mod
          do l = 1, nlev
             do m = 1, nlat
                do i = isc, iec
-                   fld(l,m,i) = fld1d(i)
+                   fld(l,m,i) = m*fld1d(i)
                enddo
             end do
         end do
@@ -97,13 +99,11 @@ module grid_to_fourier_mod
         
         fldc=cmplx(0.,0.)
       
-        n = nlev*nlat/2 
-        call fft(fld, fldc, idfft3d, .false.)
-
         call mpp_sync()
+
         call mpp_clock_begin(clck_fftw3)
         do t = 1, 100
-            call fft(fld, fldc, idfft3d)
+            call fft(fld, fldc)
         enddo
         call mpp_clock_end(clck_fftw3)
 
@@ -111,22 +111,21 @@ module grid_to_fourier_mod
             i = k - 1
             cpout(1) = (fldc(1,1,i+1) + fldc(1,2,i+1))*0.5
             cpout(2) = (fldc(1,1,i+1) - fldc(1,2,i+1))*0.5
-            cpout(1:2) = fldc(1,:,i+1)
+            !cpout(1:2) = fldc(1,:,i+1)
             if (ideal_data) print *, i, cpout(1:2)
         enddo
 
         if (mpp_npes()==1) then
 
-            call fft_1dr2c_serial(fld1d(:)*scl,fldc1d) 
-            call write_data('fftw_out.nc','real', real(fldc1d(:)))
-            call write_data('fftw_out.nc','imag', dimag(fldc1d(:)))
-            call write_data('fftw_out.nc','mag', abs(fldc1d(:)))
+            call fft_1dr2c_serial(fld(1,1,:)*scl,fldc1d(1,:))
+            call fft_1dr2c_serial(fld(1,2,:)*scl,fldc1d(2,:))
 
             if (ideal_data) then
             print *, '1dr2c'
             do i = 0, nlon
-                cpout(1) = fldc1d(i+1)
-                print *, i, cpout(1)
+                cpout(1) = fldc1d(1,i+1)
+                cpout(2) = fldc1d(2,i+1)
+                print *, i, cpout(1:2)
             enddo
             print *, '1dr2c'
             print *, ''
@@ -134,6 +133,7 @@ module grid_to_fourier_mod
             endif 
         endif
 
+        call end_fft_guru()
         call fms_io_exit()
         call mpp_exit()
             
