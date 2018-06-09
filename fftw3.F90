@@ -198,9 +198,9 @@ module fft_guru
         flags = plan_flags
 
         !myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
-        myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
+        !myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
         call c_f_pointer(myplans(n)%cdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%tcdato, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
     
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
                                 myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
@@ -208,8 +208,8 @@ module fft_guru
 
         !!trout -> cout
         allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
-        myplans(n)%r2c = c_loc(myplans(n)%cout)
-        call c_f_pointer(myplans(n)%r2c, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        !myplans(n)%r2c = c_loc(myplans(n)%cout)
+        !call c_f_pointer(myplans(n)%r2c, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
          
     end function register_plan
 
