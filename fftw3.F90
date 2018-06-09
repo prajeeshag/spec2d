@@ -18,8 +18,8 @@ module fft_guru
     type plan_type
         integer(C_INTPTR_T) :: howmany
         type(C_PTR) :: plan, cdat
-        type(C_PTR) :: tplan, tcdat, tcdato
-        type(C_PTR) :: c2r, r2c
+        type(C_PTR) :: tplan
+        type(C_PTR) :: r2c
         real(C_DOUBLE), pointer :: rin(:,:,:,:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: tcout(:,:,:,:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:,:,:,:)
@@ -52,11 +52,12 @@ module fft_guru
 
     contains
 
-    subroutine init_fft_guru (nlons, nlons_local, nfourier, nfourier_local, comm_in, nlevs, nlats, nvars)
+    subroutine init_fft_guru (nlons, nlons_local, nfourier, fourier_start_local, &
+                                nfourier_local, comm_in, nlevs, nlats, nvars)
         implicit none
 
         integer, intent(in) :: nlons, comm_in, nlons_local, nfourier, nlats, nlevs
-        integer, intent(inout) :: nfourier_local
+        integer, intent(inout) :: nfourier_local, fourier_start_local
         integer, intent(in), optional :: nvars
         integer(C_INTPTR_T) :: alloc_local, local_ni, local_i_start, local_no, local_o_start, nvar1
         integer(C_INTPTR_T) :: howmany
@@ -98,13 +99,13 @@ module fft_guru
         call fftw_mpi_init()
 
         !plan 2d
-        id2d = register_plan(1,1,NLAT,NLON_LOCAL,comm_in)
+        !id2d = register_plan(1,1,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
 
         !plan 3d
-        id3d = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in)
+        id3d = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
         
         !plan 3d
-        id3dext = register_plan(NVAR,NLEV,NLAT,NLON_LOCAL,comm_in)
+        !id3dext = register_plan(NVAR,NLEV,NLAT,NLON_LOCAL,comm_in)
        
         nfourier_local = FLOCAL 
         initialized = .true.
@@ -113,10 +114,11 @@ module fft_guru
 
     end subroutine init_fft_guru
 
-    function register_plan(nvars, nlevs, nlats, nlons_local, comm_in)
+    function register_plan(nvars, nlevs, nlats, nlons_local, comm_in, fourier_start_local, nfourier_local)
         implicit none
         integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, nlons_local
         integer, intent(in) :: comm_in
+        integer, intent(out) :: fourier_start_local, nfourier_local
         integer(C_INTPTR_T) :: howmany
         integer :: register_plan, n, flags
         integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
@@ -182,30 +184,25 @@ module fft_guru
                        myplans(n)%tn0, FLOCAL, comm_in, local_n0, &
                        local_0_start, local_n1, local_1_start)
 
-        if (FLOCAL/=local_n1) &
-            call error_mesg('register_plan', 'FLOCAL/=local_n1, try a different no: &
-                                               pes on logitudinal direction',FATAL)
+!        if (FLOCAL/=local_n1) &
+!            call error_mesg('register_plan', 'Asked ', WARNING)
+
+        FLOCAL = local_n1
+        nfourier_local = local_n1
+        fourier_start_local = local_1_start
 
         if (myplans(n)%tn0/=local_n0) &
             call error_mesg('register_plan', 'myplans(n)%tn0/=local_n0, try a different no: &
                                                pes on logitudinal direction',FATAL)
-        FLOCAL = local_n1
-
-        myplans(n)%tcdat = fftw_alloc_real(alloc_local*2)
-        myplans(n)%tcdato = fftw_alloc_real(alloc_local*2)
 
         flags = plan_flags
 
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%tcdato, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
     
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
                                 myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
                                 comm_in, flags) 
-
-        !tcout -> trin
-        myplans(n)%c2r = c_loc(myplans(n)%trin)
-        call c_f_pointer(myplans(n)%c2r, myplans(n)%tcout, [nvars,nlevs,nlats/2,FTRUNC,myplans(n)%tn0])
 
         !!trout -> cout
         allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
@@ -227,7 +224,7 @@ module fft_guru
         if (.not.transpos) then 
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
         else
-            call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout) 
+            call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout)
             call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
         endif
 
@@ -260,12 +257,9 @@ module fft_guru
 
     subroutine end_fft_guru()
         implicit none
-        integer :: i
 
-        do i = 1, nplan
-            call fftw_destroy_plan(myplans(i)%plan)
-            call fftw_free(myplans(i)%cdat)
-        enddo 
+        call fftw_mpi_cleanup()
+
     end subroutine end_fft_guru
 
     subroutine fft_1dr2c_serial(rinp, coutp)

@@ -42,11 +42,12 @@ module grid_to_fourier_mod
         logical :: oddeven=.true., ideal_data=.false.
         real, parameter :: PI=4.D0*DATAN(1.D0)
         complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
+        integer :: pe
 
         namelist/grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, check, num_fourier
 
         call mpp_init() 
-
+        pe = mpp_pe()
         num_fourier = nlon
  
         unit = open_namelist_file()
@@ -64,11 +65,13 @@ module grid_to_fourier_mod
         call mpp_define_domains( (/1,num_fourier/), mpp_npes(), domainf, halo=0)
         call mpp_get_compute_domain(domainf, isf, ief)
         flen = ief-isf+1
-        print *, 'flen=', flen
+
         call mpp_get_current_pelist(pelist,commid=comm)
 
         !print *, 'comm=', comm
-        call init_fft_guru(nlon, ilen, num_fourier, flen, comm, nlev, nlat)
+        call init_fft_guru(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat)
+        ief = isf+flen-1
+        print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
 
 !        call mpp_sync()
 !        call mpp_error('grid_to_fourier','TESTING...',FATAL)
@@ -122,8 +125,7 @@ module grid_to_fourier_mod
 
         if (check.or.mpp_npes()==1) then
         if(mpp_pe()==mpp_root_pe()) print *, 'printing for lev and lat index :',ck, cl
-        do k = isf, ief
-            i = k - 1
+        do i = isf, ief
             cpout(1) = (fldc(i+1,1,cl,ck) + fldc(i+1,2,cl,ck))*0.5
             cpout(2) = (fldc(i+1,1,cl,ck) - fldc(i+1,2,cl,ck))*0.5
             !cpout(1:2) = fldc(1,:,i+1)
@@ -153,8 +155,8 @@ module grid_to_fourier_mod
             endif 
         endif
 
-        !call end_fft_guru()
         call fms_io_exit()
+        call end_fft_guru()
         call mpp_exit()
             
     end subroutine init_grid_to_fourier
