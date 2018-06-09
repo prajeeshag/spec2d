@@ -18,7 +18,7 @@ module fft_guru
     type plan_type
         integer(C_INTPTR_T) :: howmany
         type(C_PTR) :: plan, cdat
-        type(C_PTR) :: tplan
+        type(C_PTR) :: tplan, tcdat, tcdato
         type(C_PTR) :: r2c
         real(C_DOUBLE), pointer :: rin(:,:,:,:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: tcout(:,:,:,:,:)
@@ -169,8 +169,9 @@ module fft_guru
         oblock = FFTW_MPI_DEFAULT_BLOCK
         myplans(n)%tn0 = local_n1
 
-        myplans(n)%cdat = fftw_alloc_complex(alloc_local)
+        myplans(n)%cdat = fftw_alloc_complex(alloc_local*2)
 
+        print *,'alloc_local', mpp_pe(), alloc_local
         call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, TWO*2, local_n0])
         call c_f_pointer(myplans(n)%cdat, myplans(n)%tcout, [nvars, nlevs, nlats/2, NLON, local_n1])
 
@@ -184,6 +185,7 @@ module fft_guru
                        myplans(n)%tn0, FLOCAL, comm_in, local_n0, &
                        local_0_start, local_n1, local_1_start)
 
+        print *,'alloc_local transpose', mpp_pe(), alloc_local
 !        if (FLOCAL/=local_n1) &
 !            call error_mesg('register_plan', 'Asked ', WARNING)
 
@@ -197,8 +199,10 @@ module fft_guru
 
         flags = plan_flags
 
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
+        myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
     
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
                                 myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
@@ -225,7 +229,7 @@ module fft_guru
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
         else
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout)
-            call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
+!            call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
         endif
 
         coutp = reshape(myplans(id)%cout(1,:,:,:,1:FLOCAL), &

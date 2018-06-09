@@ -126,8 +126,8 @@ module grid_to_fourier_mod
         if (check.or.mpp_npes()==1) then
         if(mpp_pe()==mpp_root_pe()) print *, 'printing for lev and lat index :',ck, cl
         do i = isf, ief
-            cpout(1) = (fldc(i+1,1,cl,ck) + fldc(i+1,2,cl,ck))*0.5
-            cpout(2) = (fldc(i+1,1,cl,ck) - fldc(i+1,2,cl,ck))*0.5
+            cpout(1) = (fldc(i,1,cl,ck) + fldc(i,2,cl,ck))*0.5
+            cpout(2) = (fldc(i,1,cl,ck) - fldc(i,2,cl,ck))*0.5
             !cpout(1:2) = fldc(1,:,i+1)
             if (ideal_data) print *, i, cpout(1:2)
         enddo
