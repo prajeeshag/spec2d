@@ -22,6 +22,7 @@ module fft_guru
         type(C_PTR) :: r2c
         real(C_DOUBLE), pointer :: rin(:,:,:,:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: tcout(:,:,:,:,:)
+        complex(C_DOUBLE_COMPLEX), pointer :: tcin(:,:,:,:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:,:,:,:)
         real(C_DOUBLE), pointer :: trin(:,:,:,:,:,:)
         real(C_DOUBLE), pointer :: trout(:,:,:,:,:,:)
@@ -197,19 +198,21 @@ module fft_guru
 
         flags = plan_flags
 
-        !myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
+        myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
         !myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        if (myplans(n)%tn0>1) call error_mesg('register_plan', 'tn0 problem...', fatal)
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tcin, [nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
     
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
                                 myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
                                 comm_in, flags) 
 
         !!trout -> cout
-        allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
-        !myplans(n)%r2c = c_loc(myplans(n)%cout)
-        !call c_f_pointer(myplans(n)%r2c, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        !allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
+        myplans(n)%r2c = c_loc(myplans(n)%trout)
+        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [nvars, nlevs, nlats/2, TWO, FLOCAL])
          
     end function register_plan
 
@@ -217,7 +220,7 @@ module fft_guru
         implicit none
         real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
         complex, intent(out) :: coutp(:,:,:,:)
-        integer :: id
+        integer :: id, j
 
         id = id3d
 
@@ -227,7 +230,14 @@ module fft_guru
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
         else
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout)
+            if(myplans(id)%tn0>0) then
+                myplans(id)%tcin(:, :, :, 1:FTRUNC, :) = myplans(id)%tcout(:, :, :, 1:FTRUNC, :)
+            !    do j = 1, FTRUNC
+            !        print *, 'trin=',mpp_pe(), j, myplans(id)%trin(1,1,1,1,j,:), myplans(id)%trin(2,1,1,1,j,:)
+            !    enddo
+            endif
             call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
+            !print *, 'trout=',mpp_pe(), myplans(id)%trout(1,1,1,1,:,1:FLOCAL)
         endif
 
         coutp = reshape(myplans(id)%cout(1,:,:,:,1:FLOCAL), &

@@ -29,7 +29,7 @@ module grid_to_fourier_mod
  
         character(len=32) :: routine='init_grid_to_fourier'
 
-        integer :: comm, idfft3d, n
+        integer :: comm, idfft3d, n, nt=1
         logical :: check=.false.
         real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:)
         complex, allocatable :: fldc1d(:,:), fldc(:,:,:,:)
@@ -44,7 +44,7 @@ module grid_to_fourier_mod
         complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
         integer :: pe
 
-        namelist/grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, check, num_fourier
+        namelist/grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, check, num_fourier, nt
 
         call mpp_init() 
         pe = mpp_pe()
@@ -113,7 +113,7 @@ module grid_to_fourier_mod
         call mpp_sync()
 
         call mpp_clock_begin(clck_fftw3)
-        do t = 1, 100
+        do t = 1, nt
             call fft(fld,fldc)
         enddo
         call mpp_clock_end(clck_fftw3)
@@ -126,8 +126,8 @@ module grid_to_fourier_mod
         if (check.or.mpp_npes()==1) then
         if(mpp_pe()==mpp_root_pe()) print *, 'printing for lev and lat index :',ck, cl
         do i = isf, ief
-            cpout(1) = (fldc(i,1,cl,ck) + fldc(i,2,cl,ck))*0.5
-            cpout(2) = (fldc(i,1,cl,ck) - fldc(i,2,cl,ck))*0.5
+            cpout(1) = fldc(i,1,cl,ck) 
+            cpout(2) = fldc(i,2,cl,ck) 
             !cpout(1:2) = fldc(1,:,i+1)
             if (ideal_data) print *, i, cpout(1:2)
         enddo
@@ -145,8 +145,8 @@ module grid_to_fourier_mod
             print *, 'with 1dr2c'
             print *, ''
             do i = 0, nlon/2
-                cpout(1) = fldc1d(i+1,1) 
-                cpout(2) = fldc1d(i+1,2)
+                cpout(1) = fldc1d(i+1,1) + fldc1d(i+1,2)
+                cpout(2) = fldc1d(i+1,1) - fldc1d(i+1,2)
                 print *, i, cpout(1:2)
             enddo
             print *, '1dr2c'
