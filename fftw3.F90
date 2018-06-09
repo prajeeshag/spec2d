@@ -171,7 +171,6 @@ module fft_guru
 
         myplans(n)%cdat = fftw_alloc_complex(alloc_local*2)
 
-        print *,'alloc_local', mpp_pe(), alloc_local
         call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, TWO*2, local_n0])
         call c_f_pointer(myplans(n)%cdat, myplans(n)%tcout, [nvars, nlevs, nlats/2, NLON, local_n1])
 
@@ -185,7 +184,6 @@ module fft_guru
                        myplans(n)%tn0, FLOCAL, comm_in, local_n0, &
                        local_0_start, local_n1, local_1_start)
 
-        print *,'alloc_local transpose', mpp_pe(), alloc_local
 !        if (FLOCAL/=local_n1) &
 !            call error_mesg('register_plan', 'Asked ', WARNING)
 
@@ -199,9 +197,9 @@ module fft_guru
 
         flags = plan_flags
 
-        myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
+        !myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
         myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
         call c_f_pointer(myplans(n)%tcdato, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
     
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
