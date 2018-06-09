@@ -110,7 +110,7 @@ module grid_to_fourier_mod
         call mpp_sync()
 
         call mpp_clock_begin(clck_fftw3)
-        do t = 1, 1
+        do t = 1, 100
             call fft(fld,fldc)
         enddo
         call mpp_clock_end(clck_fftw3)
@@ -132,10 +132,11 @@ module grid_to_fourier_mod
         endif
 
         if (mpp_pe()==mpp_root_pe().and.check) then
-            fld1dout(:) = (cl+(ck-1)*nlat)+(cl+(ck-1)*nlat)*fld1d(:)
+            k = (cl+(ck-1)*nlat/2)
+            fld1dout(:) = k + k*fld1d(:)
             call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
-            fld1dout(:) = (cl+(ck-1)*nlat)-(cl+(ck-1)*nlat)*fld1d(:)
-            call fft_1dr2c_serial(-1*fld1d(:)*scl,fldc1d(:,2))
+            fld1dout(:) = k - k*fld1d(:)
+            call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,2))
             if (ideal_data) then
             print *, ''
             print *, ''
@@ -143,7 +144,7 @@ module grid_to_fourier_mod
             print *, ''
             do i = 0, nlon/2
                 cpout(1) = fldc1d(i+1,1) 
-                cpout(2) = fldc1d(i+1,1)
+                cpout(2) = fldc1d(i+1,2)
                 print *, i, cpout(1:2)
             enddo
             print *, '1dr2c'

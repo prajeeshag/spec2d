@@ -1,7 +1,7 @@
 module fft_guru
     
     use, intrinsic :: iso_c_binding
-    use mpp_mod, only : mpp_pe
+    use mpp_mod, only : mpp_pe, mpp_npes
     use fms_mod, only : open_namelist_file, close_file, error_mesg, FATAL, WARNING, NOTE
 
     implicit none
@@ -17,7 +17,7 @@ module fft_guru
 
     type plan_type
         integer(C_INTPTR_T) :: howmany
-        type(C_PTR) :: plan, cdat, rdat
+        type(C_PTR) :: plan, cdat
         type(C_PTR) :: tplan, tcdat, tcdato
         type(C_PTR) :: c2r, r2c
         real(C_DOUBLE), pointer :: rin(:,:,:,:,:)
@@ -43,7 +43,7 @@ module fft_guru
 
     interface fft
         module procedure fft3d
-        module procedure fft2d
+        !module procedure fft2d
     end interface
 
     public :: init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru
@@ -137,6 +137,8 @@ module fft_guru
        
         n0=[NLON,TWO]
 
+        if(mpp_npes()==1) transpos = .false.
+
         if (.not.transpos) then
             alloc_local = fftw_mpi_local_size_many(rank, n0, howmany, &
                            nlons_local, comm_in, local_n0, local_0_start)
@@ -147,7 +149,6 @@ module fft_guru
             myplans(n)%tn0 = local_n1
 
             myplans(n)%cdat = fftw_alloc_complex(alloc_local)
-            !myplans(n)%rdat = fftw_alloc_real(alloc_local*2)
 
             call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, 4, local_n0])
             call c_f_pointer(myplans(n)%cdat, myplans(n)%cout, [nvars, nlevs, nlats/2, 2, local_n1])
@@ -167,7 +168,6 @@ module fft_guru
         myplans(n)%tn0 = local_n1
 
         myplans(n)%cdat = fftw_alloc_complex(alloc_local)
-        !myplans(n)%rdat = fftw_alloc_real(alloc_local*2)
 
         call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, TWO*2, local_n0])
         call c_f_pointer(myplans(n)%cdat, myplans(n)%tcout, [nvars, nlevs, nlats/2, NLON, local_n1])
@@ -182,8 +182,6 @@ module fft_guru
                        myplans(n)%tn0, FLOCAL, comm_in, local_n0, &
                        local_0_start, local_n1, local_1_start)
 
-        print *, 'local_n0, local_n1=', local_n0, local_n1
-
         if (FLOCAL/=local_n1) &
             call error_mesg('register_plan', 'FLOCAL/=local_n1, try a different no: &
                                                pes on logitudinal direction',FATAL)
@@ -196,7 +194,6 @@ module fft_guru
         myplans(n)%tcdat = fftw_alloc_real(alloc_local*2)
         myplans(n)%tcdato = fftw_alloc_real(alloc_local*2)
 
-        !flags = ior(plan_flags)
         flags = plan_flags
 
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
@@ -213,7 +210,7 @@ module fft_guru
         !!trout -> cout
         allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
         myplans(n)%r2c = c_loc(myplans(n)%cout)
-        call c_f_pointer(myplans(n)%r2c, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, 2, FLOCAL])
+        call c_f_pointer(myplans(n)%r2c, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
          
     end function register_plan
 
@@ -221,7 +218,7 @@ module fft_guru
         implicit none
         real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
         complex, intent(out) :: coutp(:,:,:,:)
-        integer :: id, i
+        integer :: id
 
         id = id3d
 
@@ -231,21 +228,10 @@ module fft_guru
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
         else
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout) 
-            !if (myplans(id)%tn0>0) print *, myplans(id)%tcout(1,1,1,1:FTRUNC,:)
-            !if (myplans(id)%tn0>0) print *,'trin1 = ', myplans(id)%trin(1,1,1,1,1:FTRUNC,:)
-            !if (myplans(id)%tn0>0) then
-            !    do i = 1, FTRUNC
-            !        myplans(id)%trin(1,1,1,1,i,1) = real(i)*(mpp_pe()+1)
-            !    enddo
-            !    print *, 'trin1 before=', myplans(id)%trin(1,1,1,1,:,1)
-            !endif
-            !myplans(id)%trout = 0.
             call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
-            !print *,'trout1 = ', myplans(id)%trout(1,1,1,1,:,:)
-            !print *,'trout2 = ', myplans(id)%trin(2,1,1,1,:,:)
         endif
 
-        coutp = reshape(myplans(id)%cout(1,:,:,:,:), &
+        coutp = reshape(myplans(id)%cout(1,:,:,:,1:FLOCAL), &
                         shape=[FLOCAL,2,NLAT/2,NLEV],order=[4,3,2,1])
 
     end subroutine fft3d
@@ -258,12 +244,7 @@ module fft_guru
 
         id = id3dext
 
-        myplans(id)%rin(:,:,:,1:2,:) = reshape(rinp,[NVAR,NLEV,NLAT/2,2,NLON_LOCAL])*RSCALE
-       
-        call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
-
-        coutp(:,:,:,:,:) = reshape(myplans(id)%cout(:,:,:,:,:),shape=[NLON_LOCAL,2,NLAT/2,NLEV,NVAR],order=[5,4,3,2,1])
-
+        call error_mesg('fft3dext','NOT IMPLEMENTED!!!',FATAL)
     end subroutine fft3dext
 
     subroutine fft2d(rinp, coutp)
@@ -273,12 +254,7 @@ module fft_guru
         integer :: id
 
         id = id2d
-
-        myplans(id)%rin(1,1,:,1:2,:) = reshape(rinp,[NLAT/2,2,NLON_LOCAL])*RSCALE
-       
-        call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
-
-        coutp(:,:,:) = reshape(myplans(id)%cout(1,1,:,:,:),shape=[NLON_LOCAL,2,NLAT/2],order=[3,2,1])
+        call error_mesg('fft2d','NOT IMPLEMENTED!!!',FATAL)
 
     end subroutine fft2d
 
@@ -289,7 +265,6 @@ module fft_guru
         do i = 1, nplan
             call fftw_destroy_plan(myplans(i)%plan)
             call fftw_free(myplans(i)%cdat)
-            call fftw_free(myplans(i)%rdat)
         enddo 
     end subroutine end_fft_guru
 
