@@ -202,7 +202,7 @@ module fft_guru
         myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
         myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+        call c_f_pointer(myplans(n)%tcdato, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
     
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
                                 myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
@@ -229,7 +229,7 @@ module fft_guru
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
         else
             call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout)
-!            call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
+            call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
         endif
 
         coutp = reshape(myplans(id)%cout(1,:,:,:,1:FLOCAL), &
