@@ -1,7 +1,7 @@
 module fft_guru
     
     use, intrinsic :: iso_c_binding
-    use mpp_mod, only : mpp_pe, mpp_npes
+    use mpp_mod, only : mpp_pe, mpp_npes, mpp_clock_id, mpp_clock_begin, mpp_clock_end, mpp_sync
     use fms_mod, only : open_namelist_file, close_file, error_mesg, FATAL, WARNING, NOTE
 
     implicit none
@@ -107,7 +107,9 @@ module fft_guru
         
         !plan 3d
         !id3dext = register_plan(NVAR,NLEV,NLAT,NLON_LOCAL,comm_in)
-       
+        !transpose plan 
+        id3dext = register_transpose_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in)
+
         nfourier_local = FLOCAL 
         initialized = .true.
 
@@ -244,6 +246,66 @@ module fft_guru
                         shape=[FLOCAL,2,NLAT/2,NLEV],order=[4,3,2,1])
 
     end subroutine fft3d
+
+    function register_transpose_plan(nvars, nlevs, nlats, nlons_local, comm_in)
+        implicit none
+        integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, nlons_local
+        integer, intent(in) :: comm_in
+        integer(C_INTPTR_T) :: howmany
+        integer :: register_transpose_plan, n, flags, t, clck_transpose
+        integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
+        integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
+
+        howmany = nvars*nlevs*nlats
+
+        if (howmany<1) call error_mesg('register_plan', 'howmany cannot be Zero', FATAL)
+
+        nplan = nplan + 1
+        
+        if(nplan>max_plans) call error_mesg(modul,'No: plans > Max_plans', FATAL)
+
+        n = nplan
+        register_transpose_plan = n
+
+        myplans(n)%howmany = howmany
+       
+        !Transpose
+        n0=[NLON,howmany]
+
+        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+                       nlons_local, FFTW_MPI_DEFAULT_BLOCK, comm_in, local_n0, &
+                       local_0_start, local_n1, local_1_start)
+
+        if (nlons_local/=local_n0) &
+            call error_mesg('register_transpose_plan', 'Problem... ', FATAL)
+
+        print *, 'pe: local_n1 from register_transpose_plan =', mpp_pe(), local_n1
+
+        flags = plan_flags
+
+        myplans(n)%tcdat = fftw_alloc_complex(alloc_local)
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [ONE, ONE, 1, 1, howmany, nlons_local])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [ONE, 1, 1, 1, NLON, local_n1])
+    
+        myplans(n)%plan = fftw_mpi_plan_many_transpose(NLON, howmany, 1, &
+                                nlons_local, FFTW_MPI_DEFAULT_BLOCK, myplans(n)%trin, myplans(n)%trout, &
+                                comm_in, flags)
+
+        myplans(n)%tplan = fftw_mpi_plan_many_transpose(howmany, FTRUNC, 2, &
+                                FFTW_MPI_DEFAULT_BLOCK, nlons_local, myplans(n)%trout, myplans(n)%trin, &
+                                comm_in, flags) 
+
+        clck_transpose=mpp_clock_id('fftw_transpose')
+        call mpp_sync() 
+        call mpp_clock_begin(clck_transpose)
+        do t = 1, 144
+            call fftw_mpi_execute_r2r(myplans(n)%plan, myplans(n)%trin, myplans(n)%trout)
+            call fftw_mpi_execute_r2r(myplans(n)%tplan, myplans(n)%trout, myplans(n)%trin)
+        enddo 
+        call mpp_clock_end(clck_transpose)
+
+    end function register_transpose_plan
+
 
     subroutine fft3dext(rinp, coutp)
         implicit none
