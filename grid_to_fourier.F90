@@ -1,6 +1,6 @@
 module grid_to_fourier_mod
 
-    use fft_guru, only : init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru
+    use fft_guru, only : init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru, fft_trans
 
     use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
     use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
@@ -32,7 +32,7 @@ module grid_to_fourier_mod
         integer :: comm, idfft3d, n, nt=1
         logical :: check=.false.
         real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:)
-        complex, allocatable :: fldc1d(:,:), fldc(:,:,:,:)
+        complex, allocatable :: fldc1d(:,:), fldc(:,:,:,:), fldct(:,:,:)
         integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
         integer :: isf, ief, flen
         real :: scl, x, y, imgf=0.3, phi=0.15
@@ -78,6 +78,7 @@ module grid_to_fourier_mod
 
         allocate(fld(nlev,nlat,isc:iec))
         allocate(fldc(isf:ief,2,nlat,nlev))
+        allocate(fldct(nlev,nlat,isf:ief))
 
         allocate(fld1d(1:nlon))
         allocate(fld1dout(1:nlon))
@@ -118,42 +119,60 @@ module grid_to_fourier_mod
         enddo
         call mpp_clock_end(clck_fftw3)
 
+        call fft_trans(fld, fldct)
+
         if(cl>nlat/2) cl = nlat/2
         if(cl<1) cl = 1
         if(ck>nlev) ck = nlev
         if(ck<1) ck = 1
 
-        if (check.or.mpp_npes()==1) then
-        if(mpp_pe()==mpp_root_pe()) print *, 'printing for lev and lat index :',ck, cl
-        do i = isf, ief
-            cpout(1) = fldc(i,1,cl,ck) 
-            cpout(2) = fldc(i,2,cl,ck) 
-            !cpout(1:2) = fldc(1,:,i+1)
-            if (ideal_data) print *, i, cpout(1:2)
-        enddo
+       !  k = 0
+       !  do l = 1, nlev
+       !     do m = 1, nlat
+       !         k = k + 1
+       !         print '(A,1x,3(I2,1x),4(F10.3))', 'check=', l, m, mpp_pe(), fldct(k,:)
+       !     enddo
+       ! enddo
+
+       ! call mpp_sync()
+       !  k = 0
+       !  do l = 1, nlev
+       !     do m = 1, nlat
+       !         k = k + 1
+       !         if(mpp_pe()==mpp_root_pe()) then
+       !         fld1dout(:) = k + k*fld1d(:)
+       !         call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
+       !         print '(A,1x,2(I2,1x),20(F10.3))', 'check ser=', l, m, fldc1d(1:num_fourier+2,1)
+       !         endif
+       !     enddo
+       ! enddo
+
+        if (ideal_data) then
+            k = 0
+            if (mpp_pe()==mpp_root_pe()) then
+                print *, ''
+                print *, ''
+                print *, 'with 1dr2c'
+                print *, ''
+                print *, 'printing for lev and lat index :',ck, cl
+            endif
+            do l = 1, nlev
+            do m = 1, nlat/2
+                k = k+1
+                    fld1dout(:) = k + k*fld1d(:)
+                call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
+      
+                call mpp_sync()  
+                do i = isf, ief
+                    cpout(1) = fldc1d(i+1,1)
+                    cpout(2) = fldct(l,m,i)
+                    cpout(3) = fldct(l,nlat/2+m,i)
+                    print *,'trans:', k, cpout(1:3)
+                enddo
+            enddo
+            enddo
         endif
 
-        if (mpp_pe()==mpp_root_pe().and.check) then
-            k = (cl+(ck-1)*nlat/2)
-            fld1dout(:) = k + k*fld1d(:)
-            call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
-            fld1dout(:) = k - k*fld1d(:)
-            call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,2))
-            if (ideal_data) then
-            print *, ''
-            print *, ''
-            print *, 'with 1dr2c'
-            print *, ''
-            do i = 0, nlon/2
-                cpout(1) = fldc1d(i+1,1) + fldc1d(i+1,2)
-                cpout(2) = fldc1d(i+1,1) - fldc1d(i+1,2)
-                print *, i, cpout(1:2)
-            enddo
-            print *, '1dr2c'
-            print *, ''
-            print *, ''
-            endif 
-        endif
 
         call fms_io_exit()
         call end_fft_guru()
