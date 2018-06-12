@@ -1,6 +1,6 @@
 module grid_to_fourier_mod
 
-    use fft_guru, only : init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru, fft_trans
+    use fft_guru, only : init_fft_guru, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru, fft_trans
 
     use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
     use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
@@ -62,15 +62,16 @@ module grid_to_fourier_mod
         call mpp_get_compute_domain(domainl, isc, iec)
         ilen = iec-isc+1
 
-        call mpp_define_domains( (/1,num_fourier/), mpp_npes(), domainf, halo=0)
-        call mpp_get_compute_domain(domainf, isf, ief)
-        flen = ief-isf+1
+!        call mpp_define_domains( (/1,num_fourier/), mpp_npes(), domainf, halo=0)
+!        call mpp_get_compute_domain(domainf, isf, ief)
+!        flen = ief-isf+1
 
         call mpp_get_current_pelist(pelist,commid=comm)
 
-        !print *, 'comm=', comm
         call init_fft_guru(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat)
+
         ief = isf+flen-1
+
         print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
 
 !        call mpp_sync()

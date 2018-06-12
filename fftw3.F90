@@ -2,7 +2,7 @@ module fft_guru
     
     use, intrinsic :: iso_c_binding
     use mpp_mod, only : mpp_pe, mpp_npes, mpp_clock_id, mpp_clock_begin, mpp_clock_end, mpp_sync
-    use fms_mod, only : open_namelist_file, close_file, error_mesg, FATAL, WARNING, NOTE
+    use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, NOTE
 
     implicit none
 
@@ -36,6 +36,7 @@ module fft_guru
 
     integer(C_INTPTR_T) :: NLON, FTOTAL, FTRUNC, NLON_LOCAL, FLOCAL
     integer(C_INTPTR_T) :: NLEV, NLAT, NVAR
+    integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
     integer :: COMM_FFT
 
     real :: RSCALE
@@ -47,12 +48,7 @@ module fft_guru
 
     type(plan_type) :: myplans(max_plans)
 
-    interface fft
-        module procedure fft3d
-        !module procedure fft2d
-    end interface
-
-    public :: init_fft_guru, fft, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru, fft_trans
+    public :: init_fft_guru, fft_1dr2c_serial, fft_1dc2c_serial, end_fft_guru, fft_trans
 
     namelist/fft_guru_nml/plan_level, transpos
 
@@ -96,209 +92,75 @@ module fft_guru
         case(3)
             plan_flags = FFTW_EXHAUSTIVE
         case default
-            call error_mesg(routine,'Wrong option for plan_level, &
+            call mpp_error(routine,'Wrong option for plan_level, &
             & set plan_level (accepted values are 0-3) in fft_guru_nml', FATAL)
         end select
 
-        if(mod(NLON,2)) call error_mesg(routine,'NLON must be an integer',FATAL)
+        if(mod(NLON,2)) call mpp_error(routine,'NLON must be an integer',FATAL)
 
         call fftw_mpi_init()
 
-        !plan 2d
-        !id2d = register_plan(1,1,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
 
         !plan 3d
-        id3d = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
-        
-        !plan 3d
-        !id3dext = register_plan(NVAR,NLEV,NLAT,NLON_LOCAL,comm_in)
+        !id3d = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
+
         !transpose plan 
-        idtrans = register_transpose_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in)
+        idtrans = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
 
         nfourier_local = FLOCAL 
         initialized = .true.
 
-        call error_mesg(routine, 'FFT_GURU initialized !!!', NOTE)
+        call mpp_error(routine, 'FFT_GURU initialized !!!', NOTE)
 
     end subroutine init_fft_guru
 
     function register_plan(nvars, nlevs, nlats, nlons_local, comm_in, fourier_start_local, nfourier_local)
+
         implicit none
         integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, nlons_local
-        integer, intent(in) :: comm_in
-        integer, intent(out) :: fourier_start_local, nfourier_local
-        integer(C_INTPTR_T) :: howmany
-        integer :: register_plan, n, flags
-        integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
-        integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
-
-        howmany = nvars*nlevs*nlats/2
-
-        if (howmany<1) call error_mesg('register_plan', 'howmany cannot be Zero', FATAL)
-
-        nplan = nplan + 1
-        
-        if(nplan>max_plans) call error_mesg(modul,'No: plans > Max_plans', FATAL)
-
-        n = nplan
-        register_plan = n
-
-        myplans(n)%howmany = howmany
-       
-        n0=[NLON,TWO]
-
-        if(mpp_npes()==1) transpos = .false.
-
-        if (.not.transpos) then
-            alloc_local = fftw_mpi_local_size_many(rank, n0, howmany, &
-                           nlons_local, comm_in, local_n0, local_0_start)
-            local_n1 = local_n0
-            local_1_start = local_0_start
-            flags = plan_flags
-            oblock = nlons_local
-            myplans(n)%tn0 = local_n1
-
-            myplans(n)%cdat = fftw_alloc_complex(alloc_local)
-
-            call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, 4, local_n0])
-            call c_f_pointer(myplans(n)%cdat, myplans(n)%cout, [nvars, nlevs, nlats/2, 2, local_n1])
-
-            myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, n0, howmany, nlons_local, &
-                                oblock, myplans(n)%rin, myplans(n)%cout, comm_in, flags)
-
-            return
-        endif
-
-        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, howmany, &
-                       nlons_local, FFTW_MPI_DEFAULT_BLOCK, comm_in, local_n0, &
-                       local_0_start, local_n1, local_1_start)
-
-        flags = ior(plan_flags,FFTW_MPI_TRANSPOSED_OUT)
-        oblock = FFTW_MPI_DEFAULT_BLOCK
-        myplans(n)%tn0 = local_n1
-
-        myplans(n)%cdat = fftw_alloc_complex(alloc_local*2)
-
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, TWO*2, local_n0])
-        call c_f_pointer(myplans(n)%cdat, myplans(n)%tcout, [nvars, nlevs, nlats/2, NLON, local_n1])
-
-        myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, n0, howmany, nlons_local, &
-                                oblock, myplans(n)%rin, myplans(n)%tcout, comm_in, flags)
-
-        !Transpose
-        n0=[TWO,FTRUNC]
-
-        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2*howmany, &
-                       myplans(n)%tn0, FLOCAL, comm_in, local_n0, &
-                       local_0_start, local_n1, local_1_start)
-
-!        if (FLOCAL/=local_n1) &
-!            call error_mesg('register_plan', 'Asked ', WARNING)
-
-        FLOCAL = local_n1
-        nfourier_local = local_n1
-        fourier_start_local = local_1_start
-
-        if (myplans(n)%tn0/=local_n0) &
-            call error_mesg('register_plan', 'myplans(n)%tn0/=local_n0, try a different no: &
-                                               pes on logitudinal direction',FATAL)
-
-        flags = plan_flags
-
-        myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
-        !myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
-        if (myplans(n)%tn0>1) call error_mesg('register_plan', 'tn0 problem...', fatal)
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tcin, [nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
-    
-        myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
-                                myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
-                                comm_in, flags) 
-
-        !!trout -> cout
-        !allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
-        myplans(n)%r2c = c_loc(myplans(n)%trout)
-        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [nvars, nlevs, nlats/2, TWO, FLOCAL])
-         
-    end function register_plan
-
-    subroutine fft3d(rinp, coutp)
-        implicit none
-        real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
-        complex, intent(out) :: coutp(:,:,:,:)
-        integer :: id, j
-
-        id = id3d
-
-        myplans(id)%rin(1,:,:,1:2,:) = reshape(rinp,[NLEV,NLAT/2,2,NLON_LOCAL])*RSCALE
-      
-        if (.not.transpos) then 
-            call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
-        else
-            call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout)
-            if(myplans(id)%tn0>0) then
-                myplans(id)%tcin(:, :, :, 1:FTRUNC, :) = myplans(id)%tcout(:, :, :, 1:FTRUNC, :)
-            !    do j = 1, FTRUNC
-            !        print *, 'trin=',mpp_pe(), j, myplans(id)%trin(1,1,1,1,j,:), myplans(id)%trin(2,1,1,1,j,:)
-            !    enddo
-            endif
-            call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
-            !print *, 'trout=',mpp_pe(), myplans(id)%trout(1,1,1,1,:,1:FLOCAL)
-        endif
-
-        coutp = reshape(myplans(id)%cout(1,:,:,:,1:FLOCAL), &
-                        shape=[FLOCAL,2,NLAT/2,NLEV],order=[4,3,2,1])
-
-    end subroutine fft3d
-
-    function register_transpose_plan(nvars, nlevs, nlats, nlons_local, comm_in)
-        implicit none
-        integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, nlons_local
+        integer, intent(inout) :: fourier_start_local, nfourier_local
         integer, intent(in) :: comm_in
         integer(C_INTPTR_T) :: howmany
-        integer :: register_transpose_plan, n, flags, t, clck_transpose
+        integer :: register_plan, n, flags, t, clck_transpose
         integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
         integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
         integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
 
         howmany = nvars*nlevs*nlats
 
-        if (howmany<1) call error_mesg('register_plan', 'howmany cannot be Zero', FATAL)
+        if (howmany<1) call mpp_error('register_plan', 'howmany cannot be Zero', FATAL)
 
         nplan = nplan + 1
         
-        if(nplan>max_plans) call error_mesg(modul,'No: plans > Max_plans', FATAL)
+        if(nplan>max_plans) call mpp_error(modul,'No: plans > Max_plans', FATAL)
 
         n = nplan
-        register_transpose_plan = n
+        register_plan = n
 
         myplans(n)%howmany = howmany
        
         !Transpose
         n0=[NLON,howmany]
 
+        if(mod(NLON,mpp_npes())/=0) &
+            call mpp_error(modul,'No: of Pes in x-direction should be a factor of NLONS', FATAL)
+
         alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
-                       nlons_local, FFTW_MPI_DEFAULT_BLOCK, comm_in, local_n0, &
+                       nlons_local, block0, comm_in, local_n0, &
                        local_0_start, local_n1, local_1_start)
 
-        if (nlons_local/=local_n0) &
-            call error_mesg('register_transpose_plan', 'Problem... ', FATAL)
+        if (nlons_local/=local_n0) & 
+            call mpp_error('register_plan', 'nlons_local/=local_n0', FATAL)
 
-            print *, 'local_n1=', local_n1, local_1_start
-
-        !flags = ior(plan_flags,FFTW_MPI_TRANSPOSED_OUT)
         flags = plan_flags
 
         myplans(n)%tcdat = fftw_alloc_complex(alloc_local)
-        myplans(n)%trstart = local_1_start+1
-        myplans(n)%trend = local_1_start+local_n1
 
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [ONE, ONE, 1, 1, howmany, nlons_local])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [ONE, ONE, 1, 1, howmany, local_n0])
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [ONE, 1, 1, 1, NLON, local_n1])
     
         myplans(n)%plan = fftw_mpi_plan_many_transpose(NLON, howmany, 1, &
-                                nlons_local, FFTW_MPI_DEFAULT_BLOCK, myplans(n)%trin, myplans(n)%trout, &
+                                nlons_local, block0, myplans(n)%trin, myplans(n)%trout, &
                                 comm_in, flags)
 
         !multi-threaded shared memory fft
@@ -316,34 +178,33 @@ module fft_guru
                                 myplans(n)%scout, onembed, ostride, odist, flags) 
         
         !Transpose back
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%srout, [TWO,FTRUNC,local_n1])
+
+        n0=[howmany,FTRUNC]
+
+        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+                       block0, block0, comm_in, local_n0, &
+                       local_0_start, local_n1, local_1_start)
+
+        FLOCAL = local_n1
+        nfourier_local = local_n1
+        fourier_start_local = local_1_start
+
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%srout, [TWO,FTRUNC,local_n0])
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%rout, [TWO,howmany,FLOCAL])
 
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(howmany, FTRUNC, 2, &
-                                local_n1, FLOCAL, myplans(n)%srout, myplans(n)%rout, &
+                                block0, block0, myplans(n)%srout, myplans(n)%rout, &
                                 comm_in, flags) 
 
         myplans(n)%r2c = c_loc(myplans(n)%rout)
         call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [ONE, ONE, ONE, howmany, FLOCAL])
-!
-!        
-!
-!        clck_transpose=mpp_clock_id('fftw_transpose')
-!        call mpp_sync() 
-!        call mpp_clock_begin(clck_transpose)
-!        do t = 1, 144
-!            call fftw_mpi_execute_r2r(myplans(n)%plan, myplans(n)%trin, myplans(n)%trout)
-!            call fftw_mpi_execute_r2r(myplans(n)%tplan, myplans(n)%trout, myplans(n)%trin)
-!        enddo 
-!        call mpp_clock_end(clck_transpose)
 
-    end function register_transpose_plan
+    end function register_plan
 
 
     subroutine fft_trans(rinp, coutp)
         implicit none
         real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
-        !complex, intent(out) :: coutp(:,:,:) ! fourier, lat, lev
         complex, intent(out) :: coutp(:,:,:) ! fourier, lat, lev
         integer :: id, i, j, ci=1, cj=2, ct
         integer(C_INTPTR_T) :: howmany
@@ -354,52 +215,15 @@ module fft_guru
 
         myplans(id)%trin(1,1,1,1,1:howmany,:) = reshape(rinp(:,:,:), shape=[howmany,NLON_LOCAL])*RSCALE
 
-        !do j = 1, size(rinp, 2)
-        !    do i = 1, size(rinp,1)
-        !        if(.not.all(myplans(id)%trin(1,1,1,1,i+(j-1)*size(rinp, 1),:) &
-        !                                 - rinp(i,j,:) == 0.)) then
-        !            call error_mesg('fft_trans','before not same', fatal)
-        !        endif
-        !    enddo
-        !enddo
-
-        !print *, 'check before:', ci, cj, mpp_pe(), rinp(ci,cj,:)
-
         call fftw_mpi_execute_r2r(myplans(id)%plan, myplans(id)%trin, myplans(id)%trout)
 
         call fftw_execute_dft_r2c(myplans(id)%splan, myplans(id)%srin, myplans(id)%scout) 
 
-!        do i = 1, size(myplans(id)%scout,2)
-!            ct = myplans(id)%trstart + i -1
-!            print *, 'check after:', ct, mpp_pe(), myplans(id)%scout(:,i)
-!        enddo
-
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%srout, myplans(id)%rout)
 
-        !do j = 1, size(rinp, 2)
-        !    do i = 1, size(rinp,1)
-        !        if(.not.all(myplans(id)%trin(1,1,1,1,i+(j-1)*size(rinp, 1),:) &
-        !                                 - rinp(i,j,:) == 0.)) then
-        !            call error_mesg('fft_trans','after not same', fatal)
-        !        endif
-        !    enddo
-        !enddo
-
-        !coutp = myplans(id)%cout(1,1,1,1:howmany,1:FLOCAL)
         coutp = reshape(myplans(id)%cout(1,1,1,1:howmany,1:FLOCAL),shape=[NLEV,NLAT,FLOCAL])
 
     end subroutine fft_trans
-
-    subroutine fft2d(rinp, coutp)
-        implicit none
-        real, intent(in) :: rinp(:,:) ! lev, lat, lon
-        complex, intent(out) :: coutp(:,:,:)
-        integer :: id
-
-        id = id2d
-        call error_mesg('fft2d','NOT IMPLEMENTED!!!',FATAL)
-
-    end subroutine fft2d
 
     subroutine end_fft_guru()
         implicit none
@@ -453,3 +277,134 @@ module fft_guru
     end subroutine fft_1dc2c_serial
  
 end module
+
+!    function register_plan(nvars, nlevs, nlats, nlons_local, comm_in, fourier_start_local, nfourier_local)
+!        implicit none
+!        integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, nlons_local
+!        integer, intent(in) :: comm_in
+!        integer, intent(out) :: fourier_start_local, nfourier_local
+!        integer(C_INTPTR_T) :: howmany
+!        integer :: register_plan, n, flags
+!        integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
+!        integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
+!
+!        howmany = nvars*nlevs*nlats/2
+!
+!        if (howmany<1) call mpp_error('register_plan', 'howmany cannot be Zero', FATAL)
+!
+!        nplan = nplan + 1
+!        
+!        if(nplan>max_plans) call mpp_error(modul,'No: plans > Max_plans', FATAL)
+!
+!        n = nplan
+!        register_plan = n
+!
+!        myplans(n)%howmany = howmany
+!       
+!        n0=[NLON,TWO]
+!
+!        if(mpp_npes()==1) transpos = .false.
+!
+!        if (.not.transpos) then
+!            alloc_local = fftw_mpi_local_size_many(rank, n0, howmany, &
+!                           nlons_local, comm_in, local_n0, local_0_start)
+!            local_n1 = local_n0
+!            local_1_start = local_0_start
+!            flags = plan_flags
+!            oblock = nlons_local
+!            myplans(n)%tn0 = local_n1
+!
+!            myplans(n)%cdat = fftw_alloc_complex(alloc_local)
+!
+!            call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, 4, local_n0])
+!            call c_f_pointer(myplans(n)%cdat, myplans(n)%cout, [nvars, nlevs, nlats/2, 2, local_n1])
+!
+!            myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, n0, howmany, nlons_local, &
+!                                oblock, myplans(n)%rin, myplans(n)%cout, comm_in, flags)
+!
+!            return
+!        endif
+!
+!        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, howmany, &
+!                       nlons_local, block0, comm_in, local_n0, &
+!                       local_0_start, local_n1, local_1_start)
+!
+!        flags = ior(plan_flags,FFTW_MPI_TRANSPOSED_OUT)
+!        oblock = block0
+!        myplans(n)%tn0 = local_n1
+!
+!        myplans(n)%cdat = fftw_alloc_complex(alloc_local*2)
+!
+!        call c_f_pointer(myplans(n)%cdat, myplans(n)%rin, [nvars, nlevs, nlats/2, TWO*2, local_n0])
+!        call c_f_pointer(myplans(n)%cdat, myplans(n)%tcout, [nvars, nlevs, nlats/2, NLON, local_n1])
+!
+!        myplans(n)%plan = fftw_mpi_plan_many_dft_r2c (rank, n0, howmany, nlons_local, &
+!                                oblock, myplans(n)%rin, myplans(n)%tcout, comm_in, flags)
+!
+!        !Transpose
+!        n0=[TWO,FTRUNC]
+!
+!        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2*howmany, &
+!                       myplans(n)%tn0, FLOCAL, comm_in, local_n0, &
+!                       local_0_start, local_n1, local_1_start)
+!
+!!        if (FLOCAL/=local_n1) &
+!!            call mpp_error('register_plan', 'Asked ', WARNING)
+!
+!        FLOCAL = local_n1
+!        nfourier_local = local_n1
+!        fourier_start_local = local_1_start
+!
+!        if (myplans(n)%tn0/=local_n0) &
+!            call mpp_error('register_plan', 'myplans(n)%tn0/=local_n0, try a different no: &
+!                                               pes on logitudinal direction',FATAL)
+!
+!        flags = plan_flags
+!
+!        myplans(n)%tcdat = fftw_alloc_complex(alloc_local*2)
+!        !myplans(n)%tcdato = fftw_alloc_complex(alloc_local*2)
+!        if (myplans(n)%tn0>1) call mpp_error('register_plan', 'tn0 problem...', fatal)
+!        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tcin, [nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+!        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [TWO, nvars, nlevs, nlats/2, FTRUNC, myplans(n)%tn0])
+!        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [TWO, nvars, nlevs, nlats/2, TWO, FLOCAL])
+!    
+!        myplans(n)%tplan = fftw_mpi_plan_many_transpose(TWO, FTRUNC, howmany*2, &
+!                                myplans(n)%tn0, FLOCAL, myplans(n)%trin, myplans(n)%trout, &
+!                                comm_in, flags) 
+!
+!        !!trout -> cout
+!        !allocate(myplans(n)%cout(nvars, nlevs, nlats/2, 2, FLOCAL))
+!        myplans(n)%r2c = c_loc(myplans(n)%trout)
+!        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [nvars, nlevs, nlats/2, TWO, FLOCAL])
+!         
+!    end function register_plan
+
+!    subroutine fft3d(rinp, coutp)
+!        implicit none
+!        real, intent(in) :: rinp(:,:,:) ! lev, lat, lon
+!        complex, intent(out) :: coutp(:,:,:,:)
+!        integer :: id, j
+!
+!        id = id3d
+!
+!        myplans(id)%rin(1,:,:,1:2,:) = reshape(rinp,[NLEV,NLAT/2,2,NLON_LOCAL])*RSCALE
+!      
+!        if (.not.transpos) then 
+!            call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%cout) 
+!        else
+!            call fftw_mpi_execute_dft_r2c(myplans(id)%plan, myplans(id)%rin, myplans(id)%tcout)
+!            if(myplans(id)%tn0>0) then
+!                myplans(id)%tcin(:, :, :, 1:FTRUNC, :) = myplans(id)%tcout(:, :, :, 1:FTRUNC, :)
+!            !    do j = 1, FTRUNC
+!            !        print *, 'trin=',mpp_pe(), j, myplans(id)%trin(1,1,1,1,j,:), myplans(id)%trin(2,1,1,1,j,:)
+!            !    enddo
+!            endif
+!            call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%trin, myplans(id)%trout)
+!            !print *, 'trout=',mpp_pe(), myplans(id)%trout(1,1,1,1,:,1:FLOCAL)
+!        endif
+!
+!        coutp = reshape(myplans(id)%cout(1,:,:,:,1:FLOCAL), &
+!                        shape=[FLOCAL,2,NLAT/2,NLEV],order=[4,3,2,1])
+!
+!    end subroutine fft3d
+
