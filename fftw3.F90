@@ -17,21 +17,11 @@ module fft_guru
 
     type plan_type
         integer(C_INTPTR_T) :: howmany
-        type(C_PTR) :: plan, cdat
-        type(C_PTR) :: tplan, tcdat, tcdato
-        type(C_PTR) :: r2c
-        type(C_PTR) :: splan
-        real(C_DOUBLE), pointer :: rin(:,:,:,:,:)
-        real(C_DOUBLE), pointer :: srin(:,:)
+        type(C_PTR) :: plan, tplan, splan, tcdat, r2c
+        real(C_DOUBLE), pointer :: rin(:,:), trin(:,:), srin(:,:)
         complex(C_DOUBLE_COMPLEX), pointer :: scout(:,:)
-        real(C_DOUBLE), pointer :: srout(:,:)
-        real(C_DOUBLE), pointer :: rout(:,:)
-        complex(C_DOUBLE_COMPLEX), pointer :: tcout(:,:,:,:,:)
-        complex(C_DOUBLE_COMPLEX), pointer :: tcin(:,:,:,:,:)
-        complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:,:,:,:)
-        real(C_DOUBLE), pointer :: trin(:,:,:,:,:,:)
-        real(C_DOUBLE), pointer :: trout(:,:,:,:,:,:)
-        integer(C_INTPTR_T) :: tn0, trstart, trend
+        real(C_DOUBLE), pointer :: srout(:,:,:), tsrout(:,:,:)
+        complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:)
     endtype plan_type
 
     integer(C_INTPTR_T) :: NLON, FTOTAL, FTRUNC, NLON_LOCAL, FLOCAL
@@ -101,9 +91,6 @@ module fft_guru
         call fftw_mpi_init()
 
 
-        !plan 3d
-        !id3d = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
-
         !transpose plan 
         idtrans = register_plan(1,NLEV,NLAT,NLON_LOCAL,comm_in, fourier_start_local, nfourier_local)
 
@@ -156,11 +143,11 @@ module fft_guru
 
         myplans(n)%tcdat = fftw_alloc_complex(alloc_local)
 
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [ONE, ONE, 1, 1, howmany, local_n0])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trout, [ONE, 1, 1, 1, NLON, local_n1])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%rin, [howmany, local_n0])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [NLON, local_n1])
     
         myplans(n)%plan = fftw_mpi_plan_many_transpose(NLON, howmany, 1, &
-                                nlons_local, block0, myplans(n)%trin, myplans(n)%trout, &
+                                nlons_local, block0, myplans(n)%rin, myplans(n)%trin, &
                                 comm_in, flags)
 
         !multi-threaded shared memory fft
@@ -190,14 +177,14 @@ module fft_guru
         fourier_start_local = local_1_start
 
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%srout, [TWO,FTRUNC,local_n0])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%rout, [TWO,howmany,FLOCAL])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tsrout, [TWO,howmany,FLOCAL])
 
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(howmany, FTRUNC, 2, &
-                                block0, block0, myplans(n)%srout, myplans(n)%rout, &
+                                block0, block0, myplans(n)%srout, myplans(n)%tsrout, &
                                 comm_in, flags) 
 
-        myplans(n)%r2c = c_loc(myplans(n)%rout)
-        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [ONE, ONE, ONE, howmany, FLOCAL])
+        myplans(n)%r2c = c_loc(myplans(n)%tsrout)
+        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [howmany, FLOCAL])
 
     end function register_plan
 
@@ -213,17 +200,21 @@ module fft_guru
         
         howmany = myplans(id)%howmany
 
-        myplans(id)%trin(1,1,1,1,1:howmany,:) = reshape(rinp(:,:,:), shape=[howmany,NLON_LOCAL])*RSCALE
+        myplans(id)%rin(1:howmany,:) = reshape(rinp(:,:,:), shape=[howmany,NLON_LOCAL])*RSCALE
 
-        call fftw_mpi_execute_r2r(myplans(id)%plan, myplans(id)%trin, myplans(id)%trout)
-
+        !Transpose
+        call fftw_mpi_execute_r2r(myplans(id)%plan, myplans(id)%rin, myplans(id)%trin)
+        
+        !Serial FFT
         call fftw_execute_dft_r2c(myplans(id)%splan, myplans(id)%srin, myplans(id)%scout) 
 
-        call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%srout, myplans(id)%rout)
+        !Transpose Back
+        call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%srout, myplans(id)%tsrout)
 
-        coutp = reshape(myplans(id)%cout(1,1,1,1:howmany,1:FLOCAL),shape=[NLEV,NLAT,FLOCAL])
+        coutp = reshape(myplans(id)%cout(1:howmany,1:FLOCAL),shape=[NLEV,NLAT,FLOCAL])
 
     end subroutine fft_trans
+
 
     subroutine end_fft_guru()
         implicit none
