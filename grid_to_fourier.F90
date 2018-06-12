@@ -115,11 +115,10 @@ module grid_to_fourier_mod
 
         call mpp_clock_begin(clck_fftw3)
         do t = 1, nt
-            call fft(fld,fldc)
+            !call fft(fld,fldc)
+            call fft_trans(fld, fldct)
         enddo
         call mpp_clock_end(clck_fftw3)
-
-        call fft_trans(fld, fldct)
 
         if(cl>nlat/2) cl = nlat/2
         if(cl<1) cl = 1
