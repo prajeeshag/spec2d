@@ -30,21 +30,25 @@ module grid_to_fourier_mod
     integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
     integer :: COMM_FFT
 
+
     real :: RSCALE
-    integer :: plan_level = 3, plan_flags, id_grid2four
+    integer :: plan_level = 3, plan_flags, id_grid2four, id_four2grid
     logical :: initialized=.false.
+
 
     character (len=16), parameter :: modul = 'grid_to_fourier_mod'
 
+
     type(plan_type) :: myplans(max_plans)
+
 
     public :: init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial, end_grid_to_fourier, grid_to_fourier
 
+
     namelist/grid_to_fourier_nml/plan_level
 
+
     contains
-
-
 
 
     subroutine init_grid_to_fourier (nlons, ilen, nfourier, isf, flen, comm_in, nlevs, nlats, nvars)
@@ -73,7 +77,6 @@ module grid_to_fourier_mod
         NLON_LOCAL = ilen
         FTOTAL = nlons/2
         FTRUNC = nfourier 
-        FLOCAL = flen 
         RSCALE = 1./nlons
 
         select case (plan_level)
@@ -90,21 +93,24 @@ module grid_to_fourier_mod
             & set plan_level (accepted values are 0-3) in grid_to_fourier_nml', FATAL)
         end select
 
-        if(mod(NLON,2)) call mpp_error(routine,'NLON must be an integer',FATAL)
+        if(mod(NLON,mpp_npes())/=0) &
+            call mpp_error(modul,'No: of Pes in x-direction should be a factor of NLONS', FATAL)
+
 
         call fftw_mpi_init()
+
+        flen = 0
 
         !grid_to_fourier
         id_grid2four = plan_grid_to_fourier(1,NLEV,NLAT,NLON_LOCAL,comm_in, isf, flen)
 
-        !fourier_to_grid
-        !id_four2grid = plan_fourier_to_grid(1,NLEV,NLAT,NLON_LOCAL,comm_in, isf, flen)
+        !fourier_to_grid -> should be called after plan_grid_to_fourier
+        id_four2grid = plan_fourier_to_grid(1,NLEV,NLAT,NLON_LOCAL,comm_in, flen)
 
         initialized = .true.
         call mpp_error(routine, 'grid_to_fourier initialized !!!', NOTE)
 
     end subroutine init_grid_to_fourier
-
 
 
     function plan_grid_to_fourier(nvars, nlevs, nlats, ilen, comm_in, isf, flen)
@@ -135,11 +141,8 @@ module grid_to_fourier_mod
         !Transpose
         n0=[NLON,howmany]
 
-        if(mod(NLON,mpp_npes())/=0) &
-            call mpp_error(modul,'No: of Pes in x-direction should be a factor of NLONS', FATAL)
-
         alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
-                       ilen, block0, comm_in, local_n0, &
+                       block0, block0, comm_in, local_n0, &
                        local_0_start, local_n1, local_1_start)
 
         if (ilen/=local_n0) & 
@@ -153,7 +156,7 @@ module grid_to_fourier_mod
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [NLON, local_n1])
     
         myplans(n)%plan = fftw_mpi_plan_many_transpose(NLON, howmany, 1, &
-                                ilen, block0, myplans(n)%rin, myplans(n)%trin, &
+                                block0, block0, myplans(n)%rin, myplans(n)%trin, &
                                 comm_in, flags)
 
         !multi-threaded shared memory fft
@@ -183,17 +186,135 @@ module grid_to_fourier_mod
         isf = local_1_start
 
         call c_f_pointer(myplans(n)%tcdat, myplans(n)%srout, [TWO,FTRUNC,local_n0])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tsrout, [TWO,howmany,FLOCAL])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tsrout, [TWO,howmany,local_n1])
 
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(howmany, FTRUNC, 2, &
                                 block0, block0, myplans(n)%srout, myplans(n)%tsrout, &
                                 comm_in, flags) 
 
         myplans(n)%r2c = c_loc(myplans(n)%tsrout)
-        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [howmany, FLOCAL])
+        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [howmany, local_n1])
 
     end function plan_grid_to_fourier
 
+
+    function plan_fourier_to_grid(nvars, nlevs, nlats, ilen, comm_in, flen)
+
+        implicit none
+        integer(C_INTPTR_T), intent(in) :: nvars, nlevs, nlats, ilen
+        integer, intent(in) :: flen
+        integer, intent(in) :: comm_in
+        integer(C_INTPTR_T) :: howmany
+        integer :: plan_fourier_to_grid, n, flags, t, clck_transpose
+        integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
+        integer(C_INTPTR_T) :: local_n0_prev
+        integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
+        integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
+
+        howmany = nvars*nlevs*nlats
+
+        if (howmany<1) call mpp_error('plan_fourier_to_grid', 'howmany cannot be Zero', FATAL)
+
+        if (flen<0) &
+            call mpp_error('plan_fourier_to_grid', 'plan_grid_to_fourier should be called first', FATAL)
+
+        nplan = nplan + 1
+        
+        if(nplan>max_plans) call mpp_error(modul,'No: plans > Max_plans', FATAL)
+
+        n = nplan
+        plan_fourier_to_grid = n
+
+        myplans(n)%howmany = howmany
+       
+        !Transpose
+        n0=[howmany,NLON]
+
+        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+                       block0, block0, comm_in, local_n0, &
+                       local_0_start, local_n1, local_1_start)
+
+        if (ilen/=local_n1) & 
+            call mpp_error('plan_fourier_to_grid', 'ilen/=local_n1', FATAL)
+
+        myplans(n)%tcdat = fftw_alloc_complex(alloc_local)
+
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%trin, [NLON, local_n0])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%rin, [howmany, local_n1])
+    
+        flags = plan_flags
+
+        myplans(n)%plan = fftw_mpi_plan_many_transpose(howmany, NLON, 1, &
+                                block0, block0, myplans(n)%trin, myplans(n)%rin, &
+                                comm_in, flags)
+
+        !multi-threaded shared memory fft
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%srin, [TWO*(NLON/2+1),local_n0])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%scout, [(NLON/2+1),local_n0])
+      
+        nn(1) = NLON 
+        idist = NLON; odist= NLON/2+1
+        istride = 1; ostride = 1
+        inembed = [NLON]; onembed = [NLON/2+1]
+        flags = plan_flags
+
+        myplans(n)%splan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
+                                myplans(n)%scout, onembed, ostride, odist, & 
+                                myplans(n)%srin, inembed, istride, idist, flags)
+       
+        local_n0_prev = local_n0 
+        !Transpose back
+
+        n0=[FTRUNC,howmany]
+
+        alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+                       block0, block0, comm_in, local_n0, &
+                       local_0_start, local_n1, local_1_start)
+
+        if (local_n0_prev /= local_n1) &
+            call mpp_error('plan_fourier_to_grid', 'local_n0_prev /= local_n1', FATAL)
+
+        if(flen/=local_n0) call mpp_error('plan_fourier_to_grid', 'flen/=local_n0', FATAL)
+
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%srout, [TWO,NLON/2+1,local_n1])
+        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tsrout, [TWO,howmany,local_n0])
+
+        myplans(n)%tplan = fftw_mpi_plan_many_transpose(FTRUNC, howmany, 2, &
+                                block0, block0, myplans(n)%tsrout, myplans(n)%srout, &
+                                comm_in, flags) 
+
+        myplans(n)%r2c = c_loc(myplans(n)%tsrout)
+        call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [howmany, local_n0])
+
+    end function plan_fourier_to_grid
+
+    subroutine fourier_to_grid(coutp, rinp)
+
+        implicit none
+        real, intent(out) :: rinp(:,:,:) ! lev, lat, lon
+        complex, intent(in) :: coutp(:,:,:) ! fourier, lat, lev
+        integer :: id, i, j, ci=1, cj=2, ct
+        integer(C_INTPTR_T) :: howmany
+
+        id = id_four2grid
+        
+        howmany = myplans(id)%howmany
+
+        myplans(id)%cout = reshape(coutp(:,:,:),shape=[howmany,FLOCAL],order=[2,1])
+
+        !Transpose Back
+        call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%tsrout, myplans(id)%srout)
+
+        !Serial FFT
+        myplans(id)%scout(FTRUNC+1:NLON/2+1,:) = 0. !Truncation
+        call fftw_execute_dft_c2r(myplans(id)%splan, myplans(id)%scout, myplans(id)%srin) 
+
+        !Transpose
+        call fftw_mpi_execute_r2r(myplans(id)%plan, myplans(id)%trin, myplans(id)%rin)
+        
+        rinp = reshape(myplans(id)%rin(1:howmany,:), shape=[NLEV, NLAT, NLON_LOCAL])
+                
+    end subroutine fourier_to_grid
 
 
     subroutine grid_to_fourier(rinp, coutp)
