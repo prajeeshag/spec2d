@@ -1,0 +1,47 @@
+
+&test_grid_to_fourier_nml
+  kstart=1
+  kend=8
+  kstep=1
+  ideal_data = .true.
+  imgf = 0.
+  ck = 3
+  cl = 2
+num_fourier=10
+  check = .true.
+  nt = 144
+nlon=32
+  nlat = 20
+  nlev = 64
+/
+
+
+&grid_to_fourier_nml
+  plan_level = 1
+/
+ 
+
+&diag_manager_nml
+  max_axes = 100,
+  max_num_axis_sets = 100,
+  max_input_fields = 699
+  max_output_fields = 699
+  mix_snapshot_average_fields=.false.
+  issue_oor_warnings = .false.
+  do_diag_field_log = .false.
+/
+
+&fms_io_nml
+  threading_read='multi'
+  threading_write='single'
+  fileset_write='single'
+  max_files_r = 200
+  max_files_w = 200
+/
+
+&fms_nml
+  clock_grain='loop' ! 'component' ! 'routine' !
+  domains_stack_size = 8000000
+  stack_size =0
+/
+   
