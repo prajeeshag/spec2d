@@ -79,7 +79,7 @@ module grid_to_fourier_mod
 
         allocate(fld(nlev,nlat,isc:iec))
         allocate(fldc(isf:ief,2,nlat,nlev))
-        allocate(fldct(nlev,nlat,isf:ief))
+        allocate(fldct(isf:ief,nlat,nlev))
 
         allocate(fld1d(1:nlon))
         allocate(fld1dout(1:nlon))
@@ -165,8 +165,8 @@ module grid_to_fourier_mod
                 call mpp_sync()  
                 do i = isf, ief
                     cpout(1) = fldc1d(i+1,1)
-                    cpout(2) = fldct(l,m,i)
-                    cpout(3) = fldct(l,nlat/2+m,i)
+                    cpout(2) = fldct(i,m,l)
+                    cpout(3) = fldct(i,nlat/2+m,l)
                     print *,'trans:', k, cpout(1:3)
                 enddo
             enddo
