@@ -12,7 +12,7 @@ ARCH = -xAVX
 
 INCL = -I$(NETCDF)/include -I/iitm1/cccr/sandeep/preind-aerosol/library/incmod/w3emc_v2.0.5_d
 
-OPTS =  -O3 -fp-model precise -convert big_endian -align array32byte -save-temps
+OPTS = -r8 -O3 -fp-model precise -convert big_endian -align array32byte -save-temps
 
 FFLAGS  = $(OPTS) $(DEBUG) $(INCL)
 CFLAGS  = $(INCL)
