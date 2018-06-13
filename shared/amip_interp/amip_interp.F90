@@ -1,36 +1,11 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 module amip_interp_mod
 
 
-! <CONTACT EMAIL="Bruce.Wyman@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Bruce Wyman
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
 !   Provides observed SST and ice mask data sets that have been
@@ -99,6 +74,7 @@ use           fms_mod, only: file_exist, error_mesg, write_version_number,  &
 use        fms_io_mod, only: read_data
 use     constants_mod, only: TFREEZE, pi
 use      platform_mod, only: R4_KIND, I2_KIND
+use mpp_mod,           only: input_nml_file
 
 implicit none
 private
@@ -113,18 +89,19 @@ public amip_interp_init, get_amip_sst, get_amip_ice, amip_interp_new, &
 !----------------- Public Data -----------------------------------
 integer :: i_sst = 1200
 integer :: j_sst = 600
+real, parameter:: big_number = 1.E30
 logical :: forecast_mode = .false.
 real, allocatable, dimension(:,:) ::  sst_ncep, sst_anom
 
-public i_sst, j_sst, sst_ncep, sst_anom, forecast_mode
+public i_sst, j_sst, sst_ncep, sst_anom, forecast_mode, use_ncep_sst
 
 !-----------------------------------------------------------------------
 !--------------------- private below here ------------------------------
 
 !  ---- version number -----
 
-character(len=128) :: version = '$Id: amip_interp.F90,v 17.0.2.3 2009/10/01 17:55:35 rab Exp $'
-character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128) :: version = '$Id: amip_interp.F90,v 19.0 2012/01/06 21:54:21 fms Exp $'
+character(len=128) :: tagname = '$Name: siena_201207 $'
 
    real, allocatable:: temp1(:,:), temp2(:,:)
 
@@ -366,8 +343,8 @@ end type
 
  logical :: use_ncep_sst = .false.
  logical ::  no_anom_sst = .true.
- logical :: use_ncep_ice = .true.
- logical :: interp_oi_sst = .true.        ! changed to false for regular runs
+ logical :: use_ncep_ice = .false.
+ logical :: interp_oi_sst = .false.       ! changed to false for regular runs
 
  namelist /amip_interp_nml/ use_ncep_sst, no_anom_sst, use_ncep_ice,  tice_crit, &
                             interp_oi_sst, data_set, date_out_of_range,          &
@@ -456,6 +433,7 @@ else
         if (Date1 == Interp % Date2) then
             Interp % Date1 = Interp % Date2
             Interp % data1 = Interp % data2
+            temp1(:,:) = temp2(:,:)   ! SJL BUG fix: June 24, 2011
         else
             call read_record ('sst', Date1, Udate1, temp1)
             if ( use_ncep_sst .and. (.not. no_anom_sst) ) then
@@ -778,6 +756,10 @@ endif
 
 !   ---- read namelist ----
 
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, amip_interp_nml, iostat=io)
+    ierr = check_nml_error(io,'amip_interp_nml')
+#else
     if ( file_exist('input.nml')) then
        unit = open_namelist_file( )
        ierr=1; do while (ierr /= 0)
@@ -786,6 +768,7 @@ endif
        enddo
   10   call close_file (unit)
     endif
+#endif
 
 !  ----- write namelist/version info -----
     call write_version_number (version, tagname)
@@ -795,6 +778,8 @@ endif
         write (unit,nml=amip_interp_nml)
     endif
     call close_file (unit)
+
+    if ( .not. use_ncep_sst ) interp_oi_sst = .false.
 
 !   ---- freezing point of sea water in deg K ---
 
@@ -850,8 +835,14 @@ endif
 !--- Added by SJL ---------------------------------------------- 
         if ( use_ncep_sst ) then
              mobs = i_sst;  nobs = j_sst
-            if (.not. allocated (sst_ncep)) allocate (sst_ncep(i_sst,j_sst))
-            if (.not. allocated (sst_anom)) allocate (sst_anom(i_sst,j_sst))
+            if (.not. allocated (sst_ncep)) then
+                allocate (sst_ncep(i_sst,j_sst))
+                sst_ncep(:,:) = big_number
+            endif
+            if (.not. allocated (sst_anom)) then
+                allocate (sst_anom(i_sst,j_sst))
+                sst_anom(:,:) = big_number
+            endif
         else
              mobs = 360;    nobs = 180
         endif

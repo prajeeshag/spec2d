@@ -26,27 +26,38 @@
 !receive domains saved here for unpacking
 !for non-blocking version, could be recomputed
       integer,    allocatable :: msg1(:), msg2(:)
-      logical :: send(8), recv(8)
+      logical :: send(8), recv(8), update_edge_only
       integer :: to_pe, from_pe, pos, msgsize
       integer :: n, l_size, l, m, i, j, k
       integer :: is, ie, js, je, tMe, dir
       integer :: start, start1, start2, index, is1, ie1, js1, je1, ni, nj, total
-      integer :: buffer_recv_size, nlist
+      integer :: buffer_recv_size, nlist, outunit
 
+      outunit = stdout()
       ptr = LOC(mpp_domains_stack)
       l_size = size(f_addrs,1)
 
       update_flags = XUPDATE+YUPDATE   !default
       if( PRESENT(flags) )update_flags = flags
 
+      update_edge_only = BTEST(update_flags, EDGEONLY)
       recv(1) = BTEST(update_flags,EAST)
       recv(3) = BTEST(update_flags,SOUTH)
       recv(5) = BTEST(update_flags,WEST)
       recv(7) = BTEST(update_flags,NORTH)
-      recv(2) = recv(1) .AND. recv(3)
-      recv(4) = recv(3) .AND. recv(5)
-      recv(6) = recv(5) .AND. recv(7)
-      recv(8) = recv(7) .AND. recv(1)
+      if( update_edge_only ) then
+         if( .NOT. (recv(1) .OR. recv(3) .OR. recv(5) .OR. recv(7)) ) then
+            recv(1) = .true.
+            recv(3) = .true.
+            recv(5) = .true.
+            recv(7) = .true.
+         endif
+      else
+         recv(2) = recv(1) .AND. recv(3)
+         recv(4) = recv(3) .AND. recv(5)
+         recv(6) = recv(5) .AND. recv(7)
+         recv(8) = recv(7) .AND. recv(1)
+      endif
       send    = recv
 
       if(debug_message_passing) then
@@ -67,7 +78,7 @@
             end do
             from_pe = update%recv(m)%pe
             l = from_pe-mpp_root_pe()
-            call mpp_recv( msg1(l), glen=1, from_pe=from_pe, block=.FALSE.)
+            call mpp_recv( msg1(l), glen=1, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_1 )
             msg2(l) = msgsize
          enddo
 
@@ -82,7 +93,7 @@
                   msgsize = msgsize + (ie-is+1)*(je-js+1)
                end if
             end do
-            call mpp_send( msgsize, plen=1, to_pe=overPtr%pe)
+            call mpp_send( msgsize, plen=1, to_pe=overPtr%pe, tag=COMM_TAG_1 )
          enddo
          call mpp_sync_self(check=EVENT_RECV)
 
@@ -94,7 +105,7 @@
             endif
          enddo
          call mpp_sync_self()
-         write(stdout(),*)"NOTE from mpp_do_update: message sizes are matched between send and recv for domain " &
+         write(outunit,*)"NOTE from mpp_do_update: message sizes are matched between send and recv for domain " &
                           //trim(domain%name)
          deallocate(msg1, msg2)
       endif
@@ -124,7 +135,7 @@
                call mpp_error( FATAL, 'MPP_DO_UPDATE: mpp_domains_stack overflow, '// &
                     'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.' )
             end if
-            call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.FALSE. )
+            call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_2 )
             buffer_pos = buffer_pos + msgsize
          end if
          call mpp_clock_end(recv_clock)
@@ -137,6 +148,21 @@
          if( overPtr%count == 0 )cycle
          call mpp_clock_begin(pack_clock)
          pos = buffer_pos
+         msgsize = 0
+         do n = 1, overPtr%count
+            dir = overPtr%dir(n)
+            if( send(dir) )  msgsize = msgsize + overPtr%msgsize(n)
+         enddo
+         if( msgsize.GT.0 )then
+            msgsize = msgsize*ke*l_size
+            mpp_domains_stack_hwm = max( mpp_domains_stack_hwm, pos+msgsize )
+            if( mpp_domains_stack_hwm.GT.mpp_domains_stack_size )then
+               write( text,'(i8)' )mpp_domains_stack_hwm
+               call mpp_error( FATAL, 'MPP_START_UPDATE_DOMAINS: mpp_domains_stack overflow, ' // &
+                    'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.')
+            end if
+         end if
+
          do n = 1, overPtr%count
             dir = overPtr%dir(n)
             if( send(dir) ) then
@@ -215,13 +241,7 @@
          msgsize = pos - buffer_pos
          if( msgsize.GT.0 )then
             to_pe = overPtr%pe
-            mpp_domains_stack_hwm = max( mpp_domains_stack_hwm, pos )
-            if( mpp_domains_stack_hwm.GT.mpp_domains_stack_size )then
-               write( text,'(i8)' )mpp_domains_stack_hwm
-               call mpp_error( FATAL, 'MPP_DO_UPDATE: mpp_domains_stack overflow, ' // &
-                    'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.')
-            end if
-            call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe )
+            call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe, tag=COMM_TAG_2 )
             buffer_pos = pos
          end if
          call mpp_clock_end(send_clock)

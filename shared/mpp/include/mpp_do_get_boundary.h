@@ -22,12 +22,14 @@ subroutine MPP_DO_GET_BOUNDARY_3D_( f_addrs, domain, bound, b_addrs, bsize, ke, 
   integer                 :: i, j, k, l, m, n, index, buffer_recv_size
   integer                 :: is, ie, js, je, msgsize, l_size
   character(len=8)        :: text
+  integer                 :: outunit
 
   MPP_TYPE_ :: buffer(size(mpp_domains_stack(:)))
 
   pointer( ptr, buffer )
   ptr = LOC(mpp_domains_stack)
 
+  outunit = stdout()
   l_size = size(f_addrs,1)
   recv(1) = BTEST(flags,EAST)
   recv(2) = BTEST(flags,SOUTH)
@@ -54,7 +56,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_( f_addrs, domain, bound, b_addrs, bsize, ke, 
          end do
          from_pe = bound%recv(m)%pe
          l = from_pe-mpp_root_pe()
-         call mpp_recv( msg1(l), glen=1, from_pe=from_pe, block=.FALSE.)
+         call mpp_recv( msg1(l), glen=1, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_1)
          msg2(l) = msgsize
       enddo
 
@@ -67,7 +69,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_( f_addrs, domain, bound, b_addrs, bsize, ke, 
                msgsize = msgsize + (ie-is+1)*(je-js+1)
             end if
          end do
-         call mpp_send( msgsize, plen=1, to_pe=bound%send(m)%pe)
+         call mpp_send( msgsize, plen=1, to_pe=bound%send(m)%pe, tag=COMM_TAG_1)
       enddo
 
       call mpp_sync_self(check=EVENT_RECV)
@@ -80,7 +82,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_( f_addrs, domain, bound, b_addrs, bsize, ke, 
          endif
       enddo
       call mpp_sync_self()
-      write(stdout(),*)"NOTE from mpp_do_get_boundary: message sizes are matched between send and recv for domain " &
+      write(outunit,*)"NOTE from mpp_do_get_boundary: message sizes are matched between send and recv for domain " &
                        //trim(domain%name)
       deallocate(msg1, msg2)
   endif
@@ -103,7 +105,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_( f_addrs, domain, bound, b_addrs, bsize, ke, 
            call mpp_error( FATAL, 'MPP_DO_GET_BOUNDARY_OLD: mpp_domains_stack overflow, '// &
                 'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.' )
         end if
-        call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=bound%recv(m)%pe, block=.false. )
+        call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=bound%recv(m)%pe, block=.false., tag=COMM_TAG_2 )
         buffer_pos = buffer_pos + msgsize
      end if
   end do
@@ -178,7 +180,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_( f_addrs, domain, bound, b_addrs, bsize, ke, 
            call mpp_error( FATAL, 'MPP_DO_GET_BOUNDARY_OLD: mpp_domains_stack overflow, ' // &
                 'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.')
         end if
-        call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=bound%send(m)%pe )
+        call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=bound%send(m)%pe, tag=COMM_TAG_2 )
         buffer_pos = pos
      end if
   end do
@@ -300,11 +302,13 @@ subroutine MPP_DO_GET_BOUNDARY_3D_V_(f_addrsx, f_addrsy, domain, boundx, boundy,
   integer                 :: rank_x, rank_y, cur_rank, ind_x, ind_y
   integer                 :: nsend_x, nsend_y, nrecv_x, nrecv_y
   character(len=8)        :: text
+  integer                 :: outunit
 
   MPP_TYPE_ :: buffer(size(mpp_domains_stack(:)))
   pointer( ptr, buffer )
   ptr = LOC(mpp_domains_stack)
 
+  outunit = stdout()
   l_size = size(f_addrsx,1)
   recv(1) = BTEST(flags,EAST)
   recv(2) = BTEST(flags,SOUTH)
@@ -365,7 +369,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_V_(f_addrsx, f_addrsy, domain, boundx, boundy,
         endif
         cur_rank = max(rank_x, rank_y)
         m = from_pe-mpp_root_pe()
-        call mpp_recv( msg1(m), glen=1, from_pe=from_pe, block=.FALSE.)
+        call mpp_recv( msg1(m), glen=1, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_3)
         msg2(m) = msgsize
      end do
 
@@ -408,7 +412,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_V_(f_addrsx, f_addrsy, domain, boundx, boundy,
            endif
         endif
         cur_rank = min(rank_x, rank_y)
-        call mpp_send( msgsize, plen=1, to_pe=to_pe)        
+        call mpp_send( msgsize, plen=1, to_pe=to_pe, tag=COMM_TAG_3)        
      enddo
 
       call mpp_sync_self(check=EVENT_RECV)
@@ -421,7 +425,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_V_(f_addrsx, f_addrsy, domain, boundx, boundy,
       enddo
 
       call mpp_sync_self()
-      write(stdout(),*)"NOTE from mpp_do_get_boundary_V: message sizes are matched between send and recv for domain " &
+      write(outunit,*)"NOTE from mpp_do_get_boundary_V: message sizes are matched between send and recv for domain " &
                        //trim(domain%name)
       deallocate(msg1, msg2)
   endif
@@ -476,7 +480,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_V_(f_addrsx, f_addrsy, domain, boundx, boundy,
            call mpp_error( FATAL, 'MPP_DO_GET_BOUNDARY_V_: mpp_domains_stack overflow, '// &
                 'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.' )
         end if
-        call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.FALSE. )
+        call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_4 )
         buffer_pos = buffer_pos + msgsize
      end if
   end do
@@ -688,7 +692,7 @@ subroutine MPP_DO_GET_BOUNDARY_3D_V_(f_addrsx, f_addrsy, domain, boundx, boundy,
            call mpp_error( FATAL, 'MPP_DO_GET_BOUNDARY_V_: mpp_domains_stack overflow, ' // &
                 'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.')
         end if
-        call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe )
+        call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe, tag=COMM_TAG_4 )
         buffer_pos = pos
      end if
 

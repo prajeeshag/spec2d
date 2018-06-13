@@ -1,33 +1,8 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module horiz_interp_conserve_mod
 
-  ! <CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman </CONTACT>
-  ! <CONTACT EMAIL="Zhi.Liang@noaa.gov"> Zhi Liang </CONTACT>
+  ! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Bruce Wyman </CONTACT>
+  ! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Zhi Liang </CONTACT>
 
-  ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
   ! <OVERVIEW>
   !   Performs spatial interpolation between grids using conservative interpolation
@@ -48,8 +23,9 @@ module horiz_interp_conserve_mod
   !     where output data exists.
   ! </DESCRIPTION>
 
-  use mpp_mod,               only: mpp_send, mpp_recv, mpp_pe, mpp_root_pe
+  use mpp_mod,               only: mpp_send, mpp_recv, mpp_pe, mpp_root_pe, mpp_npes
   use mpp_mod,               only: mpp_error, FATAL,  mpp_sync_self 
+  use mpp_mod,               only: COMM_TAG_1, COMM_TAG_2
   use fms_mod,               only: write_version_number
   use constants_mod,         only: PI
   use horiz_interp_type_mod, only: horiz_interp_type
@@ -113,8 +89,8 @@ module horiz_interp_conserve_mod
 
   integer :: pe, root_pe
   !-----------------------------------------------------------------------
-  character(len=128) :: version = '$Id: horiz_interp_conserve.F90,v 16.0 2008/07/30 22:45:39 fms Exp $'
-  character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+  character(len=128) :: version = '$Id: horiz_interp_conserve.F90,v 19.0.2.2 2012/05/14 19:31:27 Zhi.Liang Exp $'
+  character(len=128) :: tagname = '$Name: siena_201207 $'
   logical            :: module_is_initialized = .FALSE.
 
 contains
@@ -837,6 +813,10 @@ contains
     integer :: pe, root_pe, npes, p, buffer_int(1)
     real    :: buffer_real(5)
 
+    pe = mpp_pe()
+    root_pe = mpp_root_pe()
+    npes = mpp_npes()
+
     ! sum data, data*area; and find min,max on each pe.
 
     if (present(mask)) then
@@ -861,13 +841,13 @@ contains
     if(pe == root_pe) then
        do p = 1, npes - 1
           ! Force use of "scalar", integer pointer mpp interface
-          call mpp_recv(buffer_real(1),glen=5,from_pe=root_pe+p)
+          call mpp_recv(buffer_real(1),glen=5,from_pe=root_pe+p, tag=COMM_TAG_1)
           asum = asum + buffer_real(1)
           dsum = dsum + buffer_real(2)
           wsum = wsum + buffer_real(3)
           low  = min(low, buffer_real(4))
           high = max(high, buffer_real(5))
-          call mpp_recv(buffer_int(1),glen=1,from_pe=root_pe+p)
+          call mpp_recv(buffer_int(1),glen=1,from_pe=root_pe+p, tag=COMM_TAG_2)
           miss = miss + buffer_int(1)
        enddo
     else
@@ -877,9 +857,9 @@ contains
        buffer_real(4) = low
        buffer_real(5) = high
        ! Force use of "scalar", integer pointer mpp interface
-       call mpp_send(buffer_real(1),plen=5,to_pe=root_pe)
+       call mpp_send(buffer_real(1),plen=5,to_pe=root_pe, tag=COMM_TAG_1)
        buffer_int(1) = miss
-       call mpp_send(buffer_int(1),plen=1,to_pe=root_pe)
+       call mpp_send(buffer_int(1),plen=1,to_pe=root_pe, tag=COMM_TAG_2)
     endif
 
     call mpp_sync_self()   

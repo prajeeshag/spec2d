@@ -1,35 +1,10 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 module time_interp_mod
 
-! <CONTACT EMAIL="Bruce.Wyman@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Bruce Wyman
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
 !   Computes a weight and dates/indices for linearly interpolating between two dates.
@@ -61,6 +36,7 @@ use time_manager_mod, only: time_type, get_date, set_date, set_time, &
 use          fms_mod, only: write_version_number, &
                             error_mesg, FATAL, stdout, stdlog, &
                             open_namelist_file, close_file, check_nml_error
+use          mpp_mod, only: input_nml_file
 
 implicit none
 private
@@ -218,8 +194,8 @@ integer, public, parameter :: NONE=0, YEAR=1, MONTH=2, DAY=3
    integer :: yrmod, momod, dymod
    logical :: mod_leapyear
 
-   character(len=128) :: version='$Id: time_interp.F90,v 17.0.2.1 2009/08/31 17:08:41 wfc Exp $'
-   character(len=128) :: tagname='$Name: mom4p1_pubrel_dec2009_nnz $'
+   character(len=128) :: version='$Id: time_interp.F90,v 19.0 2012/01/06 22:06:06 fms Exp $'
+   character(len=128) :: tagname='$Name: siena_201207 $'
 
    logical :: module_is_initialized=.FALSE.
    logical :: perthlike_behavior=.FALSE.
@@ -234,6 +210,9 @@ contains
 
    if ( module_is_initialized ) return
 
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, time_interp_nml, iostat=io)
+#else
    namelist_unit = open_namelist_file()
    ierr=1
    do while (ierr /= 0)
@@ -241,6 +220,8 @@ contains
      ierr = check_nml_error (io, 'time_interp_nml')
    enddo
    20 call close_file (namelist_unit)
+#endif
+
    call write_version_number( version, tagname )
    logunit = stdlog()
    write(logunit,time_interp_nml)
@@ -465,11 +446,12 @@ contains
 ! </SUBROUTINE>
 
 subroutine time_interp_modulo(Time, Time_beg, Time_end, Timelist, weight, index1, index2, &
-                              correct_leap_year_inconsistency)
+                              correct_leap_year_inconsistency, err_msg)
 type(time_type), intent(in)  :: Time, Time_beg, Time_end, Timelist(:)
 real           , intent(out) :: weight
 integer        , intent(out) :: index1, index2
 logical, intent(in), optional :: correct_leap_year_inconsistency
+character(len=*), intent(out), optional :: err_msg
   
   type(time_type) :: Period, T
   integer :: is, ie,i1,i2
@@ -482,11 +464,18 @@ logical, intent(in), optional :: correct_leap_year_inconsistency
   logical :: correct_lyr, calendar_has_leap_years, do_the_lyr_correction
 
   if ( .not. module_is_initialized ) call time_interp_init
+  if( present(err_msg) ) err_msg = ''
+
   stdoutunit = stdout()
   n = size(Timelist)
   
   if (Time_beg>=Time_end) then
-     call error_handler("end of the specified time loop interval must be later than its beginning")
+     if(present(err_msg)) then
+        err_msg = "end of the specified time loop interval must be later than its beginning"
+        return
+     else
+        call error_handler("end of the specified time loop interval must be later than its beginning")
+     endif
   endif
 
   calendar_has_leap_years = (get_calendar_type() == JULIAN .or. get_calendar_type() == GREGORIAN)
@@ -557,7 +546,12 @@ logical, intent(in), optional :: correct_leap_year_inconsistency
        call print_date(Timelist(n), 'Timelist(n)' )
      endif
      write(stdoutunit,*)'where n = size(Timelist) =',n
-     call error_handler('the entire time list is outside the specified time loop interval')
+     if(present(err_msg)) then
+        err_msg = 'the entire time list is outside the specified time loop interval'
+        return
+     else
+        call error_handler('the entire time list is outside the specified time loop interval')
+     endif
   endif
   
   call bisect(Timelist,Time_beg,index1=i1,index2=i2)
@@ -597,7 +591,12 @@ logical, intent(in), optional :: correct_leap_year_inconsistency
      endif
      write(stdoutunit,*)'where n = size(Timelist) =',n
      write(stdoutunit,*)'is =',is,'ie =',ie
-     call error_handler('error in calculation of time list bounds within the specified time loop interval')
+     if(present(err_msg)) then
+        err_msg = 'error in calculation of time list bounds within the specified time loop interval'
+        return
+     else
+        call error_handler('error in calculation of time list bounds within the specified time loop interval')
+     endif
   endif
   
   ! handle special cases:
@@ -663,16 +662,19 @@ end subroutine bisect
 !   <IN NAME="modtime" TYPE="integer" > </IN>
 ! </SUBROUTINE>
 
-subroutine time_interp_list ( Time, Timelist, weight, index1, index2, modtime )
+subroutine time_interp_list ( Time, Timelist, weight, index1, index2, modtime, err_msg )
 type(time_type)  , intent(in)  :: Time, Timelist(:)
 real             , intent(out) :: weight
 integer          , intent(out) :: index1, index2
 integer, optional, intent(in)  :: modtime
+character(len=*), intent(out), optional :: err_msg
 
 integer :: n, hr, mn, se, mtime
 type(time_type) :: T, Ts, Te, Td, Period, Time_mod
 
   if ( .not. module_is_initialized ) call time_interp_init
+
+  if( present(err_msg) ) err_msg = ''
 
   weight = 0.; index1 = 0; index2 = 0
   n = size(Timelist(:))
@@ -694,8 +696,14 @@ type(time_type) :: T, Ts, Te, Td, Period, Time_mod
          Period = set_time(0,days_in_year(Time_mod))
      case (MONTH)
        ! month length must be equal
-         if (days_in_month(Time_mod) /= days_in_month(Time)) &
-         call error_handler ('modulo months must have same length')
+         if (days_in_month(Time_mod) /= days_in_month(Time)) then
+            if(present(err_msg)) then
+               err_msg = 'modulo months must have same length'
+               return
+            else
+               call error_handler ('modulo months must have same length')
+            endif
+         endif 
          Period = set_time(0,days_in_month(Time_mod))
      case (DAY)
          Period = set_time(0,1)
@@ -720,7 +728,14 @@ type(time_type) :: T, Ts, Te, Td, Period, Time_mod
 
 ! Check that Timelist does not span a time interval greater than the modulo period
   if (mtime /= NONE) then
-     if (Td > Period) call error_handler ('period of list exceeds modulo period')
+     if (Td > Period) then
+        if(present(err_msg)) then
+           err_msg = 'period of list exceeds modulo period'
+           return
+        else
+           call error_handler ('period of list exceeds modulo period')
+        endif
+     endif
   endif
 
 ! time falls on start or between start and end list values
@@ -730,7 +745,14 @@ type(time_type) :: T, Ts, Te, Td, Period, Time_mod
 
 ! time falls before starting list value
   else if ( T < Ts ) then
-     if (mtime == NONE) call error_handler ('time before range of list')
+     if (mtime == NONE) then
+        if(present(err_msg)) then
+           err_msg = 'time before range of list'
+           return
+        else
+           call error_handler ('time before range of list')
+        endif
+     endif
      Td = Te-Ts
      weight = 1. - ((Ts-T) // (Period-Td))
      index1 = n
@@ -754,7 +776,14 @@ type(time_type) :: T, Ts, Te, Td, Period, Time_mod
 
 ! time falls after ending list value
   else if ( T > Te ) then
-     if (mtime == NONE) call error_handler ('time after range of list')
+     if (mtime == NONE) then
+        if(present(err_msg)) then
+           err_msg = 'time after range of list'
+           return
+        else
+           call error_handler ('time after range of list')
+        endif
+     endif
      Td = Te-Ts
      weight = (T-Te) // (Period-Td)
      index1 = n

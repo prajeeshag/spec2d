@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef test_mpp_io
 program test
 #include <fms_platform.h>
@@ -42,8 +18,7 @@ program test
 
   implicit none
 
-!--> esm insertion 12dec11
-#ifdef use_netCDF4
+#ifdef use_netCDF
 #include <netcdf.inc>
 #endif
 
@@ -58,6 +33,7 @@ program test
                                                ! set ntiles > 1 to test the efficiency of mpp_io.
   integer           :: io_layout(2) = (/0,0/)  ! set io_layout to divide each tile into io_layout(1)*io_layout(2)
                                                ! group and write out data from the root pe of each group.
+  integer           :: pack_size = 1
 
   namelist / test_mpp_io_nml / nx, ny, nz, nt, halo, stackmax, stackmaxd, debug, file, iospec, &
                                ntiles_x, ntiles_y, layout, io_layout
@@ -72,11 +48,13 @@ program test
   logical            :: opened
   character(len=64)  :: varname
 
-  real(DOUBLE_KIND)  :: time
+  real               :: time
   type(axistype)     :: x, y, z, t
   type(fieldtype)    :: f
   type(domain1D)     :: xdom, ydom
   integer(LONG_KIND) :: rchk, chk
+  real(DOUBLE_KIND)                  :: doubledata
+  real                               :: realarray(4)
 
   call mpp_init() 
   pe = mpp_pe()
@@ -108,6 +86,10 @@ program test
   end if
 
   write( file,'(a,i3.3)' )trim(file), npes
+
+! determine the pack_size
+  pack_size = size(transfer(doubledata, realarray))
+  if( pack_size .NE. 1 .AND. pack_size .NE. 2) call mpp_error(FATAL,'test_mpp_io: pack_size should be 1 or 2')  
 
   if(ntiles_x == 1 .and. ntiles_y == 1 .and. io_layout(1) == 1 .and. io_layout(2) == 1) then
      call test_netcdf_io('Simple')
@@ -183,7 +165,7 @@ program test
   type(atttype),          allocatable :: atts(:)
   type(fieldtype),        allocatable :: vars(:)
   type(axistype),         allocatable :: axes(:)
-  real(DOUBLE_KIND),      allocatable :: tstamp(:)
+  real,                   allocatable :: tstamp(:)
   real, dimension(:,:,:), allocatable :: data, gdata, rdata
 
   !--- determine the shift and symmetry according to type, 
@@ -265,7 +247,7 @@ program test
   call mpp_write_meta( unit, y, 'Y', 'km', 'Y distance', 'Y', domain=ydom, data=(/(i-1.,i=1,nyg)/) )
   call mpp_write_meta( unit, z, 'Z', 'km', 'Z distance', 'Z', data=(/(i-1.,i=1,nz)/) )
   call mpp_write_meta( unit, t, 'T', 'sec', 'Time', 'T' )
-  call mpp_write_meta( unit, f, (/x,y,z,t/), 'Data', 'metres', 'Random data', pack=1 )
+  call mpp_write_meta( unit, f, (/x,y,z,t/), 'Data', 'metres', 'Random data', pack=pack_size )
   call mpp_write( unit, x )
   call mpp_write( unit, y )
   call mpp_write( unit, z )
@@ -284,7 +266,7 @@ program test
   call mpp_write_meta( unit, y, 'Y', 'km', 'Y distance', 'Y', domain=ydom, data=(/(i-1.,i=1,nyg)/) )
   call mpp_write_meta( unit, z, 'Z', 'km', 'Z distance', 'Z',              data=(/(i-1.,i=1,nz)/) )
   call mpp_write_meta( unit, t, 'T', 'sec', 'Time', 'T' )
-  call mpp_write_meta( unit, f, (/x,y,z,t/), 'Data', 'metres', 'Random data', pack=1 )
+  call mpp_write_meta( unit, f, (/x,y,z,t/), 'Data', 'metres', 'Random data', pack=pack_size )
 
   call mpp_write( unit, x )
   call mpp_write( unit, y )
@@ -463,7 +445,7 @@ program test
   call mpp_write_meta( unit, y, 'Y', 'km', 'Y distance', 'Y', domain=ydom, data=(/(i-1.,i=1,nlat)/) )
   call mpp_write_meta( unit, z, 'Z', 'km', 'Z distance', 'Z', data=(/(i-1.,i=1,nz)/) )
   call mpp_write_meta( unit, t, 'T', 'sec', 'Time', 'T' )
-  call mpp_write_meta( unit, f, (/x,y,z,t/), 'Data', 'metres', 'Random data', pack=1 )
+  call mpp_write_meta( unit, f, (/x,y,z,t/), 'Data', 'metres', 'Random data', pack=pack_size )
   call mpp_write( unit, x )
   call mpp_write( unit, y )
   call mpp_write( unit, z )

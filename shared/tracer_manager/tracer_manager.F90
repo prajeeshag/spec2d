@@ -1,45 +1,20 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module tracer_manager_mod
-! <CONTACT EMAIL="William.Cooke@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   William Cooke
 ! </CONTACT>
 
-! <REVIEWER EMAIL="Matthew.Harrison@noaa.gov">
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Matt Harrison
 ! </REVIEWER>
 
-! <REVIEWER EMAIL="Bruce.Wyman@noaa.gov">
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Bruce Wyman
 ! </REVIEWER>
 
-! <REVIEWER EMAIL="Peter.Phillipps@noaa.gov">
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Peter Phillipps
 ! </REVIEWER>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
 !   Code to manage the simple addition of tracers to the FMS code.
@@ -161,7 +136,7 @@ type(tracer_type), save  :: tracers(MAX_TRACER_FIELDS)
 type(inst_type)  , save  :: instantiations(MAX_TRACER_FIELDS)
 
 character(len=128) :: version = '$Id: tracer_manager.F90,v 16.0 2008/07/30 22:48:11 fms Exp $'
-character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128) :: tagname = '$Name: siena_201207 $'
 logical            :: module_is_initialized = .false.
 
 logical            :: verbose_local

@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module mpp_parameter_mod
 #include <fms_platform.h>
 
@@ -31,15 +7,22 @@ module mpp_parameter_mod
   character(len=128), public :: version= &
        '$Id mpp_parameter.F90 $'
   character(len=128), public :: tagname= &
-       '$Name: mom4p1_pubrel_dec2009_nnz $'
+       '$Name: siena_201207 $'
 
   !--- public paramters which is used by mpp_mod and its components. 
   !--- All othere modules should import these parameters from mpp_mod. 
   public :: MAXPES, MPP_VERBOSE, MPP_DEBUG, ALL_PES, ANY_PE, NULL_PE, NOTE, WARNING, FATAL
   public :: MPP_WAIT, MPP_READY, MAX_CLOCKS, MAX_EVENT_TYPES, MAX_EVENTS, MPP_CLOCK_SYNC
   public :: MPP_CLOCK_DETAILED, CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_MODULE_DRIVER
-  public :: CLOCK_MODULE, CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA, MAX_BINS, PESET_MAX
+  public :: CLOCK_MODULE, CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA, MAX_BINS
   public :: EVENT_ALLREDUCE, EVENT_BROADCAST, EVENT_RECV, EVENT_SEND, EVENT_WAIT
+  public :: DEFAULT_TAG
+  public :: COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
+  public :: COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
+  public :: COMM_TAG_9,  COMM_TAG_10, COMM_TAG_11, COMM_TAG_12
+  public :: COMM_TAG_13, COMM_TAG_14, COMM_TAG_15, COMM_TAG_16
+  public :: COMM_TAG_17, COMM_TAG_18, COMM_TAG_19, COMM_TAG_20
+
 
   !--- public paramters which is used by mpp_domains_mod and its components. 
   !--- All othere modules should import these parameters from mpp_domains_mod. 
@@ -51,6 +34,7 @@ module mpp_parameter_mod
   public :: AGRID, GLOBAL, CYCLIC, DOMAIN_ID_BASE, CENTER, CORNER
   public :: MAX_DOMAIN_FIELDS, MAX_TILES
   public :: ZERO, NINETY, MINUS_NINETY, ONE_HUNDRED_EIGHTY
+  public :: NONBLOCK_UPDATE_TAG, EDGEUPDATE, EDGEONLY
 
   !--- public paramters which is used by mpp_domains_mod and its components. 
   !--- All othere modules should import these parameters from mpp_io_mod. 
@@ -67,6 +51,7 @@ module mpp_parameter_mod
   integer, parameter :: MAX_CLOCKS=400, MAX_EVENT_TYPES=5, MAX_EVENTS=40000
   integer, parameter :: EVENT_ALLREDUCE=1, EVENT_BROADCAST=2, EVENT_RECV=3, EVENT_SEND=4, EVENT_WAIT=5
   integer, parameter :: MPP_CLOCK_SYNC=1, MPP_CLOCK_DETAILED=2
+  integer            :: DEFAULT_TAG = 1
   !--- predefined clock granularities, but you can use any integer
   !--- using CLOCK_LOOP and above may distort coarser-grain measurements
   integer, parameter :: CLOCK_COMPONENT=1      !component level, e.g model, exchange
@@ -78,13 +63,13 @@ module mpp_parameter_mod
   integer, parameter :: CLOCK_LOOP=51          !loops or blocks within a routine
   integer, parameter :: CLOCK_INFRA=61         !infrastructure level, e.g halo update
   integer, parameter :: MAX_BINS=20
-  integer, parameter :: PESET_MAX=32           !should be .LE. max num of MPI communicators
   integer(LONG_KIND), parameter :: MPP_WAIT=-1, MPP_READY=-2
 
   !--- The following paramters are used by mpp_domains_mod and its components.
   integer, parameter :: GLOBAL=0, CYCLIC=1
   integer, parameter :: WEST=2, EAST=3, SOUTH=4, NORTH=5, SCALAR_BIT=6, CENTER=7, CORNER=8
   integer, parameter :: SOUTH_WEST=7, SOUTH_EAST=8, NORTH_WEST=9, NORTH_EAST=10
+  integer, parameter :: EDGEONLY = 11
   integer, parameter :: SEND=1, RECV=2
   integer, parameter :: GLOBAL_DATA_DOMAIN=2**GLOBAL, CYCLIC_GLOBAL_DOMAIN=2**CYCLIC
   integer, parameter :: AGRID=0, BGRID=1, CGRID=2, DGRID=3
@@ -98,7 +83,9 @@ module mpp_parameter_mod
   integer, parameter :: FOLD_SOUTH_EDGE=2**SOUTH, FOLD_NORTH_EDGE=2**NORTH
   integer, parameter :: WUPDATE=2**WEST, EUPDATE=2**EAST, SUPDATE=2**SOUTH, NUPDATE=2**NORTH
   integer, parameter :: XUPDATE=WUPDATE+EUPDATE, YUPDATE=SUPDATE+NUPDATE, SCALAR_PAIR=2**SCALAR_BIT
+  integer, parameter :: EDGEUPDATE=2**EDGEONLY
   integer, parameter :: ZERO=0, NINETY=90, MINUS_NINETY=-90, ONE_HUNDRED_EIGHTY=180
+  integer, parameter :: NONBLOCK_UPDATE_TAG = 2
 
 ! DOMAIN_ID_BASE acts as a counter increment for domains as they are defined. It's used in
 ! combination with the flag parameter defined above to create a unique identifier for
@@ -117,9 +104,16 @@ module mpp_parameter_mod
   integer, parameter :: MPP_SEQUENTIAL=300, MPP_DIRECT=301 !access
   integer, parameter :: MPP_SINGLE=400, MPP_MULTI=401      !threading, fileset
   integer, parameter :: MPP_DELETE=501, MPP_COLLECT=502    !action on close
-  integer, parameter :: NULLUNIT=-1                        !returned by PEs not participating in 
+  integer, parameter :: NULLUNIT=-1                        !returned by PEs not participating in    
                                                            !IO after a collective call with threading
                                                            !equal to MPP_SINGLE
+  !--- unique tag used in FMS
+  integer, parameter :: COMM_TAG_1  = 1,  COMM_TAG_2  = 2,  COMM_TAG_3  = 3,  COMM_TAG_4  = 4
+  integer, parameter :: COMM_TAG_5  = 5,  COMM_TAG_6  = 6,  COMM_TAG_7  = 7,  COMM_TAG_8  = 8
+  integer, parameter :: COMM_TAG_9  = 9,  COMM_TAG_10 = 10, COMM_TAG_11 = 11, COMM_TAG_12 = 12
+  integer, parameter :: COMM_TAG_13 = 13, COMM_TAG_14 = 14, COMM_TAG_15 = 15, COMM_TAG_16 = 16
+  integer, parameter :: COMM_TAG_17 = 17, COMM_TAG_18 = 18, COMM_TAG_19 = 19, COMM_TAG_20 = 20
+
   integer, parameter :: ROOT_GLOBAL = 9
   integer, parameter :: GLOBAL_ROOT_ONLY = 2**ROOT_GLOBAL 
   real(DOUBLE_KIND), parameter :: NULLTIME=-1.

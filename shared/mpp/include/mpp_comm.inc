@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_comm.inc,v 16.0 2008/07/30 22:46:18 fms Exp $
+! $Id: mpp_comm.inc,v 19.0 2012/01/06 22:00:37 fms Exp $
 
 
 #ifdef use_libSMA
@@ -291,4 +291,25 @@
 #include <mpp_chksum.h>
 #endif
 
+!#################################################
+#undef MPP_GATHER_1D_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(INT_KIND)
+#define MPP_GATHER_1D_ mpp_gather_int4_1d
+#define MPP_GATHER_1DV_ mpp_gather_int4_1dv
+#include <mpp_gather.h>
+
+#undef MPP_GATHER_1D_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(FLOAT_KIND)
+#define MPP_GATHER_1D_ mpp_gather_real4_1d
+#define MPP_GATHER_1DV_ mpp_gather_real4_1dv
+#include <mpp_gather.h>
+
+#undef MPP_GATHER_1D_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(DOUBLE_KIND)
+#define MPP_GATHER_1D_ mpp_gather_real8_1d
+#define MPP_GATHER_1DV_ mpp_gather_real8_1dv
+#include <mpp_gather.h>
 

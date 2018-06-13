@@ -1,30 +1,6 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module get_cal_time_mod
 
-!   <CONTACT EMAIL="fms@gfdl.noaa.gov">
+!   <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !     fms
 !   </CONTACT>
 !   <OVERVIEW>
@@ -40,6 +16,7 @@ use time_manager_mod, only: time_type, operator(+), operator(-), set_time, get_t
                             NO_CALENDAR, THIRTY_DAY_MONTHS, NOLEAP, JULIAN, GREGORIAN, &
                             set_calendar_type, get_calendar_type, set_date, &
                             get_date, days_in_month, valid_calendar_types
+use mpp_mod,          only: input_nml_file
 
 implicit none
 private
@@ -62,8 +39,8 @@ logical :: allow_calendar_conversion=.true.
 namelist / get_cal_time_nml / allow_calendar_conversion
 ! </NAMELIST>
 
-character(len=128) :: version='$Id: get_cal_time.F90,v 17.0 2009/07/21 03:21:55 fms Exp $'
-character(len=128) :: tagname='$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128) :: version='$Id: get_cal_time.F90,v 19.0 2012/01/06 22:06:10 fms Exp $'
+character(len=128) :: tagname='$Name: siena_201207 $'
 
 contains
 !------------------------------------------------------------------------
@@ -188,6 +165,9 @@ real :: dt
 logical :: permit_conversion_local
 
 if(.not.module_is_initialized) then
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, get_cal_time_nml, iostat=io)
+#else
   namelist_unit = open_namelist_file()
   ierr=1
   do while (ierr /= 0)
@@ -195,6 +175,7 @@ if(.not.module_is_initialized) then
     ierr = check_nml_error (io, 'get_cal_time_nml')
   enddo
   20 call close_file (namelist_unit)
+#endif
 
   call write_version_number (version, tagname)
   logunit = stdlog()

@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----------------------------------------------------------------------
 !                 Parallel I/O for message-passing codes
 !
@@ -43,12 +19,10 @@
 !           675 Mass Ave, Cambridge, MA 02139, USA.  
 !-----------------------------------------------------------------------
 
-! <CONTACT EMAIL="vb@gfdl.noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   V. Balaji
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-! <RCSLOG SRC="http://www.gfdl.noaa.gov/~vb/changes_mpp_io.html"/>
 
 ! <OVERVIEW>
 !   <TT>mpp_io_mod</TT>, is a set of simple calls for parallel I/O on
@@ -340,9 +314,10 @@ use mpp_parameter_mod,  only : MPP_DEBUG, MPP_VERBOSE, NULLUNIT, NULLTIME, ALL_P
 use mpp_parameter_mod,  only : CENTER, EAST, NORTH, CORNER
 use mpp_parameter_mod,  only : MAX_FILE_SIZE, GLOBAL_ROOT_ONLY, XUPDATE, YUPDATE
 use mpp_mod,            only : mpp_error, FATAL, WARNING, NOTE, stdin, stdout, stderr, stdlog
-use mpp_mod,            only : mpp_pe, mpp_root_pe, mpp_npes, lowercase, mpp_transmit
+use mpp_mod,            only : mpp_pe, mpp_root_pe, mpp_npes, lowercase, mpp_transmit, mpp_sync_self
 use mpp_mod,            only : mpp_init, mpp_sync, mpp_clock_id, mpp_clock_begin, mpp_clock_end
 use mpp_mod,            only : MPP_CLOCK_SYNC, MPP_CLOCK_DETAILED, CLOCK_ROUTINE
+use mpp_mod,            only : input_nml_file
 use mpp_domains_mod,    only : domain1d, domain2d, NULL_DOMAIN1D, mpp_domains_init
 use mpp_domains_mod,    only : mpp_get_global_domain, mpp_get_compute_domain
 use mpp_domains_mod,    only :  mpp_get_data_domain, mpp_get_memory_domain
@@ -350,13 +325,12 @@ use mpp_domains_mod,    only : mpp_update_domains, mpp_global_field, mpp_domain_
 use mpp_domains_mod,    only : operator( .NE. ), mpp_get_domain_shift
 use mpp_domains_mod,    only : mpp_get_io_domain, mpp_domain_is_tile_root_pe, mpp_get_domain_tile_root_pe
 use mpp_domains_mod,    only : mpp_get_tile_id, mpp_get_tile_npes, mpp_get_io_domain_layout
-use mpp_domains_mod,    only : mpp_get_domain_name
+use mpp_domains_mod,    only : mpp_get_domain_name, mpp_get_domain_npes
 
 implicit none
 private
 
-!--> esm insertion 12 dec 2011
-#ifdef use_netCDF4
+#ifdef use_netCDF
 #include <netcdf.inc>
 #endif
 
@@ -381,7 +355,7 @@ private
   public :: mpp_get_att_type, mpp_get_att_name, mpp_get_att_real, mpp_get_att_char
   public :: mpp_get_att_real_scalar
   public :: mpp_get_file_name, mpp_file_is_opened 
-  public :: mpp_io_clock_on
+  public :: mpp_io_clock_on, mpp_get_time_axis, mpp_get_default_calendar
 
   !--- public interface from mpp_io_misc.h ----------------------
   public :: mpp_io_init, mpp_io_exit, netcdf_err, mpp_flush
@@ -576,6 +550,7 @@ type :: atttype
      module procedure mpp_read_r3D
      module procedure mpp_read_text
      module procedure mpp_read_region_r2D
+     module procedure mpp_read_region_r3D
   end interface
 
 !***********************************************************************
@@ -827,7 +802,12 @@ type :: atttype
   integer            :: header_buffer_val = 16384  ! value used in NF__ENDDEF
   logical            :: global_field_on_root_pe = .true.
   logical            :: io_clocks_on = .false.
-  namelist /mpp_io_nml/header_buffer_val, global_field_on_root_pe, io_clocks_on
+  integer            :: shuffle = 0
+  integer            :: deflate = 0
+  integer            :: deflate_level = -1
+  
+  namelist /mpp_io_nml/header_buffer_val, global_field_on_root_pe, io_clocks_on, &
+                       shuffle, deflate_level
 
   real(DOUBLE_KIND), allocatable :: mpp_io_stack(:)
   type(axistype),save            :: default_axis      !provided to users with default components
@@ -835,11 +815,12 @@ type :: atttype
   type(atttype),save             :: default_att       !provided to users with default components
   type(filetype), allocatable    :: mpp_file(:)
 
+  integer :: pack_size ! = 1 when compiling with -r8 and = 2 when compiling with -r4.
 
   character(len=128) :: version= &
-       '$Id: mpp_io.F90,v 16.0.8.2.2.2.4.1.6.1.2.1 2009/10/16 19:16:45 z1l Exp $'
+       '$Id: mpp_io.F90,v 19.0.2.1 2012/05/09 18:28:56 Zhi.Liang Exp $'
   character(len=128) :: tagname= &
-       '$Name: mom4p1_pubrel_dec2009_nnz $'
+       '$Name: siena_201207 $'
 
 contains
 

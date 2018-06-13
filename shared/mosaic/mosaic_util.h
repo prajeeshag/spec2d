@@ -2,7 +2,7 @@
                       mosaic_util.h
     This header file provide some utilities routine that will be used in many tools.
     
-    contact: Zhi.Liang@noaa.gov
+    contact: Zhi.Liang
 ***********************************************************************/
 #ifndef MOSAIC_UTIL_H_
 #define MOSAIC_UTIL_H_
@@ -20,6 +20,7 @@ void latlon2xyz(int size, const double *lon, const double *lat, double *x, doubl
 void xyz2latlon(int size, const double *x, const double *y, const double *z, double *lon, double *lat);
 double box_area(double ll_lon, double ll_lat, double ur_lon, double ur_lat);
 double poly_area(const double lon[], const double lat[], int n);
+double poly_area_dimensionless(const double lon[], const double lat[], int n);
 double poly_area_no_adjust(const double x[], const double y[], int n);
 int fix_lon(double lon[], double lat[], int n, double tlon);
 void tokenize(const char * const string, const char *tokens, unsigned int varlen,

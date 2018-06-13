@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_domains_util.inc,v 16.0.8.1.2.1.2.1.4.1.4.1.4.5 2009/09/08 14:08:58 z1l Exp $
+! $Id: mpp_domains_util.inc,v 19.0.4.1 2012/05/11 14:54:02 Zhi.Liang Exp $
 
   ! <SUBROUTINE NAME="mpp_domains_set_stack_size">
   !  <OVERVIEW>
@@ -27,9 +27,13 @@
     if( n.LE.mpp_domains_stack_size )return
 #ifdef use_libSMA
     call mpp_malloc( ptr_domains_stack, n, mpp_domains_stack_size )
+    call mpp_malloc( ptr_domains_stack_nonblock, n, mpp_domains_stack_size )
 #else
     if( allocated(mpp_domains_stack) )deallocate(mpp_domains_stack)
     allocate( mpp_domains_stack(n) )
+    if( allocated(mpp_domains_stack_nonblock) )deallocate(mpp_domains_stack_nonblock)
+    allocate( mpp_domains_stack_nonblock(n) )
+
     mpp_domains_stack_size = n
 #endif
     write( text,'(i8)' )n
@@ -399,10 +403,16 @@
 end subroutine mpp_get_compute_domains1D
 
 !#####################################################################
-subroutine mpp_get_compute_domains2D( domain, xbegin, xend, xsize, ybegin, yend, ysize )
+subroutine mpp_get_compute_domains2D( domain, xbegin, xend, xsize, ybegin, yend, ysize, position )
  type(domain2D),                   intent(in) :: domain
  integer, intent(out), optional, dimension(:) :: xbegin, xend, xsize, ybegin, yend, ysize
-integer :: i
+ integer, intent(in ), optional               :: position
+
+ integer :: i, ishift, jshift
+
+ call mpp_get_domain_shift( domain, ishift, jshift, position )
+
+
  if( .NOT.module_is_initialized ) &
       call mpp_error( FATAL, 'MPP_GET_COMPUTE_DOMAINS: must first call mpp_domains_init.' )
 
@@ -417,14 +427,14 @@ integer :: i
     if( size(xend(:)).NE.size(domain%list(:)) ) &
          call mpp_error( FATAL, 'MPP_GET_COMPUTE_DOMAINS: xend array size does not match domain.' )
     do i = 1, size(xend(:))
-       xend(i) = domain%list(i-1)%x(1)%compute%end
+       xend(i) = domain%list(i-1)%x(1)%compute%end + ishift
     end do
  end if
  if( PRESENT(xsize) )then
     if( size(xsize(:)).NE.size(domain%list(:)) ) &
          call mpp_error( FATAL, 'MPP_GET_COMPUTE_DOMAINS: xsize array size does not match domain.' )
     do i = 1, size(xsize(:))
-       xsize(i) = domain%list(i-1)%x(1)%compute%size
+       xsize(i) = domain%list(i-1)%x(1)%compute%size + ishift
     end do
  end if
  if( PRESENT(ybegin) )then
@@ -438,14 +448,14 @@ integer :: i
     if( size(yend(:)).NE.size(domain%list(:)) ) &
          call mpp_error( FATAL, 'MPP_GET_COMPUTE_DOMAINS: yend array size does not match domain.' )
     do i = 1, size(yend(:))
-       yend(i) = domain%list(i-1)%y(1)%compute%end
+       yend(i) = domain%list(i-1)%y(1)%compute%end + jshift
     end do
  end if
  if( PRESENT(ysize) )then
     if( size(ysize(:)).NE.size(domain%list(:)) ) &
          call mpp_error( FATAL, 'MPP_GET_COMPUTE_DOMAINS: ysize array size does not match domain.' )
     do i = 1, size(ysize(:))
-       ysize(i) = domain%list(i-1)%y(1)%compute%size
+       ysize(i) = domain%list(i-1)%y(1)%compute%size + jshift
     end do
  end if
  return
@@ -819,6 +829,17 @@ end subroutine mpp_get_domain_shift
   end function mpp_domain_is_symmetry
 
 !#######################################################################
+  function mpp_domain_is_initialized(domain)
+    type(domain2d), intent(in) :: domain
+    logical                    :: mpp_domain_is_initialized
+
+    mpp_domain_is_initialized = domain%initialized
+
+    return
+
+  end function mpp_domain_is_initialized
+
+!#######################################################################
   !--- private routine used only for mpp_update_domains. This routine will
   !--- compare whalo, ehalo, shalo, nhalo with the halo size when defining "domain"
   !--- to decide if update is needed. Also it check the sign of whalo, ehalo, shalo and nhalo.
@@ -850,7 +871,7 @@ end subroutine mpp_get_domain_shift
   ! this routine found the domain has the same halo size with the input
   ! whalo, ehalo, 
   function search_update_overlap(domain, whalo, ehalo, shalo, nhalo, position)
-    type(domain2d),             intent(in) :: domain
+    type(domain2d),          intent(inout) :: domain
     integer,                    intent(in) :: whalo, ehalo, shalo, nhalo
     integer,                    intent(in) :: position
     type(overlapSpec),          pointer    :: search_update_overlap
@@ -1001,7 +1022,7 @@ end subroutine mpp_get_domain_shift
   !#######################################################################
   !--- the order of overlapping will be consistent with the unpack done in update_domains.
   function mpp_get_refine_overlap_number(domain, position, whalo, ehalo, shalo, nhalo, tile_count)
-     type(domain2d), intent(in)           :: domain
+     type(domain2d), intent(inout)        :: domain
      integer,        intent(in), optional :: position                   ! position of the cell, CENTER/EAST/NORTH/CORNER
      integer,        intent(in), optional :: whalo, ehalo, shalo, nhalo ! halo size to be updated
      integer,        intent(in), optional :: tile_count                ! tile number on current pe.
@@ -1028,7 +1049,7 @@ end subroutine mpp_get_domain_shift
   ! return overlap information for refined contact.
   subroutine mpp_get_mosaic_refine_overlap(domain, isMe, ieMe, jsMe, jeMe, isNbr, ieNbr, jsNbr, jeNbr, &
                                            dir, rotation, position, whalo, ehalo, shalo, nhalo, tile_count)
-     type(domain2d), intent(in)           :: domain
+     type(domain2d), intent(inout)        :: domain
      integer, dimension(:), intent(inout) :: isMe,  ieMe,  jsMe,  jeMe  ! index on current tile
      integer, dimension(:), intent(inout) :: isNbr, ieNbr, jsNbr, jeNbr ! index on neighbor tile
      integer, dimension(:), intent(inout) :: dir                        ! direction
@@ -1260,6 +1281,43 @@ end subroutine mpp_get_domain_shift
   end function mpp_get_domain_name
 
   !#################################################################
+  function mpp_get_domain_root_pe(domain)
+     type(domain2d),    intent(in) :: domain
+     integer                       :: mpp_get_domain_root_pe
+     
+     mpp_get_domain_root_pe = domain%list(0)%pe
+
+  end function mpp_get_domain_root_pe
+  !#################################################################
+  function mpp_get_domain_npes(domain)
+     type(domain2d),    intent(in) :: domain
+     integer                       :: mpp_get_domain_npes  
+
+     mpp_get_domain_npes = size(domain%list(:))
+
+     return
+
+  end function mpp_get_domain_npes
+
+  !################################################################
+  subroutine mpp_get_domain_pelist(domain, pelist)
+     type(domain2d),    intent(in) :: domain
+     integer,          intent(out) :: pelist(:)
+     integer :: p
+
+     if(size(pelist(:)) .NE. size(domain%list(:)) ) then
+        call mpp_error(FATAL, "mpp_get_domain_pelist: size(pelist(:)) .NE. size(domain%list(:)) ")
+     endif
+
+     do p = 0, size(domain%list(:))-1     
+        pelist(p+1) = domain%list(p)%pe 
+     enddo
+
+     return
+
+  end subroutine mpp_get_domain_pelist
+
+  !#################################################################
   function mpp_get_io_domain_layout(domain)
      type(domain2d),    intent(in) :: domain
      integer, dimension(2)         :: mpp_get_io_domain_layout
@@ -1308,11 +1366,14 @@ end subroutine mpp_get_domain_shift
     nrecv_y = overlap_y%nrecv
     rank_x = -1
     rank_y = -1
-    if(nrecv_x>0) rank_x = overlap_x%recv(1)%pe - domain%pe
-    if(nrecv_y>0) rank_y = overlap_y%recv(1)%pe - domain%pe    
-
-    if(rank_x .LE. 0) rank_x = rank_x + nlist
-    if(rank_y .LE. 0) rank_y = rank_y + nlist
+    if(nrecv_x>0) then
+       rank_x = overlap_x%recv(1)%pe - domain%pe
+       if(rank_x .LE. 0) rank_x = rank_x + nlist
+    endif
+    if(nrecv_y>0) then
+       rank_y = overlap_y%recv(1)%pe - domain%pe    
+       if(rank_y .LE. 0) rank_y = rank_y + nlist
+    endif
     get_rank_recv = max(rank_x, rank_y)
     ind_x = nrecv_x + 1
     ind_y = nrecv_y + 1

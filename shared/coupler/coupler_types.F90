@@ -1,34 +1,29 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module coupler_types_mod  !{
+!-----------------------------------------------------------------------
+!                   GNU General Public License                        
+! This file is a part of MOM.                                                                 
+!                                                                      
+! MOM is free software; you can redistribute it and/or modify it and  
+! are expected to follow the terms of the GNU General Public License  
+! as published by the Free Software Foundation; either version 2 of   
+! the License, or (at your option) any later version.                 
+!                                                                      
+! MOM is distributed in the hope that it will be useful, but WITHOUT    
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    
+! License for more details.                                           
+!                                                                      
+! For the full text of the GNU General Public License,                
+! write to: Free Software Foundation, Inc.,                           
+!           675 Mass Ave, Cambridge, MA 02139, USA.                   
+! or see:   http://www.gnu.org/licenses/gpl.html                      
+!-----------------------------------------------------------------------
 !
-!<CONTACT EMAIL="Richard.Slater@noaa.gov">
+!<CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 ! Richard D. Slater 
 !</CONTACT>
 !
-! <REVIEWER EMAIL="John.Dunne@noaa.gov">
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 ! John Dunne
 ! </REVIEWER>
 !
@@ -176,8 +171,8 @@ use field_manager_mod, only: fm_field_name_len, fm_string_len, fm_dump_list
 implicit none
 !
 !-----------------------------------------------------------------------
-  character(len=128) :: version = '$Id: coupler_types.F90,v 17.0.2.2 2009/08/28 19:18:26 nnz Exp $'
-  character(len=128) :: tag = '$Name: mom4p1_pubrel_dec2009_nnz $'
+  character(len=128) :: version = '$Id: coupler_types.F90,v 18.0 2010/03/02 23:55:06 fms Exp $'
+  character(len=128) :: tag = '$Name: siena_201207 $'
 !-----------------------------------------------------------------------
 real, parameter :: bound_tol = 1e-7
 

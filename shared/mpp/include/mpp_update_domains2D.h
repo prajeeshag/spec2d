@@ -147,8 +147,17 @@
                endif
             endif
             update => search_update_overlap(domain, update_whalo, update_ehalo, update_shalo, update_nhalo, update_position)
-            call mpp_do_update( f_addrs(1:l_size,1:ntile), domain, update, d_type, ke, &
-                                b_addrs(1:l_size,1:ntile), bsize, flags)
+            
+            !call mpp_do_update( f_addrs(1:l_size,1:ntile), domain, update, d_type, ke, &
+            !                    b_addrs(1:l_size,1:ntile), bsize, flags)
+
+            if ( PRESENT ( flags ) ) then
+                call mpp_do_update( f_addrs(1:l_size,1:ntile), domain, update, d_type, ke, b_addrs(1:l_size,1:ntile), bsize, flags )
+            else
+                call mpp_do_update( f_addrs(1:l_size,1:ntile), domain, update, d_type, ke, b_addrs(1:l_size,1:ntile), bsize )
+            endif    
+                
+
          end if
          l_size=0; f_addrs=-9999; bsize=0; b_addrs=-9999; isize=0;  jsize=0;  ke=0
       endif
@@ -237,6 +246,12 @@
       integer       :: ke
       character(len=2) :: text
       MPP_TYPE_ :: d_type
+      integer(LONG_KIND) :: floc_in, floc_out
+
+      floc_in = 0
+      floc_out = 0
+      if(domain_in%initialized) floc_in = LOC(field_in)
+      if(domain_out%initialized) floc_out = LOC(field_out)
 
       if(present(position)) then
          if(position .NE. CENTER) call mpp_error( FATAL,  &
@@ -246,7 +261,7 @@
       do_redist=.true.; if(PRESENT(complete))do_redist=complete
       free_comm=.false.; if(PRESENT(free))free_comm=free
       if(free_comm)then
-         l_addrs_in(1) = LOC(field_in); l_addrs_out(1) = LOC(field_out)
+         l_addrs_in(1) = floc_in; l_addrs_out(1) = floc_out
          if(l_addrs_out(1)>0)then
             ke = size(field_out,3)
          else
@@ -260,7 +275,7 @@
             write( text,'(i2)' ) MAX_DOMAIN_FIELDS
             call mpp_error(FATAL,'MPP_REDISTRIBUTE_3D: MAX_DOMAIN_FIELDS='//text//' exceeded for group redistribute.' )
          end if
-         l_addrs_in(l_size) = LOC(field_in); l_addrs_out(l_size) = LOC(field_out)
+         l_addrs_in(l_size) = floc_in; l_addrs_out(l_size) = floc_out
          if(l_size == 1)then
             if(l_addrs_in(l_size) > 0)then
                isize_in=size(field_in,1); jsize_in=size(field_in,2); ke_in = size(field_in,3)

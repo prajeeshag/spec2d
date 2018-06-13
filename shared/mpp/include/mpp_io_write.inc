@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_io_write.inc,v 16.0.8.1.2.4.2.1.6.1.4.1 2009/10/16 19:23:57 z1l Exp $
+! $Id: mpp_io_write.inc,v 19.0 2012/01/06 22:03:58 fms Exp $
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !                                                                            !
@@ -140,7 +140,7 @@
            call mpp_error( FATAL, 'MPP_WRITE_META: cannot write metadata to file after an mpp_write.' )
            
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
-#ifdef use_netCDF4
+#ifdef use_netCDF
           call write_attribute_netcdf( unit, NF_GLOBAL, name, rval, ival, cval, pack )
 #endif    
       else
@@ -304,20 +304,28 @@
       endif
 !write metadata
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
-#ifdef use_netCDF4
+#ifdef use_netCDF
 !write axis def
 !space axes are always floats, time axis is always double
           if( ASSOCIATED(axis%data) )then !space axis
               error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, axis%len, axis%did )
               call netcdf_err( error, mpp_file(unit), axis )
-              error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+              if(pack_size == 1) then
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+              else ! pack_size == 2
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, axis%did, axis%id )
+              endif
               call netcdf_err( error, mpp_file(unit), axis )
           else                            !time axis
               if( mpp_file(unit)%id.NE.-1 ) &
                    call mpp_error( FATAL, 'MPP_WRITE_META_AXIS: There is already a time axis for this file.' )
               error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, NF_UNLIMITED, axis%did )
               call netcdf_err( error, mpp_file(unit), axis )
-              error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+              if(pack_size == 1) then
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+              else ! pack_size == 2
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, axis%did, axis%id )
+              endif
               call netcdf_err( error, mpp_file(unit), axis )
               mpp_file(unit)%id = axis%id !file ID is the same as time axis varID
           end if
@@ -442,17 +450,21 @@
 !attributes
       if( PRESENT(min) )field%min = min
       if( PRESENT(max) )field%max = max
-      if( PRESENT(missing) )field%missing = missing
-      if( PRESENT(fill) )field%fill = fill
       if( PRESENT(scale) )field%scale = scale
       if( PRESENT(add) )field%add = add
       if( PRESENT(standard_name)) field%standard_name = standard_name
-      
+      if( PRESENT(missing) ) field%missing = missing
+      if( PRESENT(fill) ) field%fill = fill
+
+      ! Issue warning if fill and missing are different
+      if ( (present(fill).and.present(missing)) .and. (field%missing .ne. field%fill) ) then
+         call mpp_error(WARNING, 'MPP_WRITE_META: NetCDF attributes _FillValue and missing_value should be equal.')
+      end if
 !pack is currently used only for netCDF
       field%pack = 2        !default write 32-bit floats
       if( PRESENT(pack) )field%pack = pack
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
-#ifdef use_netCDF4
+#ifdef use_netCDF
           allocate( axis_id(size(field%axes(:))) )
           do i = 1,size(field%axes(:))
              axis_id(i) = field%axes(i)%did
@@ -475,6 +487,12 @@
                   call mpp_error( FATAL, 'MPP_WRITE_META_FIELD: only legal packing values are 1,2,4,8.' )
           end select
           call netcdf_err( error, mpp_file(unit), field=field )
+#ifndef use_netCDF3
+          if(shuffle .NE. 0 .OR. deflate .NE. 0) then
+             error = NF_DEF_VAR_DEFLATE(mpp_file(unit)%ncid, field%id, shuffle, deflate, deflate_level)
+             call netcdf_err( error, mpp_file(unit), field=field )
+          endif
+#endif
 #endif    
       else
           varnum = varnum + 1
@@ -513,22 +531,25 @@
               call mpp_write_meta( unit, field%id, 'valid_max', rval=a, pack=pack )
           end if
       end if  
-      if( PRESENT(missing) )then
-          if( field%pack.EQ.1 .OR. field%pack.EQ.2 )then
-              call mpp_write_meta( unit, field%id, 'missing_value', rval=field%missing, pack=pack )
-          else
-              a = nint((missing-add)/scale)
-              call mpp_write_meta( unit, field%id, 'missing_value', rval=a, pack=pack )
-          end if
-      end if  
-      if( PRESENT(fill) )then
-          if( field%pack.EQ.1 .OR. field%pack.EQ.2 )then
-              call mpp_write_meta( unit, field%id, '_FillValue', rval=field%missing, pack=pack )
-          else
-              a = nint((fill-add)/scale)
-              call mpp_write_meta( unit, field%id, '_FillValue', rval=a, pack=pack )
-          end if
-      end if  
+! write missing_value
+      if ( present(missing) ) then
+         if( field%pack.EQ.1 .OR. field%pack.EQ.2 )then
+            call mpp_write_meta( unit, field%id, 'missing_value', rval=field%missing, pack=pack )
+         else
+            a = nint((missing-add)/scale)
+            call mpp_write_meta( unit, field%id, 'missing_value', rval=a, pack=pack )
+         end if
+      end if
+! write _FillValue
+      if ( present(fill) ) then
+         if( field%pack.EQ.1 .OR. field%pack.EQ.2 )then
+            call mpp_write_meta( unit, field%id, '_FillValue', rval=field%fill, pack=pack )
+         else
+            a = nint((fill-add)/scale)
+            call mpp_write_meta( unit, field%id, '_FillValue', rval=a, pack=pack )
+         end if
+      end if
+
       if( field%pack.NE.1 .AND. field%pack.NE.2 )then
           call mpp_write_meta( unit, field%id, 'packing', ival=field%pack )
           if( PRESENT(scale) )call mpp_write_meta( unit, field%id, 'scale_factor',  rval=field%scale )
@@ -594,7 +615,7 @@
       character(len=*), intent(in), optional :: cval
       integer, intent(in), optional :: pack
       integer, allocatable :: rval_i(:)
-#ifdef use_netCDF4
+#ifdef use_netCDF
       if( PRESENT(rval) )then
 !pack is only meaningful for FP numbers
           if( PRESENT(pack) )then
@@ -655,7 +676,7 @@
       else
           call mpp_error( FATAL, 'WRITE_ATTRIBUTE_NETCDF: one of rval, ival, cval must be present.' )
       end if
-#endif /* use_netCDF4 */
+#endif /* use_netCDF */
       return
     end subroutine write_attribute_netcdf
       
@@ -814,7 +835,7 @@
       integer,           intent(in)           :: unit, nwords
       type(fieldtype),   intent(in)           :: field
       real,              intent(in)           :: data(nwords)
-      real(DOUBLE_KIND), intent(in), optional :: time_in
+      real,              intent(in), optional :: time_in
       type(domain2D),    intent(in), optional :: domain
       integer,           intent(in), optional :: tile_count
       integer, dimension(size(field%axes(:))) :: start, axsiz
@@ -839,7 +860,7 @@
 !we now declare the file to be initialized
 !if this is netCDF we switch file from DEFINE mode to DATA mode
           if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
-#ifdef use_netCDF4
+#ifdef use_netCDF
 !NOFILL is probably required for parallel: any circumstances in which not advisable?
               error = NF_SET_FILL( mpp_file(unit)%ncid, NF_NOFILL, i ); call netcdf_err( error, mpp_file(unit) )
               if( mpp_file(unit)%action.EQ.MPP_WRONLY )then
@@ -904,7 +925,7 @@
           end do
 
           if( debug )print '(a,2i6,12i6)', 'WRITE_RECORD: PE, unit, start, axsiz=', pe, unit, start, axsiz
-#ifdef use_netCDF4
+#ifdef use_netCDF
 !write time information if new time
           if( newtime )then
               if( KIND(time).EQ.DOUBLE_KIND )then
@@ -997,7 +1018,7 @@
       if( .NOT.mpp_file(unit)%opened )call mpp_error( FATAL, 'MPP_WRITE_META: invalid unit number.' )
       if( mpp_file(unit)%initialized ) &
            call mpp_error( FATAL, 'MPP_WRITE_META: cannot write metadata to file after an mpp_write.' )
-#ifdef use_netCDF4
+#ifdef use_netCDF
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
          if( gatt%type.EQ.NF_CHAR )then
             len = gatt%len
@@ -1047,7 +1068,7 @@
           axis%domain = NULL_DOMAIN1D
       end if
           
-#ifdef use_netCDF4
+#ifdef use_netCDF
 !write metadata
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
       
@@ -1162,7 +1183,7 @@
       endif 
          
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
-#ifdef use_netCDF4
+#ifdef use_netCDF
           allocate( axis_id(size(field%axes(:))) )
           do i = 1,size(field%axes(:))
              axis_id(i) = field%axes(i)%did

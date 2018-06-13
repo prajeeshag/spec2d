@@ -16,9 +16,10 @@
       integer :: to_pe, from_pe
       MPP_TYPE_ :: buffer(size(mpp_domains_stack(:)))
       pointer( ptr, buffer )
-      integer :: buffer_pos, wordlen
+      integer :: buffer_pos, wordlen, errunit
 
 !fix ke
+      errunit = stderr()
       l_size = size(f_out(:))  ! equal to size(f_in(:))
       ke = d_comm%ke
       domain_in =>d_comm%domain_in; domain_out =>d_comm%domain_out
@@ -26,6 +27,17 @@
       buffer_pos = 0
       ptr = LOC(mpp_domains_stack)
       wordlen = size(TRANSFER(buffer(1),mpp_domains_stack))
+
+!pre-post recv
+      n = d_comm%Rlist_size
+      do list = 0,n-1
+         if( .NOT. d_comm%R_do_buf(list) )cycle
+         from_pe = d_comm%cfrom_pe(list)
+         msgsize = d_comm%R_msize(list)*l_size
+         call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_1 )
+         buffer_pos = buffer_pos + msgsize
+      enddo
+
 !send
       n = d_comm%Slist_size
       do list = 0,n-1
@@ -45,21 +57,23 @@
               end do
            end do
          end do
-         if( debug )write( stderr(),* )'PE', pe, ' to PE ', to_pe, 'is,ie,js,je=', is, ie, js, je
+         if( debug )write( errunit,* )'PE', pe, ' to PE ', to_pe, 'is,ie,js,je=', is, ie, js, je
          msgsize = pos - buffer_pos
-         call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe )
+         call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe, tag=COMM_TAG_1  )
          buffer_pos = pos
       end do
-!recv
+
+      call mpp_sync_self(check=EVENT_RECV)
+
+!unpack buffer
+      buffer_pos = 0
       n = d_comm%Rlist_size
       do list = 0,n-1
          if( .NOT. d_comm%R_do_buf(list) )cycle
          from_pe = d_comm%cfrom_pe(list)
          is=d_comm%recvis(1,list); ie=d_comm%recvie(1,list)
          js=d_comm%recvjs(1,list); je=d_comm%recvje(1,list)
-         msgsize = d_comm%R_msize(list)*l_size
-         if( debug )write( stderr(),* )'PE', pe, ' from PE ', from_pe, 'is,ie,js,je=', is, ie, js, je
-         call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe )
+         if( debug )write( errunit,* )'PE', pe, ' from PE ', from_pe, 'is,ie,js,je=', is, ie, js, je
          pos = buffer_pos
          do l=1,l_size  ! loop over number of in/out fields
            ptr_field_out = f_out(l)
@@ -74,5 +88,6 @@
          end do
          buffer_pos = pos
       end do
+
       call mpp_sync_self()
     end subroutine MPP_DO_REDISTRIBUTE_3D_

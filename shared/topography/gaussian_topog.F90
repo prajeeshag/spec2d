@@ -1,35 +1,10 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 module gaussian_topog_mod
 
-! <CONTACT EMAIL="Bruce.Wyman@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Bruce Wyman
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
 !   Routines for creating Gaussian-shaped land surface topography
@@ -50,6 +25,8 @@ use  fms_mod, only: file_exist, open_namelist_file,  &
                     error_mesg, FATAL
 
 use constants_mod, only: pi
+
+use mpp_mod,       only: input_nml_file
 
 implicit none
 private
@@ -95,8 +72,8 @@ public :: gaussian_topog_init, get_gaussian_topog
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: gaussian_topog.F90,v 13.0 2006/03/28 21:43:27 fms Exp $'
-character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128) :: version = '$Id: gaussian_topog.F90,v 19.0 2012/01/06 22:06:14 fms Exp $'
+character(len=128) :: tagname = '$Name: siena_201207 $'
 
 logical :: do_nml = .true.
 logical :: module_is_initialized = .FALSE.
@@ -270,6 +247,9 @@ subroutine read_namelist
 
 !  read namelist
 
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, gaussian_topog_nml, iostat=io)
+#else
    if ( file_exist('input.nml')) then
       unit = open_namelist_file ( )
       ierr=1; do while (ierr /= 0)
@@ -278,6 +258,7 @@ subroutine read_namelist
       enddo
  10   call close_file (unit)
    endif
+#endif
 
 !  write version and namelist to log file
 

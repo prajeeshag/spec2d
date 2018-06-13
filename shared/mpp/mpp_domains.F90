@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----------------------------------------------------------------------
 !   Domain decomposition and domain update for message-passing codes
 !
@@ -43,14 +19,12 @@
 !           675 Mass Ave, Cambridge, MA 02139, USA.  
 !-----------------------------------------------------------------------
 
-! <CONTACT EMAIL="V.Balaji@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   V. Balaji
 ! </CONTACT>
-! <CONTACT EMAIL="Zhi.Liang@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Zhi Liang
 ! </CONTACT>
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-! <RCSLOG SRC="http://www.gfdl.noaa.gov/~vb/changes_mpp_domains.html"/>
 
 ! <OVERVIEW>
 !   <TT>mpp_domains_mod</TT> is a set of simple calls for domain
@@ -134,6 +108,12 @@
 module mpp_domains_mod
 !a generalized domain decomposition package for use with mpp_mod
 !Balaji (vb@gfdl.gov) 15 March 1999
+#include <fms_platform.h>
+
+#if defined(use_libMPI) && defined(sgi_mipspro)
+  use mpi
+#endif
+
   use mpp_parameter_mod,      only : MPP_DEBUG, MPP_VERBOSE, MPP_DOMAIN_TIME
   use mpp_parameter_mod,      only : GLOBAL_DATA_DOMAIN, CYCLIC_GLOBAL_DOMAIN, GLOBAL,CYCLIC 
   use mpp_parameter_mod,      only : AGRID, BGRID_SW, BGRID_NE, CGRID_NE, CGRID_SW, DGRID_NE, DGRID_SW
@@ -146,18 +126,25 @@ module mpp_domains_mod
   use mpp_parameter_mod,      only : MAX_DOMAIN_FIELDS, NULL_PE, DOMAIN_ID_BASE
   use mpp_parameter_mod,      only : ZERO, NINETY, MINUS_NINETY, ONE_HUNDRED_EIGHTY, MAX_TILES
   use mpp_parameter_mod,      only : EVENT_SEND, EVENT_RECV, ROOT_GLOBAL
+  use mpp_parameter_mod,      only : NONBLOCK_UPDATE_TAG, EDGEONLY, EDGEUPDATE
   use mpp_data_mod,           only : mpp_domains_stack, ptr_domains_stack
+  use mpp_data_mod,           only : mpp_domains_stack_nonblock, ptr_domains_stack_nonblock
   use mpp_mod,                only : mpp_pe, mpp_root_pe, mpp_npes, mpp_error, FATAL, WARNING, NOTE
   use mpp_mod,                only : stdout, stderr, stdlog, mpp_send, mpp_recv, mpp_transmit, mpp_sync_self
   use mpp_mod,                only : mpp_clock_id, mpp_clock_begin, mpp_clock_end
   use mpp_mod,                only : mpp_max, mpp_min, mpp_sum, mpp_get_current_pelist, mpp_broadcast
   use mpp_mod,                only : mpp_sync, mpp_init, mpp_malloc, lowercase
+  use mpp_mod,                only : input_nml_file
+  use mpp_mod,                only : COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
   use mpp_memutils_mod,       only : mpp_memuse_begin, mpp_memuse_end
   use mpp_pset_mod, only: mpp_pset_init
   implicit none
   private
 
-#include <fms_platform.h>
+#if defined(use_libMPI) && !defined(sgi_mipspro)
+#include <mpif.h>
+!sgi_mipspro gets this from 'use mpi'
+#endif
 
   !--- public paramters imported from mpp_domains_parameter_mod
   public :: GLOBAL_DATA_DOMAIN, CYCLIC_GLOBAL_DOMAIN, BGRID_NE, BGRID_SW, CGRID_NE, CGRID_SW
@@ -168,29 +155,32 @@ module mpp_domains_mod
   public :: NORTH, NORTH_EAST, EAST, SOUTH_EAST
   public :: SOUTH, SOUTH_WEST, WEST, NORTH_WEST
   public :: ZERO, NINETY, MINUS_NINETY, ONE_HUNDRED_EIGHTY 
+  public :: EDGEUPDATE
 
   !--- public data imported from mpp_data_mod
   public :: NULL_DOMAIN1D, NULL_DOMAIN2D
 
   public :: domain_axis_spec, domain1D, domain2D, DomainCommunicator2D
+  public :: nest_domain_type
 
   !--- public interface from mpp_domains_util.h
   public :: mpp_domains_set_stack_size, mpp_get_compute_domain, mpp_get_compute_domains
   public :: mpp_get_data_domain, mpp_get_global_domain, mpp_get_domain_components
   public :: mpp_get_layout, mpp_get_pelist, operator(.EQ.), operator(.NE.) 
-  public :: mpp_domain_is_symmetry
+  public :: mpp_domain_is_symmetry, mpp_domain_is_initialized
   public :: mpp_get_neighbor_pe, mpp_nullify_domain_list
   public :: mpp_set_compute_domain, mpp_set_data_domain, mpp_set_global_domain
   public :: mpp_get_memory_domain, mpp_get_domain_shift, mpp_domain_is_tile_root_pe
   public :: mpp_get_tile_id, mpp_get_domain_extents, mpp_get_current_ntile, mpp_get_ntile_count
   public :: mpp_get_refine_overlap_number, mpp_get_mosaic_refine_overlap
   public :: mpp_get_tile_list
-  public :: mpp_get_tile_npes
+  public :: mpp_get_tile_npes, mpp_get_domain_root_pe
   public :: mpp_get_num_overlap, mpp_get_overlap
   public :: mpp_get_io_domain, mpp_get_domain_pe, mpp_get_domain_tile_root_pe
   public :: mpp_get_domain_name, mpp_get_io_domain_layout
   public :: mpp_copy_domain, mpp_set_domain_symmetry
   public :: mpp_get_update_pelist, mpp_get_update_size
+  public :: mpp_get_domain_npes, mpp_get_domain_pelist
 
   !--- public interface from mpp_domains_reduce.h
   public :: mpp_global_field, mpp_global_max, mpp_global_min, mpp_global_sum
@@ -198,6 +188,8 @@ module mpp_domains_mod
   !--- public interface from mpp_domains_misc.h
   public :: mpp_broadcast_domain, mpp_domains_init, mpp_domains_exit, mpp_redistribute
   public :: mpp_update_domains, mpp_check_field
+  public :: mpp_start_update_domains, mpp_complete_update_domains
+  public :: mpp_update_nest_fine, mpp_update_nest_coarse
 !  public :: mpp_update_domains_ad   ! bnc
   public :: mpp_get_boundary
   !--- public interface from mpp_domains_define.h
@@ -206,8 +198,11 @@ module mpp_domains_mod
   public :: mpp_define_io_domain, mpp_deallocate_domain
   public :: mpp_compute_extent
 
+  !--- public interface from mpp_define_domains.inc
+  public :: mpp_define_nest_domains, mpp_get_C2F_index, mpp_get_F2C_index
+
   integer, parameter :: NAME_LENGTH = 64
-  integer, parameter :: MAXLIST = 8
+  integer, parameter :: MAXLIST = 24
  
   !--- data types used mpp_domains_mod.
   type domain_axis_spec        !type used to specify index limits along an axis of a domain
@@ -246,6 +241,7 @@ module mpp_domains_mod
      private
      integer                  :: count = 0                 ! number of ovrelapping
      integer                  :: pe
+     integer ,        pointer :: msgsize(:)      => NULL() ! overlapping msgsize to be sent or received
      integer,         pointer :: tileMe(:)       => NULL() ! my tile id for this overlap
      integer,         pointer :: tileNbr(:)      => NULL() ! neighbor tile id for this overlap
      integer,         pointer :: is(:)           => NULL() ! starting i-index 
@@ -271,7 +267,7 @@ module mpp_domains_mod
      type(overlap_type), pointer :: send(:) => NULL()
      type(overlap_type), pointer :: recv(:) => NULL()
      type(refineSpec),   pointer :: rSpec(:)=> NULL()
-     type(overlapSpec),  pointer :: next
+     type(overlapSpec),  pointer :: next => NULL()
   end type overlapSpec
 
   type tile_type
@@ -314,7 +310,7 @@ module mpp_domains_mod
      integer                     :: max_ntile_pe            ! maximum value in the pelist of number of tiles on each pe.
      integer                     :: ncontacts               ! number of contact region within mosaic.
      logical                     :: rotated_ninety          ! indicate if any contact rotate NINETY or MINUS_NINETY
-     logical                     :: initialized             ! indicate if the overlapping is computed or not.
+     logical                     :: initialized=.FALSE.     ! indicate if the overlapping is computed or not.
      integer                     :: tile_root_pe            ! root pe of current tile.
      integer                     :: io_layout(2)            ! io_layout, will be set through mpp_define_io_domain
                                                             ! default = domain layout
@@ -350,6 +346,49 @@ module mpp_domains_mod
      integer, pointer :: is2(:)=>NULL(), ie2(:)=>NULL()         ! i-index of neighbor tile repsenting contact
      integer, pointer :: js2(:)=>NULL(), je2(:)=>NULL()         ! j-index of neighbor tile repsenting contact
   end type contact_type
+
+
+  type index_type
+     integer :: is_me, ie_me, js_me, je_me
+     integer :: is_you, ie_you, js_you, je_you
+  end type index_type
+
+  type nestSpec
+     private
+     integer                     :: xbegin, xend, ybegin, yend
+     type(index_type)            :: west, east, south, north, center
+     integer                     :: nsend, nrecv
+     integer                     :: extra_halo
+     type(overlap_type), pointer :: send(:) => NULL()
+     type(overlap_type), pointer :: recv(:) => NULL()
+     type(nestSpec),     pointer :: next => NULL()
+
+  end type nestSpec
+
+
+
+  type nest_domain_type
+     private
+     integer                    :: tile_fine, tile_coarse
+     integer                    :: istart_fine, iend_fine, jstart_fine, jend_fine
+     integer                    :: istart_coarse, iend_coarse, jstart_coarse, jend_coarse
+     integer                    :: x_refine, y_refine
+     logical                    :: is_fine_pe, is_coarse_pe
+     integer,           pointer :: pelist_fine(:) => NULL()
+     integer,           pointer :: pelist_coarse(:) => NULL()
+     character(len=NAME_LENGTH) :: name
+     type(nestSpec), pointer :: C2F_T => NULL()
+     type(nestSpec), pointer :: C2F_C => NULL()
+     type(nestSpec), pointer :: C2F_E => NULL()
+     type(nestSpec), pointer :: C2F_N => NULL()
+     type(nestSpec), pointer :: F2C_T => NULL()
+     type(nestSpec), pointer :: F2C_C => NULL()
+     type(nestSpec), pointer :: F2C_E => NULL()
+     type(nestSpec), pointer :: F2C_N => NULL()
+     type(domain2d), pointer :: domain_fine   => NULL()
+     type(domain2d), pointer :: domain_coarse => NULL()
+  end type nest_domain_type
+
 
 
   type DomainCommunicator2D
@@ -398,6 +437,30 @@ module mpp_domains_mod
      integer                             :: position        ! data location. T, E, C, or N.
   end type DomainCommunicator2D
 
+  integer, parameter :: MAX_REQUEST = 100
+
+  type nonblock_type
+     integer                         :: recv_pos
+     integer                         :: send_pos
+     integer                         :: recv_msgsize
+     integer                         :: send_msgsize
+     integer                         :: update_flags
+     integer                         :: update_position
+     integer                         :: update_gridtype
+     integer                         :: update_whalo
+     integer                         :: update_ehalo
+     integer                         :: update_shalo
+     integer                         :: update_nhalo
+     integer                         :: request_send_count
+     integer                         :: request_recv_count
+     integer, dimension(MAX_REQUEST) :: request_send
+     integer, dimension(MAX_REQUEST) :: request_recv
+     integer, dimension(MAX_REQUEST) :: size_recv
+     integer, dimension(MAX_REQUEST) :: type_recv
+     integer(LONG_KIND)              :: field_addrs(MAX_DOMAIN_FIELDS)
+     integer(LONG_KIND)              :: field_addrs2(MAX_DOMAIN_FIELDS)
+     integer                         :: nfields 
+  end type nonblock_type
 !#######################################################################
 
 !***********************************************************************
@@ -405,15 +468,23 @@ module mpp_domains_mod
 !     module variables 
 !
 !***********************************************************************
-  integer             :: pe
-  logical             :: module_is_initialized = .false.
-  logical             :: debug                 = .FALSE.
-  logical             :: verbose=.FALSE.
-  logical             :: mosaic_defined = .false.
-  integer             :: mpp_domains_stack_size=0
-  integer             :: mpp_domains_stack_hwm=0
-  type(domain1D),save :: NULL_DOMAIN1D
-  type(domain2D),save :: NULL_DOMAIN2D
+  integer              :: pe
+  logical              :: module_is_initialized = .false.
+  logical              :: debug                 = .FALSE.
+  logical              :: verbose=.FALSE.
+  logical              :: mosaic_defined = .false.
+  integer              :: mpp_domains_stack_size=0
+  integer              :: mpp_domains_stack_hwm=0
+  type(domain1D),save  :: NULL_DOMAIN1D
+  type(domain2D),save  :: NULL_DOMAIN2D
+  integer              :: current_id_update = 0
+  integer                         :: num_update = 0
+  integer                         :: nonblock_buffer_pos = 0
+  logical                         :: start_update = .true.
+  logical                         :: complete_update = .false.
+  type(nonblock_type), allocatable :: nonblock_data(:)
+  integer, parameter              :: MAX_NONBLOCK_UPDATE = 100
+
 
   !-------- The following variables are used in mpp_domains_comm.h
   
@@ -461,7 +532,11 @@ module mpp_domains_mod
   !--- the following variables are used in mpp_domains_misc.h
   logical :: domain_clocks_on=.FALSE.
   integer :: send_clock=0, recv_clock=0, unpk_clock=0
-  integer :: wait_clock=0, pack_clock=0, pack_loop_clock=0
+  integer :: wait_clock=0, pack_clock=0
+  integer :: send_clock_nonblock=0, recv_clock_nonblock=0, unpk_clock_nonblock=0
+  integer :: wait_clock_nonblock=0, pack_clock_nonblock=0  
+  integer :: nest_send_clock=0, nest_recv_clock=0, nest_unpk_clock=0
+  integer :: nest_wait_clock=0, nest_pack_clock=0
 
   !--- namelist interface
 ! <NAMELIST NAME="mpp_domains_nml">
@@ -857,10 +932,6 @@ module mpp_domains_mod
      module procedure mpp_update_domain2D_i8_3d
      module procedure mpp_update_domain2D_i8_4d
      module procedure mpp_update_domain2D_i8_5d
-!!$     module procedure mpp_update_domain2D_l8_2d
-!!$     module procedure mpp_update_domain2D_l8_3d
-!!$     module procedure mpp_update_domain2D_l8_4d
-!!$     module procedure mpp_update_domain2D_l8_5d
 #endif
 #ifdef OVERLOAD_R4
      module procedure mpp_update_domain2D_r4_2d
@@ -882,11 +953,630 @@ module mpp_domains_mod
      module procedure mpp_update_domain2D_i4_3d
      module procedure mpp_update_domain2D_i4_4d
      module procedure mpp_update_domain2D_i4_5d
-!!$     module procedure mpp_update_domain2D_l4_2d
-!!$     module procedure mpp_update_domain2D_l4_3d
-!!$     module procedure mpp_update_domain2D_l4_4d
-!!$     module procedure mpp_update_domain2D_l4_5d
   end interface
+
+! <INTERFACE NAME="mpp_start_update_domains/mpp_complete_update_domains">
+!  <OVERVIEW>
+!     Interface to start halo updates.
+!  </OVERVIEW>
+!  <DESCRIPTION>
+!    <TT>mpp_start_update_domains</TT> is used to start a halo update of a
+!    domain-decomposed array on each PE. <TT>MPP_TYPE_</TT> can be of type
+!    <TT>complex</TT>, <TT>integer</TT>, <TT>logical</TT> or <TT>real</TT>;
+!    of 4-byte or 8-byte kind; of rank up to 5. The vector version (with
+!    two input data fields) is only present for <TT>real</TT> types.
+!    
+!    <TT>mpp_start_update_domains</TT> must be paired together with 
+!    <TT>mpp_complete_update_domains</TT>. In <TT>mpp_start_update_domains</TT>,
+!    a buffer will be pre-post to receive (non-blocking) the 
+!    data and data on computational domain will be packed and sent (non-blocking send)
+!    to other processor. In <TT>mpp_complete_update_domains</TT>, buffer will
+!    be unpacked to fill the halo and mpp_sync_self will be called to 
+!    to ensure communication safe at the last call of mpp_complete_update_domains.
+!
+!    Each mpp_update_domains can be replaced by the combination of mpp_start_update_domains
+!    and mpp_complete_update_domains. The arguments in mpp_start_update_domains
+!    and mpp_complete_update_domains should be the exact the same as in 
+!    mpp_update_domains to be replaced except no optional argument "complete". 
+!    The following are examples on how to replace mpp_update_domains with
+!    mpp_start_update_domains/mpp_complete_update_domains
+!    
+!    Example 1: Replace one scalar mpp_update_domains.
+!
+!    Replace 
+!    
+!        call mpp_update_domains(data, domain, flags=update_flags)
+!
+!    with
+!
+!        id_update = mpp_start_update_domains(data, domain, flags=update_flags)<BR/>
+!        ...( doing some computation )<BR/>
+!        call mpp_complete_update_domains(id_update, data, domain, flags=update_flags)<BR/>
+!<BR/>
+!    Example 2: Replace group scalar mpp_update_domains,
+!
+!    Replace
+!    
+!        call mpp_update_domains(data_1, domain, flags=update_flags, complete=.false.)<BR/>
+!        .... ( other n-2 call mpp_update_domains with complete = .false. )<BR/>
+!        call mpp_update_domains(data_n, domain, flags=update_flags, complete=.true. )<BR/>
+!<BR/>
+!    With
+!
+!        id_up_1 = mpp_start_update_domains(data_1, domain, flags=update_flags)<BR/>
+!        .... ( other n-2 call mpp_start_update_domains )<BR/>
+!        id_up_n = mpp_start_update_domains(data_n, domain, flags=update_flags)<BR/>
+!
+!        ..... ( doing some computation )
+!
+!        call mpp_complete_update_domains(id_up_1, data_1, domain, flags=update_flags)<BR/>
+!        .... ( other n-2 call mpp_complete_update_domains  )<BR/>
+!        call mpp_complete_update_domains(id_up_n, data_n, domain, flags=update_flags)<BR/>
+!<BR/>
+!    Example 3: Replace group CGRID_NE vector, mpp_update_domains
+!
+!    Replace
+!    
+!        call mpp_update_domains(u_1, v_1, domain, flags=update_flgs, gridtype=CGRID_NE, complete=.false.)<BR/>
+!        .... ( other n-2 call mpp_update_domains with complete = .false. )<BR/>
+!        call mpp_update_domains(u_1, v_1, domain, flags=update_flags, gridtype=CGRID_NE, complete=.true. )<BR/>
+!<BR/>
+!    with
+!
+!        id_up_1 = mpp_start_update_domains(u_1, v_1, domain, flags=update_flags, gridtype=CGRID_NE)<BR/>
+!        .... ( other n-2 call mpp_start_update_domains )<BR/>
+!        id_up_n = mpp_start_update_domains(u_n, v_n, domain, flags=update_flags, gridtype=CGRID_NE)<BR/>
+!<BR/>
+!        ..... ( doing some computation )
+!
+!        call mpp_complete_update_domains(id_up_1, u_1, v_1, domain, flags=update_flags, gridtype=CGRID_NE)<BR/>
+!        .... ( other n-2 call mpp_complete_update_domains  )<BR/>
+!        call mpp_complete_update_domains(id_up_n, u_n, v_n, domain, flags=update_flags, gridtype=CGRID_NE)<BR/>
+! <BR/>
+!    For 2D domain updates, if there are halos present along both
+!    <TT>x</TT> and <TT>y</TT>, we can choose to update one only, by
+!    specifying <TT>flags=XUPDATE</TT> or <TT>flags=YUPDATE</TT>. In
+!    addition, one-sided updates can be performed by setting <TT>flags</TT>
+!    to any combination of <TT>WUPDATE</TT>, <TT>EUPDATE</TT>,
+!    <TT>SUPDATE</TT> and <TT>NUPDATE</TT>, to update the west, east, north
+!    and south halos respectively. Any combination of halos may be used by
+!    adding the requisite flags, e.g: <TT>flags=XUPDATE+SUPDATE</TT> or
+!    <TT>flags=EUPDATE+WUPDATE+SUPDATE</TT> will update the east, west and
+!    south halos.
+!    
+!    If a call to <TT>mpp_start_update_domains/mpp_complete_update_domains</TT> involves at least one E-W
+!    halo and one N-S halo, the corners involved will also be updated, i.e,
+!    in the example above, the SE and SW corners will be updated.
+!    
+!    If <TT>flags</TT> is not supplied, that is
+!    equivalent to <TT>flags=XUPDATE+YUPDATE</TT>.
+!    
+!    The vector version is passed the <TT>x</TT> and <TT>y</TT>
+!    components of a vector field in tandem, and both are updated upon
+!    return. They are passed together to treat parity issues on various
+!    grids. For example, on a cubic sphere projection, the <TT>x</TT> and
+!    <TT>y</TT> components may be interchanged when passing from an
+!    equatorial cube face to a polar face. For grids with folds, vector
+!    components change sign on crossing the fold.  Paired scalar quantities
+!    can also be passed with the vector version if flags=SCALAR_PAIR, in which
+!    case components are appropriately interchanged, but signs are not.
+!    
+!    Special treatment at boundaries such as folds is also required for
+!    staggered grids. The following types of staggered grids are
+!    recognized:
+!    
+!    1) <TT>AGRID</TT>: values are at grid centers.<BR/>
+!    2) <TT>BGRID_NE</TT>: vector fields are at the NE vertex of a grid
+!    cell, i.e: the array elements <TT>u(i,j)</TT> and <TT>v(i,j)</TT> are
+!    actually at (i+&#189;,j+&#189;) with respect to the grid centers.<BR/>
+!    3) <TT>BGRID_SW</TT>: vector fields are at the SW vertex of a grid
+!    cell, i.e: the array elements <TT>u(i,j)</TT> and <TT>v(i,j)</TT> are
+!    actually at (i-&#189;,j-&#189;) with respect to the grid centers.<BR/>
+!    4) <TT>CGRID_NE</TT>: vector fields are at the N and E faces of a
+!    grid cell, i.e: the array elements <TT>u(i,j)</TT> and <TT>v(i,j)</TT>
+!    are actually at (i+&#189;,j) and (i,j+&#189;) with respect to the
+!    grid centers.<BR/>
+!    5) <TT>CGRID_SW</TT>: vector fields are at the S and W faces of a
+!    grid cell, i.e: the array elements <TT>u(i,j)</TT> and <TT>v(i,j)</TT>
+!    are actually at (i-&#189;,j) and (i,j-&#189;) with respect to the
+!    grid centers.
+!
+!    The gridtypes listed above are all available by use association as
+!    integer parameters. If vector fields are at staggered locations, the 
+!    optional argument <TT>gridtype</TT> must be appropriately set for 
+!    correct treatment at boundaries.
+!    
+!    It is safe to apply vector field updates to the appropriate arrays
+!    irrespective of the domain topology: if the topology requires no
+!    special treatment of vector fields, specifying <TT>gridtype</TT> will
+!    do no harm.
+!
+!    <TT>mpp_start_update_domains/mpp_complete_update_domains</TT> internally 
+!    buffers the data being sent and received into single messages for efficiency. 
+!    A turnable internal buffer area in memory is provided for this purpose by
+!    <TT>mpp_domains_mod</TT>. The size of this buffer area can be set by
+!    the user by calling <LINK SRC="mpp_domains.html#mpp_domains_set_stack_size">
+!    <TT>mpp_domains_set_stack_size</TT></LINK>.
+!  </DESCRIPTION>
+!  <TEMPLATE>
+!    call mpp_start_update_domains( field, domain, flags )
+!    call mpp_complete_update_domains( field, domain, flags )
+!  </TEMPLATE>
+
+! </INTERFACE>
+
+  interface mpp_start_update_domains
+     module procedure mpp_start_update_domain2D_r8_2d
+     module procedure mpp_start_update_domain2D_r8_3d
+     module procedure mpp_start_update_domain2D_r8_4d
+     module procedure mpp_start_update_domain2D_r8_5d
+     module procedure mpp_start_update_domain2D_r8_2dv
+     module procedure mpp_start_update_domain2D_r8_3dv
+     module procedure mpp_start_update_domain2D_r8_4dv
+     module procedure mpp_start_update_domain2D_r8_5dv
+#ifdef OVERLOAD_C8
+     module procedure mpp_start_update_domain2D_c8_2d
+     module procedure mpp_start_update_domain2D_c8_3d
+     module procedure mpp_start_update_domain2D_c8_4d
+     module procedure mpp_start_update_domain2D_c8_5d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_start_update_domain2D_i8_2d
+     module procedure mpp_start_update_domain2D_i8_3d
+     module procedure mpp_start_update_domain2D_i8_4d
+     module procedure mpp_start_update_domain2D_i8_5d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_start_update_domain2D_r4_2d
+     module procedure mpp_start_update_domain2D_r4_3d
+     module procedure mpp_start_update_domain2D_r4_4d
+     module procedure mpp_start_update_domain2D_r4_5d
+     module procedure mpp_start_update_domain2D_r4_2dv
+     module procedure mpp_start_update_domain2D_r4_3dv
+     module procedure mpp_start_update_domain2D_r4_4dv
+     module procedure mpp_start_update_domain2D_r4_5dv
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_start_update_domain2D_c4_2d
+     module procedure mpp_start_update_domain2D_c4_3d
+     module procedure mpp_start_update_domain2D_c4_4d
+     module procedure mpp_start_update_domain2D_c4_5d
+#endif
+     module procedure mpp_start_update_domain2D_i4_2d
+     module procedure mpp_start_update_domain2D_i4_3d
+     module procedure mpp_start_update_domain2D_i4_4d
+     module procedure mpp_start_update_domain2D_i4_5d
+  end interface
+
+  interface mpp_complete_update_domains
+     module procedure mpp_complete_update_domain2D_r8_2d
+     module procedure mpp_complete_update_domain2D_r8_3d
+     module procedure mpp_complete_update_domain2D_r8_4d
+     module procedure mpp_complete_update_domain2D_r8_5d
+     module procedure mpp_complete_update_domain2D_r8_2dv
+     module procedure mpp_complete_update_domain2D_r8_3dv
+     module procedure mpp_complete_update_domain2D_r8_4dv
+     module procedure mpp_complete_update_domain2D_r8_5dv
+#ifdef OVERLOAD_C8
+     module procedure mpp_complete_update_domain2D_c8_2d
+     module procedure mpp_complete_update_domain2D_c8_3d
+     module procedure mpp_complete_update_domain2D_c8_4d
+     module procedure mpp_complete_update_domain2D_c8_5d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_complete_update_domain2D_i8_2d
+     module procedure mpp_complete_update_domain2D_i8_3d
+     module procedure mpp_complete_update_domain2D_i8_4d
+     module procedure mpp_complete_update_domain2D_i8_5d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_complete_update_domain2D_r4_2d
+     module procedure mpp_complete_update_domain2D_r4_3d
+     module procedure mpp_complete_update_domain2D_r4_4d
+     module procedure mpp_complete_update_domain2D_r4_5d
+     module procedure mpp_complete_update_domain2D_r4_2dv
+     module procedure mpp_complete_update_domain2D_r4_3dv
+     module procedure mpp_complete_update_domain2D_r4_4dv
+     module procedure mpp_complete_update_domain2D_r4_5dv
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_complete_update_domain2D_c4_2d
+     module procedure mpp_complete_update_domain2D_c4_3d
+     module procedure mpp_complete_update_domain2D_c4_4d
+     module procedure mpp_complete_update_domain2D_c4_5d
+#endif
+     module procedure mpp_complete_update_domain2D_i4_2d
+     module procedure mpp_complete_update_domain2D_i4_3d
+     module procedure mpp_complete_update_domain2D_i4_4d
+     module procedure mpp_complete_update_domain2D_i4_5d
+  end interface
+
+  interface mpp_start_do_update
+     module procedure mpp_start_do_update_r8_3d
+     module procedure mpp_start_do_update_r8_3dv
+#ifdef OVERLOAD_C8
+     module procedure mpp_start_do_update_c8_3d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_start_do_update_i8_3d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_start_do_update_r4_3d
+     module procedure mpp_start_do_update_r4_3dv
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_start_do_update_c4_3d
+#endif
+     module procedure mpp_start_do_update_i4_3d
+  end interface
+
+  interface mpp_complete_do_update
+     module procedure mpp_complete_do_update_r8_3d
+     module procedure mpp_complete_do_update_r8_3dv
+#ifdef OVERLOAD_C8
+     module procedure mpp_complete_do_update_c8_3d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_complete_do_update_i8_3d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_complete_do_update_r4_3d
+     module procedure mpp_complete_do_update_r4_3dv
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_complete_do_update_c4_3d
+#endif
+     module procedure mpp_complete_do_update_i4_3d
+  end interface
+
+  ! <INTERFACE NAME="mpp_define_nest_domains">
+  !   <OVERVIEW>
+  !     Set up a domain to pass data between coarse and fine grid of nested model.
+  !   </OVERVIEW>
+  !   <DESCRIPTION>
+  !     Set up a domain to pass data between coarse and fine grid of nested model. 
+  !     Currently it only support one fine nest region over the corase grid region.
+  !     It supports both serial and concurrent nesting. The serial nesting is that 
+  !     both coarse and fine grid are on the exact same processor list. Concurrent
+  !     nesting is that coarse and fine grid are on individual processor list and 
+  !     no overlapping. Coarse and fine grid domain need to be defined before 
+  !     calling mpp_define_nest_domains. For concurrent nesting, mpp_broadcast
+  !     need to be called to broadcast both fine and coarse grid domain onto
+  !     all the processors. 
+  !     <BR> 
+  !     </BR>
+  !     <BR> 
+  !     </BR> 
+  !     mpp_update_nest_coarse is used to pass data from fine grid to coarse grid computing domain.
+  !     mpp_update_nest_fine   is used to pass data from coarse grid to fine grid halo.
+  !     You may call mpp_get_C2F_index before calling mpp_update_nest_fine to get the index for 
+  !     passing data from coarse to fine. You may call mpp_get_F2C_index before calling 
+  !     mpp_update_nest_coarse to get the index for passing data from coarse to fine.
+  !     <BR> 
+  !     </BR>
+  !     <BR> 
+  !     </BR> 
+
+  !     NOTE: The following tests are done in test_mpp_domains: the coarse grid is cubic sphere
+  !           grid and the fine grid is a regular-latlon grid (symmetric domain) nested inside
+  !           face 3 of the cubic sphere grid. Tests are done for data at T, E, C, N-cell center.
+  !           
+  !     Below is an example to pass data between fine and coarse grid (More details on how to
+  !     use the nesting domain update are available in routing test_update_nest_domain of 
+  !     shared/mpp/test_mpp_domains.F90.
+  !
+  !    <PRE>
+  !    if( concurrent ) then
+  !       call mpp_broadcast_domain(domain_fine)
+  !       call mpp_broadcast_domain(domain_coarse)
+  !    endif
+  !    
+  !     call mpp_define_nest_domains(nest_domain, domain_fine, domain_coarse, tile_fine, tile_coarse, &
+  !                                  istart_fine, iend_fine, jstart_fine, jend_fine,                  &
+  !                                  istart_coarse, iend_coarse, jstart_coarse, jend_coarse,         &
+  !                                  pelist, extra_halo, name="nest_domain")
+  !     call mpp_get_C2F_index(nest_domain, isw_f, iew_f, jsw_f, jew_f, isw_c, iew_c, jsw_c, jew_c, WEST)
+  !     call mpp_get_C2F_index(nest_domain, ise_f, iee_f, jse_f, jee_f, ise_c, iee_c, jse_c, jee_c, EAST)
+  !     call mpp_get_C2F_index(nest_domain, iss_f, ies_f, jss_f, jes_f, iss_c, ies_c, jss_c, jes_c, SOUTH)
+  !     call mpp_get_C2F_index(nest_domain, isn_f, ien_f, jsn_f, jen_f, isn_c, ien_c, jsn_c, jen_c, NORTH)
+  !
+  !     allocate(wbuffer(isw_c:iew_c, jsw_c:jew_c,nz))
+  !     allocate(ebuffer(ise_c:iee_c, jse_c:jee_c,nz))
+  !     allocate(sbuffer(iss_c:ies_c, jss_c:jes_c,nz))
+  !     allocate(nbuffer(isn_c:ien_c, jsn_c:jen_c,nz))
+  !     call mpp_update_nest_fine(x, nest_domain, wbuffer, sbuffer, ebuffer, nbuffer)
+  !
+  !     call mpp_get_F2C_index(nest_domain, is_c, ie_c, js_c, je_c, is_f, ie_f, js_f, je_f)
+  !     allocate(buffer (is_f:ie_f, js_f:je_f,nz))
+  !     call mpp_update_nest_coarse(x, nest_domain, buffer)
+  !     </PRE>
+
+  !   </DESCRIPTION>
+  !   <TEMPLATE>
+  !     call mpp_define_nest_domains(nest_domain, domain_fine, domain_coarse, tile_fine, tile_coarse, 
+  !                                 istart_fine, iend_fine, jstart_fine, jend_fine,                  
+  !                                 istart_coarse, iend_coarse, jstart_coarse, jend_coarse,         
+  !                                 pelist, extra_halo, name)
+  !   </TEMPLATE>
+  !
+  !   <INOUT NAME="nest_domain">
+  !     Holds the information to pass data between fine and coarse grid.
+  !   </INOUT>
+  !   <IN NAME="domain_fine">
+  !     domain for fine grid.
+  !   </IN>
+  !   <IN NAME="domain_coarse">
+  !     domain for coarse grid.
+  !   </IN>
+  !   <IN NAME="tile_fine">
+  !     tile number of the fine grid. Currently this value should be 1.
+  !   </IN>
+  !   <IN NAME="tile_coarse">
+  !     tile numuber of the coarse grid.
+  !   </IN>
+  !   <IN NAME="istart_fine, iend_fine, jstart_fine, jend_fine">
+  !     index in the fine grid of the nested region
+  !   </IN>
+  !   <IN NAME="istart_coarse, iend_coarse, jstart_coarse, jend_coarse">
+  !     index in the coarse grid of the nested region
+  !   </IN>
+  !   <IN NAME="pelist">
+  !     List of PEs to which the domains are to be assigned.
+  !   </IN>
+  !   <IN NAME="extra_halo">
+  !     optional argument. extra halo for passing data from coarse grid to fine grid. 
+  !     Default is 0 and currently only support extra_halo = 0.
+  !   </IN>
+  !   <IN NAME="name">
+  !     opitonal argument. Name of the nest domain. 
+  !   </IN>
+  ! </INTERFACE>
+
+  ! <INTERFACE NAME="mpp_get_C2F_index">
+  !   <OVERVIEW>
+  !     Get the index of the data passed from coarse grid to fine grid.
+  !   </OVERVIEW>
+  !   <DESCRIPTION>
+  !     Get the index of the data passed from coarse grid to fine grid.
+  !   </DESCRIPTION>
+  !   <TEMPLATE>
+  !     call mpp_get_C2F_index(nest_domain, is_fine, ie_fine, js_fine, je_fine, 
+  !                            is_coarse, ie_coarse, js_coarse, je_coarse, dir, position)
+  !   </TEMPLATE>
+  !
+  !   <IN NAME="nest_domain">
+  !     Holds the information to pass data between fine and coarse grid.
+  !   </IN>
+  !   <OUT NAME="istart_fine, iend_fine, jstart_fine, jend_fine">
+  !     index in the fine grid of the nested region
+  !   </OUT>
+  !   <OUT NAME="istart_coarse, iend_coarse, jstart_coarse, jend_coarse">
+  !     index in the coarse grid of the nested region
+  !   </OUT>
+  !   <IN NAME="dir">
+  !     direction of the halo update. Its value should be WEST, EAST, SOUTH or NORTH. 
+  !   </IN>
+  !   <IN NAME="position">
+  !     Cell position. It value should be CENTER, EAST, NORTH or SOUTH. 
+  !   </IN>
+  ! </INTERFACE>
+
+  ! <INTERFACE NAME="mpp_get_F2C_index">
+  !   <OVERVIEW>
+  !     Get the index of the data passed from fine grid to coarse grid.
+  !   </OVERVIEW>
+  !   <DESCRIPTION>
+  !     Get the index of the data passed from fine grid to coarse grid.
+  !   </DESCRIPTION>
+  !   <TEMPLATE>
+  !     call mpp_get_F2C_index(nest_domain, is_coarse, ie_coarse, js_coarse, je_coarse, 
+  !                            is_fine, ie_fine, js_fine, je_fine, position)
+  !   </TEMPLATE>
+  !
+  !   <IN NAME="nest_domain">
+  !     Holds the information to pass data between fine and coarse grid.
+  !   </IN>
+  !   <OUT NAME="istart_fine, iend_fine, jstart_fine, jend_fine">
+  !     index in the fine grid of the nested region
+  !   </OUT>
+  !   <OUT NAME="istart_coarse, iend_coarse, jstart_coarse, jend_coarse">
+  !     index in the coarse grid of the nested region
+  !   </OUT>
+  !   <IN NAME="position">
+  !     Cell position. It value should be CENTER, EAST, NORTH or SOUTH. 
+  !   </IN>
+  ! </INTERFACE>
+
+  ! <INTERFACE NAME="mpp_update_nest_fine">
+  !   <OVERVIEW>
+  !     Pass the data from coarse grid to fill the buffer to be ready to be interpolated 
+  !     onto fine grid.
+  !   </OVERVIEW>
+  !   <DESCRIPTION>
+  !     Pass the data from coarse grid to fill the buffer to be ready to be interpolated 
+  !     onto fine grid.
+  !   </DESCRIPTION>
+  !   <TEMPLATE>
+  !     call mpp_update_nest_fine(field, nest_domain, wbuffer, ebuffer, sbuffer, nbuffer, 
+  !                               flags, complete, position, extra_halo, name, tile_count)
+  !   </TEMPLATE>
+  !
+  !   <IN    NAME="field">
+  !     field on the model grid.
+  !   </IN>
+  !   <INOUT NAME="nest_domain">
+  !     Holds the information to pass data between fine and coarse grid.
+  !   </INOUT>
+  !   <OUT   NAME="wbuffer">
+  !     west side buffer to be filled with data on coarse grid.
+  !   </OUT>
+  !   <OUT   NAME="ebuffer">
+  !     east side buffer to be filled with data on coarse grid.
+  !   </OUT>
+  !   <OUT   NAME="sbuffer">
+  !     south side buffer to be filled with data on coarse grid.
+  !   </OUT>
+  !   <OUT   NAME="nbuffer">
+  !     north side buffer to be filled with data on coarse grid.
+  !   </OUT>
+  !   <IN    NAME="flags">
+  !     optional arguments. Specify the direction of fine grid halo buffer to be filled.
+  !     Default value is XUPDATE+YUPDATE.
+  !   </IN>
+  !   <IN    NAME="complete">
+  !     optional argument. When true, do the buffer filling. Default value is true.
+  !   </IN>
+  !   <IN NAME="position">
+  !     Cell position. It value should be CENTER, EAST, NORTH or SOUTH. Default is CENTER.
+  !   </IN>
+  !   <IN NAME="extra_halo">
+  !     optional argument. extra halo for passing data from coarse grid to fine grid. 
+  !     Default is 0 and currently only support extra_halo = 0.
+  !   </IN>
+  !   <IN NAME="name">
+  !     opitonal argument. Name of the nest domain. 
+  !   </IN>
+  !   <IN NAME="tile_count">
+  !     optional argument. Used to support multiple-tile-per-pe. default is 1 and currently
+  !     only support tile_count = 1.
+  !   </IN>
+  ! </INTERFACE>
+
+  ! <INTERFACE NAME="mpp_update_nest_coarse">
+  !   <OVERVIEW>
+  !     Pass the data from fine grid to fill the buffer to be ready to be interpolated 
+  !     onto coarse grid.
+  !   </OVERVIEW>
+  !   <DESCRIPTION>
+  !     Pass the data from fine grid to fill the buffer to be ready to be interpolated 
+  !     onto coarse grid.
+  !   </DESCRIPTION>
+  !   <TEMPLATE>
+  !     call mpp_update_nest_coarse(field, nest_domain, buffer, complete, position, name, tile_count)
+  !   </TEMPLATE>
+  !
+  !   <IN    NAME="field">
+  !     field on the model grid.
+  !   </IN>
+  !   <INOUT NAME="nest_domain">
+  !     Holds the information to pass data between fine and coarse grid.
+  !   </INOUT>
+  !   <OUT   NAME="buffer">
+  !     buffer to be filled with data on coarse grid.
+  !   </OUT>
+  !   <IN    NAME="complete">
+  !     optional argument. When true, do the buffer filling. Default value is true.
+  !   </IN>
+  !   <IN NAME="position">
+  !     Cell position. It value should be CENTER, EAST, NORTH or SOUTH. Default is CENTER.
+  !   </IN>
+  !   <IN NAME="name">
+  !     opitonal argument. Name of the nest domain. 
+  !   </IN>
+  !   <IN NAME="tile_count">
+  !     optional argument. Used to support multiple-tile-per-pe. default is 1 and currently
+  !     only support tile_count = 1.
+  !   </IN>
+  ! </INTERFACE>
+
+  interface mpp_update_nest_fine
+     module procedure mpp_update_nest_fine_r8_2d
+     module procedure mpp_update_nest_fine_r8_3d
+     module procedure mpp_update_nest_fine_r8_4d
+#ifdef OVERLOAD_C8
+     module procedure mpp_update_nest_fine_c8_2d
+     module procedure mpp_update_nest_fine_c8_3d
+     module procedure mpp_update_nest_fine_c8_4d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_update_nest_fine_i8_2d
+     module procedure mpp_update_nest_fine_i8_3d
+     module procedure mpp_update_nest_fine_i8_4d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_update_nest_fine_r4_2d
+     module procedure mpp_update_nest_fine_r4_3d
+     module procedure mpp_update_nest_fine_r4_4d
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_update_nest_fine_c4_2d
+     module procedure mpp_update_nest_fine_c4_3d
+     module procedure mpp_update_nest_fine_c4_4d
+#endif
+     module procedure mpp_update_nest_fine_i4_2d
+     module procedure mpp_update_nest_fine_i4_3d
+     module procedure mpp_update_nest_fine_i4_4d
+  end interface
+
+  interface mpp_do_update_nest_fine
+     module procedure mpp_do_update_nest_fine_r8_3d
+#ifdef OVERLOAD_C8
+     module procedure mpp_do_update_nest_fine_c8_3d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_do_update_nest_fine_i8_3d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_do_update_nest_fine_r4_3d
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_do_update_nest_fine_c4_3d
+#endif
+     module procedure mpp_do_update_nest_fine_i4_3d
+  end interface
+
+  interface mpp_update_nest_coarse
+     module procedure mpp_update_nest_coarse_r8_2d
+     module procedure mpp_update_nest_coarse_r8_3d
+     module procedure mpp_update_nest_coarse_r8_4d
+#ifdef OVERLOAD_C8
+     module procedure mpp_update_nest_coarse_c8_2d
+     module procedure mpp_update_nest_coarse_c8_3d
+     module procedure mpp_update_nest_coarse_c8_4d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_update_nest_coarse_i8_2d
+     module procedure mpp_update_nest_coarse_i8_3d
+     module procedure mpp_update_nest_coarse_i8_4d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_update_nest_coarse_r4_2d
+     module procedure mpp_update_nest_coarse_r4_3d
+     module procedure mpp_update_nest_coarse_r4_4d
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_update_nest_coarse_c4_2d
+     module procedure mpp_update_nest_coarse_c4_3d
+     module procedure mpp_update_nest_coarse_c4_4d
+#endif
+     module procedure mpp_update_nest_coarse_i4_2d
+     module procedure mpp_update_nest_coarse_i4_3d
+     module procedure mpp_update_nest_coarse_i4_4d
+  end interface
+
+  interface mpp_do_update_nest_coarse
+     module procedure mpp_do_update_nest_coarse_r8_3d
+#ifdef OVERLOAD_C8
+     module procedure mpp_do_update_nest_coarse_c8_3d
+#endif
+#ifndef no_8byte_integers
+     module procedure mpp_do_update_nest_coarse_i8_3d
+#endif
+#ifdef OVERLOAD_R4
+     module procedure mpp_do_update_nest_coarse_r4_3d
+#endif
+#ifdef OVERLOAD_C4
+     module procedure mpp_do_update_nest_coarse_c4_3d
+#endif
+     module procedure mpp_do_update_nest_coarse_i4_3d
+  end interface
+
+
+interface mpp_broadcast_domain
+  module procedure mpp_broadcast_domain_1
+  module procedure mpp_broadcast_domain_2
+end interface
+
 
 !--------------------------------------------------------------
 !bnc: for adjoint update
@@ -1768,13 +2458,14 @@ module mpp_domains_mod
 
   !--- version information variables
   character(len=128), public :: version= &
-       '$Id: mpp_domains.F90,v 16.0.6.2.2.1.2.1.2.2.4.4.2.1 2009/11/19 14:23:17 z1l Exp $'
+       '$Id: mpp_domains.F90,v 19.0.2.1.2.3.2.1 2012/05/15 19:13:31 z1l Exp $'
   character(len=128), public :: tagname= &
-       '$Name: mom4p1_pubrel_dec2009_nnz $'
+       '$Name: siena_201207 $'
 
 
 contains
 
+#include <mpp_define_nest_domains.inc>
 #include <mpp_domains_util.inc>
 #include <mpp_domains_comm.inc>
 #include <mpp_domains_define.inc>

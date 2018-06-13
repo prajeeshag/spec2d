@@ -1,29 +1,5 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module station_data_mod 
-! <CONTACT EMAIL="Giang.Nong@gfdl.noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Giang Nong
 ! </CONTACT>
 ! <OVERVIEW>
@@ -69,9 +45,10 @@ use axis_utils_mod, only: nearest_index
 use mpp_io_mod,    only : mpp_open, MPP_RDONLY, MPP_ASCII, mpp_close,MPP_OVERWR,MPP_NETCDF, &
                           mpp_write_meta, MPP_SINGLE, mpp_write, fieldtype,mpp_flush
 use fms_mod,       only : error_mesg, FATAL, WARNING, stdlog, write_version_number,&
-                          mpp_pe, lowercase, stdout, close_file
+                          mpp_pe, lowercase, stdout, close_file, open_namelist_file, check_nml_error
 use mpp_mod,       only : mpp_npes,  mpp_sync, mpp_root_pe, mpp_send, mpp_recv, mpp_max, &
-                          mpp_get_current_pelist
+                          mpp_get_current_pelist, input_nml_file, &
+                          COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
 use mpp_domains_mod,only: domain2d, mpp_get_compute_domain
 use diag_axis_mod, only : diag_axis_init
 use diag_output_mod,only:  write_axis_meta_data, write_field_meta_data,diag_fieldtype,done_meta_data
@@ -179,7 +156,7 @@ subroutine station_data_init()
 
 character(len=128)    :: station_name
 real                  :: lat, lon  
-integer               :: iunit,nfiles,nfields,time_units,output_freq_units,j,station_id,io_status,logunit
+integer               :: iunit,nfiles,nfields,time_units,output_freq_units,j,station_id,io_status,logunit, ierr
 logical               :: init_verbose
 character(len=128)    :: record
 type file_part_type
@@ -205,15 +182,23 @@ namelist /station_data_nml/ max_output_fields, max_stations,init_verbose
   total_pe = mpp_npes()
   allocate(pelist(total_pe))
   call mpp_get_current_pelist(pelist, pelist_name) 
+
 ! read namelist
-  call mpp_open(iunit, 'input.nml',form=MPP_ASCII,action=MPP_RDONLY)
-  read(iunit,station_data_nml,iostat=io_status)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, station_data_nml, iostat=io_status)
+  ierr = check_nml_error(io_status, 'station_data_nml')
+#else
+  iunit = open_namelist_file ()
+  ierr=1; do while (ierr /= 0)
+  read  (iunit, nml=station_data_nml, iostat=io_status, end=10)
+  ierr = check_nml_error(io_status, 'station_data_nml')
+  enddo
+10 call close_file (iunit)
+
+#endif
   logunit = stdlog()
   write(logunit, station_data_nml)
-  if (io_status > 0) then
-     call error_mesg('station_data_init', 'Error reading station_data_nml',FATAL)
-  endif
-  call mpp_close (iunit)
+
   allocate(output_fields(max_output_fields), stations(max_stations))
 ! read list of stations
   if(init_verbose) then
@@ -771,7 +756,7 @@ subroutine send_station_data_3d(field_id, data, time)
 
   if (time > output_fields(field_id)%next_output .and. freq /= END_OF_RUN) then  ! time to write out     
 ! ALL PEs, including root PE, must send data to root PE        
-     call mpp_send(output_fields(field_id)%num_station,plen=1,to_pe=mpp_root_pe())
+     call mpp_send(output_fields(field_id)%num_station,plen=1,to_pe=mpp_root_pe(),tag=COMM_TAG_1)
      if(output_fields(field_id)%num_station > 0) then
         call mpp_send(output_fields(field_id)%station_id(1),plen=size(output_fields(field_id)%station_id),&
              to_pe=mpp_root_pe())
@@ -786,7 +771,7 @@ subroutine send_station_data_3d(field_id, data, time)
 ! receive local data from all PEs 
      if(mpp_pe() == mpp_root_pe()) then
         do i = 1,size(pelist)           
-           call mpp_recv(local_num_stations,glen=1,from_pe=pelist(i))
+           call mpp_recv(local_num_stations,glen=1,from_pe=pelist(i),tag=COMM_TAG_1)
            if(local_num_stations> 0) then
               allocate(station_ids(local_num_stations))
               allocate(tmp_buffer(local_num_stations,output_fields(field_id)%nlevel))
@@ -914,12 +899,12 @@ subroutine station_data_end(time)
         if(.not. output_fields(field)%register) cycle
         if(time >= output_fields(field)%next_output .or. freq == END_OF_RUN) then
 ! ALL PEs, including root PE, must send data to root PE        
-           call mpp_send(output_fields(field)%num_station,plen=1,to_pe=mpp_root_pe())
+           call mpp_send(output_fields(field)%num_station,plen=1,to_pe=mpp_root_pe(),tag=COMM_TAG_2)
            if(output_fields(field)%num_station > 0) then
               call mpp_send(output_fields(field)%station_id(1),plen=size(output_fields(field)%station_id),&
-                   to_pe=mpp_root_pe())
+                   to_pe=mpp_root_pe(),tag=COMM_TAG_3)
               call mpp_send(output_fields(field)%buffer(1,1),plen=size(output_fields(field)%buffer),&
-                   to_pe=mpp_root_pe())
+                   to_pe=mpp_root_pe(),tag=COMM_TAG_4)
            endif
 ! get max_counter if the field is averaged
            if(output_fields(field)%time_average) then
@@ -929,12 +914,12 @@ subroutine station_data_end(time)
 ! only root PE receives local data from all PEs 
            if(mpp_pe() == mpp_root_pe()) then
               do pe = 1,size(pelist)           
-                 call mpp_recv(local_num_stations,glen=1,from_pe=pelist(pe))
+                 call mpp_recv(local_num_stations,glen=1,from_pe=pelist(pe),tag=COMM_TAG_2)
                  if(local_num_stations> 0) then
                     allocate(station_ids(local_num_stations))
                     allocate(tmp_buffer(local_num_stations,output_fields(field)%nlevel))
-                    call mpp_recv(station_ids(1), glen=size(station_ids), from_pe=pelist(pe))
-                    call mpp_recv(tmp_buffer(1,1),glen=size(tmp_buffer),from_pe=pelist(pe)) 
+                    call mpp_recv(station_ids(1), glen=size(station_ids), from_pe=pelist(pe),tag=COMM_TAG_3)
+                    call mpp_recv(tmp_buffer(1,1),glen=size(tmp_buffer),from_pe=pelist(pe),tag=COMM_TAG_4) 
                     do col = 1,local_num_stations
                        global_field%buffer(station_ids(col),:) = tmp_buffer(col,:)
                     enddo

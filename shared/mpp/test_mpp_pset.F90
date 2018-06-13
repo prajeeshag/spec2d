@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef test_mpp_pset
 #include <fms_platform.h>
 program test
@@ -49,11 +25,14 @@ program test
   logical :: root
 !clocks
   integer :: id_full, id_alloc, id_auto
+  integer :: out_unit, errunit
 
   call mpp_init()
   pe = mpp_pe()
   npes = mpp_npes()
-  write( stdout(),'(a,i6)' )'Starting MPP_PSET unit test, npes=', npes
+  out_unit = stdout()
+  errunit = stderr()
+  write( out_unit,'(a,i6)' )'Starting MPP_PSET unit test, npes=', npes
   call mpp_pset_create( npes, pset )
   root = mpp_pset_root(pset)
   id_full = mpp_clock_id( 'Full array' )
@@ -86,7 +65,7 @@ program test
   call mpp_clock_end(id_full)
 !divide up among PSETs
   call mpp_pset_segment_array( pset, 1, n, ks, ke )
-  write( stderr(),'(a,4i6)' )'pe, n, ks, ke=', pe, n, ks, ke
+  write( errunit,'(a,4i6)' )'pe, n, ks, ke=', pe, n, ks, ke
   call mpp_clock_begin(id_alloc)
   do k = ks,ke
      do j = 1,n
@@ -97,7 +76,7 @@ program test
   end do
   call mpp_pset_sync(pset)
   call mpp_clock_end(id_alloc)
-  write( stderr(),'(a,i6,2es23.15)' )'b, c should be equal: pe b c=', &
+  write( errunit,'(a,i6,2es23.15)' )'b, c should be equal: pe b c=', &
        pe, sum(b), sum(c)
   call mpp_pset_print_chksum( pset, 'test_alloc', c(:,:,ks:ke) )
   call test_auto(n)
@@ -127,7 +106,7 @@ contains
     end do
     call mpp_pset_sync(pset)
     call mpp_clock_end(id_auto)
-    write( stderr(),'(a,i6,2es23.15)' )'b, d should be equal: pe b d=', &
+    write( errunit,'(a,i6,2es23.15)' )'b, d should be equal: pe b d=', &
          pe, sum(b), sum(d)
     call mpp_pset_print_chksum( pset, 'test_auto ', d(:,js:je,:) )
   end subroutine test_auto

@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_io_misc.inc,v 17.0.4.2 2009/10/16 19:39:01 wfc Exp $
+! $Id: mpp_io_misc.inc,v 19.0 2012/01/06 22:03:22 fms Exp $
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !                                                                      !
@@ -32,6 +32,8 @@
       integer                       :: unit_nml, io_status, iunit
       integer                       :: logunit, outunit, inunit, errunit
       logical                       :: opened
+      real(DOUBLE_KIND)             :: doubledata = 0
+      real                          :: realarray(4)
 
       if( module_is_initialized )return
 
@@ -53,6 +55,9 @@
       call mpp_set_unit_range( 103, maxunits )
 
       !--- namelist 
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, mpp_io_nml, iostat=io_status)
+#else
       do unit_nml = unit_begin, unit_end
          inquire( unit_nml,OPENED=opened )
          if( .NOT.opened )exit
@@ -60,9 +65,22 @@
       open(unit_nml,file='input.nml')
       read(unit_nml,mpp_io_nml,iostat=io_status)
       close(unit_nml)
+#endif
       outunit = stdout(); logunit=stdlog()
       write(outunit, mpp_io_nml)
       write(logunit, mpp_io_nml)
+
+!--- check the deflate level, set deflate = 1 if deflate_level is greater than equal to 0
+      if(deflate_level .GE. 0) deflate = 1
+      if(deflate .NE. 0) then
+         if(deflate_level <0 .OR. deflate > 9) then
+            call mpp_error(FATAL, "mpp_io_mod(mpp_io_init): mpp_io_nml variable must be between 0 and 9 when set")
+         endif
+      endif
+
+! determine the pack_size
+      pack_size = size(transfer(doubledata, realarray))
+      if( pack_size .NE. 1 .AND. pack_size .NE. 2) call mpp_error(FATAL,'mpp_io_mod(mpp_io_init): pack_size should be 1 or 2')  
 
 !initialize default_field
       default_field%name = 'noname'
@@ -135,7 +153,7 @@
           iunit = stdlog()  ! PGI compiler does not like stdlog() doing I/O within write call
           write( iunit,'(/a)' )'MPP_IO module '//trim(version)
           write( iunit,'( a)' )'MPP_IO module '//trim(tagname)
-#ifdef use_netCDF4
+#ifdef use_netCDF
           text = NF_INQ_LIBVERS()
           write( iunit,'(/a)' )'Using netCDF library version '//trim(text)
 #endif    
@@ -192,7 +210,7 @@
       do unit = unit_begin,unit_end
          if( mpp_file(unit)%opened )close(unit)
       end do
-#ifdef use_netCDF4
+#ifdef use_netCDF
 !close all open netCDF units
       do unit = maxunits+1,2*maxunits
          if( mpp_file(unit)%opened )error = NF_CLOSE(mpp_file(unit)%ncid)
@@ -220,7 +238,7 @@
       character(len=*), optional :: string
       character(len=256) :: errmsg
 
-#ifdef use_netCDF4
+#ifdef use_netCDF
       if( err.EQ.NF_NOERR )return
       errmsg = NF_STRERROR(err)
       if( PRESENT(file) )errmsg = trim(errmsg)//' File='//file%name
@@ -245,7 +263,7 @@
       if( .NOT.mpp_file(unit)%initialized )call mpp_error( FATAL, 'MPP_FLUSH: cannot flush a file during writing of metadata.' )
 
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
-#ifdef use_netCDF4
+#ifdef use_netCDF
           error = NF_SYNC(mpp_file(unit)%ncid); call netcdf_err( error, mpp_file(unit) )
 #endif
       else

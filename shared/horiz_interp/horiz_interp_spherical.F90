@@ -1,33 +1,8 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module horiz_interp_spherical_mod
 
-  ! <CONTACT EMAIL="Matthew.Harrison@noaa.gov"> Matthew Harrison </CONTACT>
-  ! <CONTACT EMAIL="Zhi.Liang@noaa.gov"> Zhi Liang </CONTACT>
+  ! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Matthew Harrison </CONTACT>
+  ! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Zhi Liang </CONTACT>
 
-  ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
   ! <OVERVIEW>
   !   Performs spatial interpolation between grids using inverse-distance-weighted scheme.
@@ -43,6 +18,7 @@ module horiz_interp_spherical_mod
 
   use mpp_mod,               only : mpp_error, FATAL, WARNING, stdout
   use mpp_mod,               only : mpp_root_pe, mpp_pe
+  use mpp_mod,               only : input_nml_file
   use fms_mod,               only : write_version_number, file_exist, close_file
   use fms_mod,               only : check_nml_error, open_namelist_file
   use constants_mod,         only : pi
@@ -83,8 +59,8 @@ module horiz_interp_spherical_mod
   namelist /horiz_interp_spherical_nml/ search_method
 
   !-----------------------------------------------------------------------
-  character(len=128) :: version = '$Id: horiz_interp_spherical.F90,v 14.0 2007/03/15 22:40:07 fms Exp $'
-  character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+  character(len=128) :: version = '$Id: horiz_interp_spherical.F90,v 19.0 2012/01/06 21:58:27 fms Exp $'
+  character(len=128) :: tagname = '$Name: siena_201207 $'
   logical            :: module_is_initialized = .FALSE.
 
 contains
@@ -104,6 +80,9 @@ contains
 
     if(module_is_initialized) return
     call write_version_number (version, tagname)
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, horiz_interp_spherical_nml, iostat=io)
+#else
     if (file_exist('input.nml')) then
        unit = open_namelist_file ( )
        ierr=1; do while (ierr /= 0)
@@ -112,6 +91,7 @@ contains
     enddo
 10  call close_file (unit)
     endif
+#endif
 
  module_is_initialized = .true.
 
@@ -198,10 +178,9 @@ end subroutine horiz_interp_spherical_init
     real, dimension(size(lon_in,1)*size(lon_in,2))   :: theta_src, phi_src
 
     !--------------------------------------------------------------
-
     pe      = mpp_pe()
     root_pe = mpp_root_pe()
-
+    
     tpi = 2.0*PI; hpi = 0.5*PI
 
     num_neighbors = num_nbrs_default

@@ -1,31 +1,7 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----------------------------------------------------------------------
 !                 Communication for message-passing codes
 !
-! AUTHOR: V. Balaji (V.Balaji@noaa.gov)
+! AUTHOR: V. Balaji (V.Balaji)
 !         SGI/GFDL Princeton University
 !
 ! This program is free software; you can redistribute it and/or modify
@@ -45,14 +21,12 @@
 module mpp_mod
 !a generalized communication package for use with shmem and MPI
 !will add: co_array_fortran, MPI2
-!Balaji (V.Balaji@noaa.gov) 11 May 1998
+!Balaji (V.Balaji) 11 May 1998
 
-! <CONTACT EMAIL="V.Balaji@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   V. Balaji
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-! <RCSLOG SRC="http://www.gfdl.noaa.gov/~vb/changes_mpp.html"/>
 
 ! <OVERVIEW>
 !   <TT>mpp_mod</TT>, is a set of simple calls to provide a uniform interface
@@ -187,10 +161,16 @@ module mpp_mod
   use mpp_parameter_mod, only : NOTE, WARNING, FATAL, MPP_CLOCK_DETAILED,MPP_CLOCK_SYNC
   use mpp_parameter_mod, only : CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_MODULE_DRIVER
   use mpp_parameter_mod, only : CLOCK_MODULE, CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA
-  use mpp_parameter_mod, only : MAX_EVENTS, MAX_BINS, MAX_EVENT_TYPES, PESET_MAX, MAX_CLOCKS
+  use mpp_parameter_mod, only : MAX_EVENTS, MAX_BINS, MAX_EVENT_TYPES, MAX_CLOCKS
   use mpp_parameter_mod, only : MAXPES, EVENT_WAIT, EVENT_ALLREDUCE, EVENT_BROADCAST
   use mpp_parameter_mod, only : EVENT_RECV, EVENT_SEND, MPP_READY, MPP_WAIT
   use mpp_parameter_mod, only : mpp_parameter_version=>version, mpp_parameter_tagname=>tagname
+  use mpp_parameter_mod, only : DEFAULT_TAG
+  use mpp_parameter_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
+  use mpp_parameter_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
+  use mpp_parameter_mod, only : COMM_TAG_9,  COMM_TAG_10, COMM_TAG_11, COMM_TAG_12
+  use mpp_parameter_mod, only : COMM_TAG_13, COMM_TAG_14, COMM_TAG_15, COMM_TAG_16
+  use mpp_parameter_mod, only : COMM_TAG_17, COMM_TAG_18, COMM_TAG_19, COMM_TAG_20
   use mpp_data_mod,      only : stat, mpp_stack, ptr_stack, status, ptr_status, sync, ptr_sync  
   use mpp_data_mod,      only : mpp_from_pe, ptr_from, remote_data_loc, ptr_remote
   use mpp_data_mod,      only : mpp_data_version=>version, mpp_data_tagname=>tagname
@@ -211,10 +191,16 @@ private
   public :: MPP_VERBOSE, MPP_DEBUG, ALL_PES, ANY_PE, NULL_PE, NOTE, WARNING, FATAL
   public :: MPP_CLOCK_SYNC, MPP_CLOCK_DETAILED, CLOCK_COMPONENT, CLOCK_SUBCOMPONENT
   public :: CLOCK_MODULE_DRIVER, CLOCK_MODULE, CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA
-  public :: MAXPES, EVENT_RECV, EVENT_SEND
+  public :: MAXPES, EVENT_RECV, EVENT_SEND, INPUT_STR_LENGTH
+  public :: COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
+  public :: COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
+  public :: COMM_TAG_9,  COMM_TAG_10, COMM_TAG_11, COMM_TAG_12
+  public :: COMM_TAG_13, COMM_TAG_14, COMM_TAG_15, COMM_TAG_16
+  public :: COMM_TAG_17, COMM_TAG_18, COMM_TAG_19, COMM_TAG_20
+
 
   !--- public data from mpp_data_mod ------------------------------
-  public :: request
+!  public :: request
 
   !--- public interface from mpp_util.h ------------------------------
   public :: stdin, stdout, stderr, stdlog, lowercase, uppercase, mpp_error, mpp_error_state
@@ -222,10 +208,12 @@ private
   public :: mpp_node, mpp_npes, mpp_root_pe, mpp_set_root_pe, mpp_declare_pelist
   public :: mpp_get_current_pelist, mpp_set_current_pelist, mpp_clock_begin, mpp_clock_end
   public :: mpp_clock_id, mpp_clock_set_grain, mpp_record_timing_data, get_unit
+  public :: read_ascii_file
 
   !--- public interface from mpp_comm.h ------------------------------
   public :: mpp_chksum, mpp_max, mpp_min, mpp_sum, mpp_transmit, mpp_send, mpp_recv
   public :: mpp_broadcast, mpp_malloc, mpp_init, mpp_exit
+  public :: mpp_gather
 #ifdef use_MPI_GSM
   public :: mpp_gsm_malloc, mpp_gsm_free
 #endif
@@ -659,6 +647,22 @@ private
   end interface
 
   !#####################################################################
+  ! <INTERFACE NAME="mpp_gather">
+  !  <OVERVIEW>
+  !    gather information onto root pe.
+  !  </OVERVIEW>
+  ! </INTERFACE>
+  interface mpp_gather
+     module procedure mpp_gather_int4_1d
+     module procedure mpp_gather_real4_1d
+     module procedure mpp_gather_real8_1d
+     module procedure mpp_gather_int4_1dv
+     module procedure mpp_gather_real4_1dv
+     module procedure mpp_gather_real8_1dv
+  end interface
+
+
+  !#####################################################################
 
   ! <INTERFACE NAME="mpp_transmit">
   !  <OVERVIEW>
@@ -761,14 +765,14 @@ private
      module procedure mpp_transmit_logical8_4d
      module procedure mpp_transmit_logical8_5d
 #endif
-#ifdef OVERLOAD_R4
+
      module procedure mpp_transmit_real4
      module procedure mpp_transmit_real4_scalar
      module procedure mpp_transmit_real4_2d
      module procedure mpp_transmit_real4_3d
      module procedure mpp_transmit_real4_4d
      module procedure mpp_transmit_real4_5d
-#endif
+
 #ifdef OVERLOAD_C4
      module procedure mpp_transmit_cmplx4
      module procedure mpp_transmit_cmplx4_scalar
@@ -819,14 +823,14 @@ private
      module procedure mpp_recv_logical8_4d
      module procedure mpp_recv_logical8_5d
 #endif
-#ifdef OVERLOAD_R4
+
      module procedure mpp_recv_real4
      module procedure mpp_recv_real4_scalar
      module procedure mpp_recv_real4_2d
      module procedure mpp_recv_real4_3d
      module procedure mpp_recv_real4_4d
      module procedure mpp_recv_real4_5d
-#endif
+
 #ifdef OVERLOAD_C4
      module procedure mpp_recv_cmplx4
      module procedure mpp_recv_cmplx4_scalar
@@ -877,14 +881,14 @@ private
      module procedure mpp_send_logical8_4d
      module procedure mpp_send_logical8_5d
 #endif
-#ifdef OVERLOAD_R4
+
      module procedure mpp_send_real4
      module procedure mpp_send_real4_scalar
      module procedure mpp_send_real4_2d
      module procedure mpp_send_real4_3d
      module procedure mpp_send_real4_4d
      module procedure mpp_send_real4_5d
-#endif
+
 #ifdef OVERLOAD_C4
      module procedure mpp_send_cmplx4
      module procedure mpp_send_cmplx4_scalar
@@ -940,6 +944,7 @@ private
   !   <INOUT NAME="data(*)"> </INOUT>
   ! </INTERFACE>
   interface mpp_broadcast
+     module procedure mpp_broadcast_char
      module procedure mpp_broadcast_real8
      module procedure mpp_broadcast_real8_scalar
      module procedure mpp_broadcast_real8_2d
@@ -968,14 +973,14 @@ private
      module procedure mpp_broadcast_logical8_4d
      module procedure mpp_broadcast_logical8_5d
 #endif
-#ifdef OVERLOAD_R4
+
      module procedure mpp_broadcast_real4
      module procedure mpp_broadcast_real4_scalar
      module procedure mpp_broadcast_real4_2d
      module procedure mpp_broadcast_real4_3d
      module procedure mpp_broadcast_real4_4d
      module procedure mpp_broadcast_real4_5d
-#endif
+
 #ifdef OVERLOAD_C4
      module procedure mpp_broadcast_cmplx4
      module procedure mpp_broadcast_cmplx4_scalar
@@ -1017,7 +1022,6 @@ private
   !     Integer checksums on FP data use the F90 <TT>TRANSFER()</TT>
   !     intrinsic.
   !
-  !     The <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/chksum/chksum.html">serial checksum module</LINK> is superseded
   !     by this function, and is no longer being actively maintained. This
   !     provides identical results on a single-processor job, and to perform
   !     serial checksums on a single processor of a parallel job, you only
@@ -1094,12 +1098,14 @@ private
 !            module variables 
 !
 !***********************************************************************
-  type(communicator),save :: peset(0:PESET_MAX) !0 is a dummy used to hold single-PE "self" communicator
+  integer, parameter   :: PESET_MAX = 10000
+  integer              :: current_peset_max = 32
+  type(communicator), allocatable :: peset(:) ! Will be allocated starting from 0, 0 is a dummy used to hold single-PE "self" communicator
   logical              :: module_is_initialized = .false.
   logical              :: debug = .false.
   integer              :: npes=1, root_pe=0, pe=0
   integer(LONG_KIND)   :: tick, ticks_per_sec, max_ticks, start_tick, end_tick, tick0=0
-  integer              :: mpp_comm_private, ocean_comm_private
+  integer              :: mpp_comm_private
   logical              :: first_call_system_clock_mpi=.TRUE.
   real(DOUBLE_KIND)    :: mpi_count0=0  ! use to prevent integer overflow
   real(DOUBLE_KIND)    :: mpi_tick_rate=0.d0  ! clock rate for mpi_wtick()
@@ -1109,12 +1115,16 @@ private
   character(len=32)    :: configfile='logfile'
   integer              :: peset_num=0, current_peset_num=0
   integer              :: world_peset_num                  !the world communicator
-  integer              :: ocean_peset_num                  !the ocean communicator
   integer              :: error
   integer              :: clock_num=0, num_clock_ids=0,current_clock=0, previous_clock(MAX_CLOCKS)=0
   real                 :: tick_rate
-  integer, allocatable, target :: request(:), request_global(:)
-  integer, allocatable, target :: request_recv(:), request_recv_global(:)
+
+  integer              :: cur_send_request = 0
+  integer              :: cur_recv_request = 0
+  integer, allocatable :: request_send(:)
+  integer, allocatable :: request_recv(:)
+  integer, allocatable :: size_recv(:)
+  integer, allocatable :: type_recv(:)
 ! if you want to save the non-root PE information uncomment out the following line
 ! and comment out the assigment of etcfile to '/dev/null'
 #ifdef NO_DEV_NULL
@@ -1152,7 +1162,6 @@ private
 
   integer            :: clock0    !measures total runtime from mpp_init to mpp_exit
   integer            :: mpp_stack_size=0, mpp_stack_hwm=0
-  integer            :: tag=1
   logical            :: verbose=.FALSE.
 #ifdef _CRAY
   integer(LONG_KIND) :: word(1)
@@ -1161,10 +1170,28 @@ private
   integer(INT_KIND)  :: word(1)
 #endif
 
+  integer :: get_len_nocomm = 0 ! needed for mpp_transmit_nocomm.h
+
+!***********************************************************************
+!            variables needed for include/read_input_nml.inc
+!
+! parameter defining length of character variables 
+  integer, parameter :: INPUT_STR_LENGTH = 256
+! public variable needed for reading input.nml from an internal file
+  character(len=INPUT_STR_LENGTH), dimension(:), allocatable, public :: input_nml_file
+!***********************************************************************
+
   character(len=128), public :: version= &
        '$Id mpp.F90 $'
   character(len=128), public :: tagname= &
-       '$Name: mom4p1_pubrel_dec2009_nnz $'
+       '$Name: siena_201207 $'
+
+  integer, parameter :: MAX_REQUEST_MIN  = 10000
+  integer            :: request_multiply = 20
+
+  logical :: etc_unit_is_stderr = .false.
+  integer :: max_request = 0
+  namelist /mpp_nml/ etc_unit_is_stderr, request_multiply
 
   contains
 #include <system_clock.h>

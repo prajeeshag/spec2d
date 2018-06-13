@@ -1,34 +1,9 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                       module astronomy_mod
-! <CONTACT EMAIL="Fei.Liu@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !  fil
 ! </CONTACT>
 ! <REVIEWER EMAIL="">
 ! </REVIEWER>
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 ! <OVERVIEW>
 !    astronomy_mod provides astronomical variables for use
 !    by other modules within fms. the only currently used interface is 
@@ -52,6 +27,7 @@ use time_manager_mod,  only: time_type, set_time, get_time, &
                              operator(-), operator(+), &
                              operator( // ), operator(<)
 use constants_mod,     only: constants_init, PI
+use mpp_mod,           only: input_nml_file
 
 !--------------------------------------------------------------------
 
@@ -69,8 +45,8 @@ private
 !---------------------------------------------------------------------
 !----------- version number for this module --------------------------
 
-character(len=128)  :: version =  '$Id: astronomy.F90,v 17.0 2009/07/21 03:18:20 fms Exp $'
-character(len=128)  :: tagname =  '$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128)  :: version =  '$Id: astronomy.F90,v 19.0 2012/01/06 21:54:23 fms Exp $'
+character(len=128)  :: tagname =  '$Name: siena_201207 $'
 
 
 !---------------------------------------------------------------------
@@ -295,6 +271,9 @@ real,   dimension(:,:), intent(in), optional   :: lonb
 !-----------------------------------------------------------------------
 !    read namelist.              
 !-----------------------------------------------------------------------
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, astronomy_nml, iostat=io)
+#else
       if ( file_exist('input.nml')) then
         unit =  open_namelist_file ( )
         ierr=1; do while (ierr /= 0)
@@ -303,7 +282,7 @@ real,   dimension(:,:), intent(in), optional   :: lonb
         end do                   
 10      call close_file (unit)   
       endif                      
-                                 
+#endif                                 
 !---------------------------------------------------------------------
 !    write version number and namelist to logfile.
 !---------------------------------------------------------------------

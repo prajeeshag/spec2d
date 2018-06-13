@@ -1,30 +1,14 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #include <fms_platform.h>
 
 MODULE diag_data_mod
+  ! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
+  !   Seth Underwood
+  ! </CONTACT>
+  
+  ! <OVERVIEW>
+  !   Type descriptions and global variables for the diag_manager modules.
+  ! </OVERVIEW>
+
   ! <DESCRIPTION>
   !   Notation: 
   !   <DL>
@@ -53,18 +37,21 @@ MODULE diag_data_mod
   USE mpp_domains_mod,  ONLY: domain1d, domain2d
   USE mpp_io_mod,       ONLY: fieldtype
   USE fms_mod, ONLY: WARNING
-
 #ifdef use_netCDF
-  USE netcdf
+  ! NF90_FILL_REAL has value of 9.9692099683868690e+36.
+  USE netcdf, ONLY: NF_FILL_REAL => NF90_FILL_REAL
 #endif
 
+  IMPLICIT NONE
+
   PUBLIC
+
 
   ! <!-- PARAMETERS for diag_data.F90 -->
   ! <DATA NAME="MAX_FIELDS_PER_FILE" TYPE="INTEGER, PARAMETER" DEFAULT="300">
   !   Maximum number of fields per file.
   ! </DATA>
-  ! <DATA NAME="MAX_OUT_PER_IN_FIELD" TYPE="INTEGER, PARAMETER" DEFAULT="30">
+  ! <DATA NAME="MAX_OUT_PER_IN_FIELD" TYPE="INTEGER, PARAMETER" DEFAULT="150">
   !   Maximum number of output_fields per input_field.
   ! </DATA>
   ! <DATA NAME="DIAG_OTHER" TYPE="INTEGER, PARAMETER" DEFAULT="0" />
@@ -85,7 +72,7 @@ MODULE diag_data_mod
 
   ! Specify storage limits for fixed size tables used for pointers, etc.
   INTEGER, PARAMETER :: MAX_FIELDS_PER_FILE = 300 !< Maximum number of fields per file.
-  INTEGER, PARAMETER :: MAX_OUT_PER_IN_FIELD = 30 !< Maximum number of output_fields per input_field
+  INTEGER, PARAMETER :: MAX_OUT_PER_IN_FIELD = 150 !< Maximum number of output_fields per input_field
   INTEGER, PARAMETER :: DIAG_OTHER = 0
   INTEGER, PARAMETER :: DIAG_OCEAN = 1
   INTEGER, PARAMETER :: DIAG_ALL   = 2
@@ -102,19 +89,19 @@ MODULE diag_data_mod
   !   <DESCRIPTION>
   !     Contains the coordinates of the local domain to output.
   !   </DESCRIPTION>
-  !   <DATA NAME="diag_grid::start" TYPE="REAL, DIMENSION(3)">
+  !   <DATA NAME="start" TYPE="REAL, DIMENSION(3)">
   !     Start coordinates (Lat, Lon, Depth) of the local domain to output.
   !   </DATA>
-  !   <DATA NAME="diag_grid::end" TYPE="REAL, DIMENSION(3)">
+  !   <DATA NAME="end" TYPE="REAL, DIMENSION(3)">
   !     End coordinates (Lat, Lon, Depth) of the local domain to output.
   !   </DATA>
-  !   <DATA NAME="diag_grid::l_start_indx" TYPE="INTEGER, DIMENSION(3)">
+  !   <DATA NAME="l_start_indx" TYPE="INTEGER, DIMENSION(3)">
   !     Start indices at each local PE.
   !   </DATA>
-  !   <DATA NAME="diag_grid::l_end_indx" TYPE="INTEGER, DIMENSION(3)">
+  !   <DATA NAME="l_end_indx" TYPE="INTEGER, DIMENSION(3)">
   !     End indices at each local PE.
   !   </DATA>
-  !   <DATA NAME="diag_grid::subaxes" TYPE="INTEGER, DIMENSION(3)">
+  !   <DATA NAME="subaxes" TYPE="INTEGER, DIMENSION(3)">
   !     ID returned from diag_subaxes_init of 3 subaces.
   !   </DATA>
   TYPE diag_grid
@@ -323,8 +310,11 @@ MODULE diag_data_mod
      INTEGER :: num_output_fields
      INTEGER, DIMENSION(3) :: size
      LOGICAL :: static, register, mask_variant, local
+     INTEGER :: numthreads
      INTEGER :: tile_count
      TYPE(coord_type) :: local_coord
+     TYPE(time_type)  :: time
+     LOGICAL :: issued_mask_ignore_warning
   END TYPE input_field_type
   ! </TYPE>
 
@@ -467,11 +457,11 @@ MODULE diag_data_mod
   !   </DATA>
   !   <DATA NAME="data" TYPE="REAL, DIMENSION(:), POINTER">
   !   </DATA>
-  !   <DATA NAME="start" TYPE="INTEGER, DIMENSION(max_subaxes)">
+  !   <DATA NAME="start" TYPE="INTEGER, DIMENSION(MAX_SUBAXES)">
   !   </DATA>
-  !   <DATA NAME="end" TYPE="INTEGER, DIMENSION(max_subaxes)">
+  !   <DATA NAME="end" TYPE="INTEGER, DIMENSION(MAX_SUBAXES)">
   !   </DATA>
-  !   <DATA NAME="subaxis_name" TYPE="CHARACTER(len=128), DIMENSION(max_subaxes)">
+  !   <DATA NAME="subaxis_name" TYPE="CHARACTER(len=128), DIMENSION(MAX_SUBAXES)">
   !   </DATA>
   !   <DATA NAME="length" TYPE="INTEGER">
   !   </DATA>
@@ -487,6 +477,8 @@ MODULE diag_data_mod
   !   </DATA>
   !   <DATA NAME="Domain2" TYPE="TYPE(domain2d)">
   !   </DATA>
+  !   <DATA NAME="subaxis_domain2" TYPE="TYPE(domain2d), dimension(MAX_SUBAXES)">
+  !   </DATA>
   !   <DATA NAME="aux" TYPE="CHARACTER(len=128)">
   !   </DATA>
   !   <DATA NAME="tile_count" TYPE="INTEGER">
@@ -496,12 +488,13 @@ MODULE diag_data_mod
      CHARACTER(len=256) :: units, long_name
      CHARACTER(len=1) :: cart_name
      REAL, DIMENSION(:), POINTER :: data
-     INTEGER, DIMENSION(max_subaxes) :: start
-     INTEGER, DIMENSION(max_subaxes) :: end
-     CHARACTER(len=128), DIMENSION(max_subaxes) :: subaxis_name
+     INTEGER, DIMENSION(MAX_SUBAXES) :: start
+     INTEGER, DIMENSION(MAX_SUBAXES) :: end
+     CHARACTER(len=128), DIMENSION(MAX_SUBAXES) :: subaxis_name
      INTEGER :: length, direction, edges, set, shift
      TYPE(domain1d) :: Domain
      TYPE(domain2d) :: Domain2
+     TYPE(domain2d), dimension(MAX_SUBAXES) :: subaxis_domain2
      CHARACTER(len=128) :: aux
      INTEGER :: tile_count
   END TYPE diag_axis_type
@@ -522,9 +515,9 @@ MODULE diag_data_mod
   
   ! Private CHARACTER Arrays for the CVS version and tagname.
   CHARACTER(len=128),PRIVATE  :: version =&
-       & '$Id: diag_data.F90,v 17.0.2.6 2009/12/10 18:42:33 sdu Exp $'
+       & '$Id: diag_data.F90,v 19.0.2.3 2012/05/14 18:40:11 Seth.Underwood Exp $'
   CHARACTER(len=128),PRIVATE  :: tagname =&
-       & '$Name: mom4p1_pubrel_dec2009_nnz $'
+       & '$Name: siena_201207 $'
 
   ! <!-- Other public variables -->
   ! <DATA NAME="num_files" TYPE="INTEGER" DEFAULT="0">
@@ -581,6 +574,7 @@ MODULE diag_data_mod
   LOGICAL :: do_diag_field_log = .FALSE.
   LOGICAL :: write_bytes_in_file = .FALSE.
   LOGICAL :: debug_diag_manager = .FALSE.
+  LOGICAL :: conserve_water = .TRUE. ! Undocumented namelist to control flushing of output files.
   INTEGER :: max_num_axis_sets = 25
   LOGICAL :: use_cmor = .FALSE.
   LOGICAL :: issue_oor_warnings = .TRUE.
@@ -588,14 +582,16 @@ MODULE diag_data_mod
 
   ! <!-- netCDF variable -->
   ! <DATA NAME="FILL_VALUE" TYPE="REAL" DEFAULT="NF90_FILL_REAL">
-  !   Fill value used.  Value will be NF90_FILL_REAL if using the
+  !   Fill value used.  Value will be <TT>NF90_FILL_REAL</TT> if using the
   !   netCDF module, otherwise will be 9.9692099683868690e+36.
   ! </DATA>
 #ifdef use_netCDF
-  REAL :: FILL_VALUE = NF90_FILL_REAL  ! from file /usr/local/include/netcdf.inc
+  REAL :: FILL_VALUE = NF_FILL_REAL  ! from file /usr/local/include/netcdf.inc
 #else
   REAL :: FILL_VALUE = 9.9692099683868690e+36 
 #endif
+
+  INTEGER :: pack_size = 1 ! 1 for double and 2 for float
 
   ! <!-- REAL public variables -->
   ! <DATA NAME="EMPTY" TYPE="REAL" DEFAULT="0.0" />
@@ -632,6 +628,7 @@ MODULE diag_data_mod
   ! <DATA NAME="diag_log_unit" TYPE="INTEGER" />
   ! <DATA NAME="time_unit_list" TYPE="CHARACTER(len=10), DIMENSION(6)"
   !       DEFAULT="(/'seconds   ', 'minutes   ', 'hours     ', 'days      ', 'months    ', 'years     '/)" />
+  ! <DATA NAME="filename_appendix" TYPE="CHARACTER(len=32)" DEFAULT="" />
   ! <DATA NAME="pelist_name" TYPE="CHARACTER(len=32)" />
   TYPE(time_type) :: time_zero
   LOGICAL :: first_send_data_call = .TRUE.
@@ -639,7 +636,8 @@ MODULE diag_data_mod
   INTEGER :: diag_log_unit
   CHARACTER(len=10), DIMENSION(6) :: time_unit_list = (/'seconds   ', 'minutes   ',&
        & 'hours     ', 'days      ', 'months    ', 'years     '/)
-  CHARACTER(len=32)   :: pelist_name
+  CHARACTER(len=32), SAVE :: filename_appendix = ''
+  CHARACTER(len=32) :: pelist_name
   INTEGER :: oor_warning = WARNING
   
 END MODULE diag_data_mod

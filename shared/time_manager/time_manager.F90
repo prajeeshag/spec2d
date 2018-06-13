@@ -1,34 +1,9 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module time_manager_mod
 
-! <CONTACT EMAIL="fms@gfdl.noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   fms
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
 !   A software package that provides a set of simple interfaces for
@@ -202,8 +177,8 @@ end interface
 
 !======================================================================
 
-character(len=128) :: version='$Id: time_manager.F90,v 17.0.2.1 2009/08/25 19:33:22 nnz Exp $'
-character(len=128) :: tagname='$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128) :: version='$Id: time_manager.F90,v 19.0 2012/01/06 22:06:12 fms Exp $'
+character(len=128) :: tagname='$Name: siena_201207 $'
 logical :: module_is_initialized = .false.
 
 !======================================================================
@@ -1959,6 +1934,7 @@ end function get_ticks_per_second
  if(.not.module_is_initialized) call time_manager_init
 
  err_msg = ''
+
  select case(calendar_type)
  case(THIRTY_DAY_MONTHS)
    set_date_private = set_date_thirty   (year, month, day, hour, minute, second, tick, Time_out, err_msg)
@@ -3398,6 +3374,7 @@ end module time_manager_mod
 
 #ifdef test_time_manager
  program test
+ use          mpp_mod, only: input_nml_file
  use          fms_mod, only: fms_init, fms_end, stderr
  use          fms_mod, only: open_namelist_file, check_nml_error, close_file, open_file
  use    constants_mod, only: constants_init, rseconds_per_day=>seconds_per_day
@@ -3436,6 +3413,9 @@ logical :: test17=.true.,test18=.true.,test19=.true.
  call fms_init
  call constants_init
 
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, test_nml, iostat=io)
+#else
  nmlunit = open_namelist_file()
  ierr=1
  do while (ierr /= 0)
@@ -3443,6 +3423,8 @@ logical :: test17=.true.,test18=.true.,test19=.true.
    ierr = check_nml_error (io, 'test_nml')
  enddo
  12 call close_file (nmlunit)
+#endif
+
  outunit = open_file(file='test_time_manager.out', form='formatted', action='write')
  errunit = stderr()
  call set_ticks_per_second(10)

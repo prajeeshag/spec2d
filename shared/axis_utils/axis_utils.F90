@@ -1,32 +1,8 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module axis_utils_mod
   !
-  !<CONTACT EMAIL="Matthew.Harrison@noaa.gov">M.J. Harrison</CONTACT>
+  !<CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">M.J. Harrison</CONTACT>
   !
-  !<REVIEWER EMAIL="Bruce.Wyman@noaa.gov">Bruce Wyman</REVIEWER>
+  !<REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov">Bruce Wyman</REVIEWER>
   !
 
   !<OVERVIEW>
@@ -67,8 +43,8 @@ module axis_utils_mod
   integer, parameter :: maxatts = 100
   real, parameter    :: epsln= 1.e-10
   real, parameter    :: fp5 = 0.5, f360 = 360.0
-  character(len=256) :: version = '$Id: axis_utils.F90,v 16.0 2008/07/30 22:44:47 fms Exp $'
-  character(len=256) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'   
+  character(len=256) :: version = '$Id: axis_utils.F90,v 19.0 2012/01/06 21:54:25 fms Exp $'
+  character(len=256) :: tagname = '$Name: siena_201207 $'   
 
   interface interp_1d
      module procedure interp_1d_1d
@@ -801,6 +777,7 @@ program test
 use fms_mod,       only : fms_init, file_exist, open_namelist_file, check_nml_error
 use fms_mod,       only : close_file
 use mpp_mod,       only : mpp_error, FATAL, stdout
+use mpp_mod,       only : input_nml_file
 use axis_utils_mod, only: interp_1d
 
 implicit none
@@ -854,6 +831,9 @@ integer           :: unit, ierr, io
 
 
   !---reading namelist 
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, test_axis_utils_nml, iostat=io)
+#else
   if(file_exist('input.nml')) then
     unit =  open_namelist_file()
        ierr=1
@@ -863,6 +843,7 @@ integer           :: unit, ierr, io
     enddo
  10    call close_file(unit)
   endif
+#endif
 
   if(n_src >MAXSIZE) call mpp_error(FATAL, 'test_axis_utils: nml n_src is greater than MAXSIZE')
   if(n_dst >MAXSIZE) call mpp_error(FATAL, 'test_axis_utils: nml n_dst is greater than MAXSIZE')

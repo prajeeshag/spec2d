@@ -1,32 +1,8 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module mpp_utilities_mod
 
 !-----------------------------------------------------------------------
   character(len=128) :: version = '$Id: mpp_utilities.F90,v 17.0 2009/07/21 03:21:23 fms Exp $'
-  character(len=128) :: tag = '$Name: mom4p1_pubrel_dec2009_nnz $'
+  character(len=128) :: tag = '$Name: siena_201207 $'
 !-----------------------------------------------------------------------
 
   public :: mpp_array_global_min_max
@@ -48,9 +24,9 @@ contains
 ! Vectorized using maxloc() and minloc() intrinsic functions by 
 ! Russell.Fiedler@csiro.au (May 2005).
 !
-! Modified by Zhi.Liang@noaa.gov (July 2005)
+! Modified by Zhi.Liang (July 2005)
 !          
-! Modified by Niki.Zadeh@noaa.gov (Feb. 2009)
+! Modified by Niki.Zadeh (Feb. 2009)
 !
 ! </DESCRIPTION>
 !

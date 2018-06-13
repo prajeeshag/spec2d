@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
                module column_diagnostics_mod
 
@@ -38,6 +14,7 @@ use fms_mod,                only:  fms_init, mpp_pe, mpp_root_pe, &
 use time_manager_mod,       only:  time_manager_init, month_name, &
                                    get_date, time_type
 use constants_mod,          only:  constants_init, PI, RADIAN
+use mpp_mod,                only:  input_nml_file
 
 !-------------------------------------------------------------------
 
@@ -57,8 +34,8 @@ private
 !----------- ****** VERSION NUMBER ******* ---------------------------
 
 
-character(len=128)  :: version =  '$Id: column_diagnostics.F90,v 17.0 2009/07/21 03:18:24 fms Exp $'
-character(len=128)  :: tag     =  '$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128)  :: version =  '$Id: column_diagnostics.F90,v 19.0 2012/01/06 21:54:27 fms Exp $'
+character(len=128)  :: tag     =  '$Name: siena_201207 $'
 
 
 
@@ -152,6 +129,9 @@ subroutine column_diagnostics_init
 !---------------------------------------------------------------------
 !    read namelist.
 !---------------------------------------------------------------------
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, column_diagnostics_nml, iostat=io)
+#else
       if (file_exist('input.nml')) then
         unit =  open_namelist_file ( )
         ierr=1; do while (ierr /= 0)
@@ -160,7 +140,7 @@ subroutine column_diagnostics_init
         enddo
 10      call close_file (unit)
       endif
- 
+#endif 
 !---------------------------------------------------------------------
 !    write version number and namelist to logfile.
 !---------------------------------------------------------------------

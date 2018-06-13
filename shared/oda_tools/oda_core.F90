@@ -1,30 +1,6 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module oda_core_mod
 !
-!<CONTACT EMAIL="matthew.harrison@noaa.gov"> Matthew Harrison
+!<CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Matthew Harrison
 !</CONTACT>
 !
 !<OVERVIEW>
@@ -89,7 +65,7 @@ module oda_core_mod
   use fms_mod, only : file_exist,read_data
   use mpp_mod, only : mpp_error, FATAL, NOTE, mpp_sum, stdout,&
                       mpp_sync_self, mpp_pe,mpp_npes,mpp_root_pe,&
-                      mpp_broadcast
+                      mpp_broadcast, input_nml_file
   use mpp_domains_mod, only : mpp_get_compute_domain, mpp_get_data_domain, &
        domain2d, mpp_get_global_domain, mpp_update_domains
   use time_manager_mod, only : time_type, operator( <= ), operator( - ), &
@@ -935,11 +911,14 @@ module oda_core_mod
       
     integer :: ioun, ierr, io_status
     
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, oda_core_nml, iostat=io_status)
+#else
     ioun = open_namelist_file()
     read(ioun,nml=oda_core_nml,iostat = io_status)
     ierr = check_nml_error(io_status,'oda_core_nml')
     call close_file(ioun)      
-
+#endif
 
 !    allocate(nprof_in_comp_domain(0:mpp_npes()-1))
 !    nprof_in_comp_domain = 0

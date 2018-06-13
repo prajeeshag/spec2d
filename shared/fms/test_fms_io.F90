@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef test_fms_io
 
  program fms_io_test
@@ -29,6 +5,7 @@
 
  use mpp_mod,         only: mpp_pe, mpp_npes, mpp_root_pe, mpp_init, mpp_exit
  use mpp_mod,         only: stdout, mpp_error, FATAL, NOTE, mpp_chksum
+ use mpp_mod,         only: input_nml_file
  use mpp_domains_mod, only: domain2D, mpp_define_layout, mpp_define_mosaic
  use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_data_domain
  use mpp_domains_mod, only: mpp_domains_init, mpp_domains_exit
@@ -83,6 +60,7 @@
  integer                       :: npes
 
  character(len=128) :: file_latlon, file_cubic
+ integer :: outunit
 
  call mpp_init
  npes = mpp_npes()
@@ -91,6 +69,9 @@
 
  call fms_io_init
 
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, test_fms_io_nml, iostat=io_status)
+#else
  if (file_exist('input.nml') )then
     call mpp_open(unit, 'input.nml',form=MPP_ASCII,action=MPP_RDONLY)
     read(unit,test_fms_io_nml,iostat=io_status)
@@ -100,8 +81,10 @@
   endif
     call mpp_close (unit)
  end if
+#endif
 
- write(stdout(), test_fms_io_nml )
+ outunit = stdout()
+ write(outunit, test_fms_io_nml )
   call mpp_domains_set_stack_size(stackmax)
  !--- currently we assume at most two time level will be written to restart file.
  if(nt > 2) call mpp_error(FATAL, "test_fms_io: test_fms_io_nml variable nt should be no larger than 2")

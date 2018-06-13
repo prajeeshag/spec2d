@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_domains_define.inc,v 16.0.8.2.2.3.2.1.2.1.4.6 2009/10/26 12:41:32 z1l Exp $
+! $Id: mpp_domains_define.inc,v 19.0.2.1.2.1.2.1.2.1 2012/05/15 19:02:00 z1l Exp $
 
 
   ! <SUBROUTINE NAME="mpp_define_layout2D" INTERFACE="mpp_define_layout">
@@ -298,7 +298,8 @@
        pes(:) = pelist(:)
     else
        allocate( pes(0:mpp_npes()-1) )
-       pes(:) = (/ (i,i=0,mpp_npes()-1) /)
+       call mpp_get_current_pelist(pes)
+!       pes(:) = (/ (i,i=0,mpp_npes()-1) /)
     end if
 
     !get number of real domains: 1 mask domain per PE in pes
@@ -432,7 +433,8 @@
     integer                       :: ipos, jpos, igroup, jgroup
     integer                       :: ipos_beg, ipos_end, jpos_beg, jpos_end
     integer                       :: whalo, ehalo, shalo, nhalo
-    integer                       :: npes_x, npes_y
+    integer                       :: npes_x, npes_y, ndivx, ndivy
+    integer, allocatable          :: posarray(:,:)
 
     if(io_layout(1) * io_layout(2) .LE. 0) then
        call mpp_error(NOTE,  &
@@ -458,9 +460,21 @@
     allocate(domain%io_domain)
     domain%io_layout = io_layout
     io_domain => domain%io_domain
+    ! Find how many processors are in the group with the consideration that some of the region maybe masked out.
     npes_x = layout(1)/io_layout(1)
     npes_y = layout(2)/io_layout(2)
-    npes_in_group = npes_x*npes_y
+    ipos = mod(domain%x(1)%pos, npes_x)
+    jpos = mod(domain%y(1)%pos, npes_y)
+    igroup  = domain%x(1)%pos/npes_x
+    jgroup  = domain%y(1)%pos/npes_y
+    ipos_beg = igroup*npes_x; ipos_end = ipos_beg + npes_x - 1
+    jpos_beg = jgroup*npes_y; jpos_end = jpos_beg + npes_y - 1
+    npes_in_group = 0
+    do j = jpos_beg, jpos_end
+       do i = ipos_beg, ipos_end
+          if(domain%pearray(i,j) .NE. NULL_PE) npes_in_group = npes_in_group+1
+       enddo
+    enddo
 
     io_domain%whalo    = domain%whalo
     io_domain%ehalo    = domain%ehalo
@@ -473,17 +487,26 @@
     do i = 0, npes_in_group-1
        allocate( io_domain%list(i)%x(1), io_domain%list(i)%y(1), io_domain%list(i)%tile_id(1) )
     enddo
-    ipos = mod(domain%x(1)%pos, npes_x)
-    jpos = mod(domain%y(1)%pos, npes_y)
-    igroup  = domain%x(1)%pos/npes_x
-    jgroup  = domain%y(1)%pos/npes_y
-    ipos_beg = igroup*npes_x; ipos_end = ipos_beg + npes_x - 1
-    jpos_beg = jgroup*npes_y; jpos_end = jpos_beg + npes_y - 1
+
+    ndivx = size(domain%pearray,1)
+    ndivy = size(domain%pearray,2)
+    allocate(posarray(0:ndivx-1, 0:ndivy-1))
+    n = 0
+    posarray = -1
+    do j = 0,ndivy-1
+       do i = 0,ndivx-1
+          if( domain%pearray(i,j) == NULL_PE) cycle    
+          posarray(i,j) = n
+          n = n + 1
+       enddo
+    enddo
+
     n = 0
     do j = jpos_beg, jpos_end
        do i = ipos_beg, ipos_end
+          if( domain%pearray(i,j) == NULL_PE) cycle
           io_domain%list(n)%pe = domain%pearray(i,j)
-          m = io_domain%list(n)%pe - mpp_root_pe()
+          m = posarray(i,j)
           io_domain%list(n)%x(1)%compute = domain%list(m)%x(1)%compute
           io_domain%list(n)%y(1)%compute = domain%list(m)%y(1)%compute
           igroup                         = domain%list(m)%x(1)%pos/npes_x
@@ -492,10 +515,16 @@
           n = n + 1
        enddo
     enddo
+    deallocate(posarray)
 
     allocate(io_domain%x(1), io_domain%y(1), io_domain%tile_id(1) )
     allocate(io_domain%x(1)%list(0:npes_x-1), io_domain%y(1)%list(0:npes_y-1) )
-    n    = jpos*npes_x + ipos
+    n = -1
+    do j = jpos_beg, jpos_beg+jpos
+       do i = ipos_beg, ipos_beg+ipos
+          if(domain%pearray(i,j) .NE. NULL_PE) n = n + 1
+       enddo
+    enddo
     io_domain%pos          = n
     io_domain%x(1)%compute = domain%x(1)%compute
     io_domain%x(1)%data    = domain%x(1)%data
@@ -503,12 +532,12 @@
     io_domain%y(1)%compute = domain%y(1)%compute
     io_domain%y(1)%data    = domain%y(1)%data
     io_domain%y(1)%memory  = domain%y(1)%memory
-    io_domain%x(1)%global%begin     = io_domain%list(0)%x(1)%compute%begin
-    io_domain%x(1)%global%end       = io_domain%list(npes_in_group-1)%x(1)%compute%end
+    io_domain%x(1)%global%begin     = domain%x(1)%list(ipos_beg)%compute%begin
+    io_domain%x(1)%global%end       = domain%x(1)%list(ipos_end)%compute%end
     io_domain%x(1)%global%size      = io_domain%x(1)%global%end - io_domain%x(1)%global%begin + 1
     io_domain%x(1)%global%max_size  = io_domain%x(1)%global%size
-    io_domain%y(1)%global%begin     = io_domain%list(0)%y(1)%compute%begin
-    io_domain%y(1)%global%end       = io_domain%list(npes_in_group-1)%y(1)%compute%end
+    io_domain%y(1)%global%begin     = domain%y(1)%list(jpos_beg)%compute%begin
+    io_domain%y(1)%global%end       = domain%y(1)%list(jpos_end)%compute%end
     io_domain%y(1)%global%size      = io_domain%y(1)%global%end - io_domain%y(1)%global%begin + 1
     io_domain%y(1)%global%max_size  = io_domain%y(1)%global%size
     io_domain%x(1)%pos     = ipos
@@ -590,7 +619,13 @@
     integer              :: ibegin(0:layout(1)-1), iend(0:layout(1)-1)
     integer              :: jbegin(0:layout(2)-1), jend(0:layout(2)-1)
     character(len=8)     :: text
+    type(overlapSpec), pointer :: update=>NULL()
+    character(len=1)     :: position
+    integer              :: msgsize, l, p, is, ie, js, je, from_pe
+    integer, allocatable :: msg1(:), msg2(:), msg3(:)
+    integer              :: outunit
 
+    outunit = stdout()
     if( .NOT.module_is_initialized )call mpp_error( FATAL, 'MPP_DEFINE_DOMAINS2D: You must first call mpp_domains_init.' )
     if(PRESENT(name)) then
        if(len_trim(name) > NAME_LENGTH) call mpp_error(FATAL,  &
@@ -724,6 +759,8 @@
        end do
     end if
 
+    domain%initialized = .true.
+
     start_pos = 0
     do n = 0, nlist-1
        if(pesall(n) == pes(0)) then
@@ -791,9 +828,29 @@
        call mpp_define_domains( global_indices(1:2), ndivx, domain%x(tile), &
             pack(pearray(:,jpos),mask(:,jpos)), xflags, xhalo, xextent, mask(:,jpos), memory_xsize, whalo, ehalo )
        call mpp_define_domains( global_indices(3:4), ndivy, domain%y(tile), &
-            pack(pearray(ipos,:),mask(ipos,:)), yflags, yhalo, yextent, mask(ipos,:), memory_ysize, shalo, nhalo  )
+            pack(pearray(ipos,:),mask(ipos,:)), yflags, yhalo, yextent, mask(ipos,:), memory_ysize, shalo, nhalo )
        if( domain%x(tile)%list(ipos)%pe.NE.domain%y(tile)%list(jpos)%pe ) &
             call mpp_error( FATAL, 'MPP_DEFINE_DOMAINS2D: domain%x%list(ipos)%pe.NE.domain%y%list(jpos)%pe.' ) 
+
+       !--- when x_cyclic_offset or y_cyclic_offset is set, no cross domain is allowed
+       if(x_offset .NE. 0 .OR. y_offset .NE. 0) then
+          if(whalosz .GT. domain%x(tile)%compute%size .OR. ehalosz .GT. domain%x(tile)%compute%size ) &
+              call mpp_error(FATAL, "mpp_define_domains_2d: when x_cyclic_offset/y_cyclic_offset is set, "// &
+                 "whalo and ehalo must be no larger than the x-direction computation domain size")
+          if(shalosz .GT. domain%y(tile)%compute%size .OR. nhalosz .GT. domain%y(tile)%compute%size ) &
+              call mpp_error(FATAL, "mpp_define_domains_2d: when x_cyclic_offset/y_cyclic_offset is set, "// &
+                 "shalo and nhalo must be no larger than the y-direction computation domain size")
+       endif
+
+       !--- restrict the halo size is no larger than global domain size.
+       if(whalosz .GT. domain%x(tile)%global%size) &
+           call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: whalo is greather global domain size")
+       if(ehalosz .GT. domain%x(tile)%global%size) &
+           call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: ehalo is greather global domain size")
+       if(shalosz .GT. domain%x(tile)%global%size) &
+           call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: shalo is greather global domain size")
+       if(nhalosz .GT. domain%x(tile)%global%size) &
+           call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: nhalo is greather global domain size")
 
        !set up fold, when the boundary is folded, there is only one tile.
        domain%fold = 0
@@ -838,13 +895,22 @@
              nfold = nfold+1
           endif
           if( BTEST(yflags,NORTH) ) then
-             !--- make sure no cross-domain in y-direction
-             if(domain%y(tile)%data%end .GE. domain%y(tile)%global%end .AND. &
-                domain%y(tile)%compute%end < domain%y(tile)%global%end ) then
-                write(*,*)'WARNING from mpp_domains_define.inc(mpp_define_domains2D): '// &
-                'the halo data may be not correct because the domain is crossed and ' // &
-                   'the halo lies on the north folded region'
-             endif
+             !--- when the halo size is big and halo region is crossing neighbor domain, we 
+             !--- restrict the halo size is less than half of the global size.
+             if(whalosz .GT. domain%x(tile)%compute%size .AND. whalosz .GE. domain%x(tile)%global%size/2 ) &
+                  call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: north is folded, whalo .GT. compute domain size "// &
+                  "and whalo .GE. half of global domain size")
+             if(ehalosz .GT. domain%x(tile)%compute%size .AND. ehalosz .GE. domain%x(tile)%global%size/2 ) &
+                  call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: north is folded, ehalo is .GT. compute domain size "// &
+                  "and ehalo .GE. half of global domain size")
+             if(shalosz .GT. domain%y(tile)%compute%size .AND. shalosz .GE. domain%x(tile)%global%size/2 ) &
+                  call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: north is folded, shalo .GT. compute domain size "// &
+                  "and shalo .GE. half of global domain size")
+             if(nhalosz .GT. domain%y(tile)%compute%size .AND. nhalosz .GE. domain%x(tile)%global%size/2 ) &
+                  call mpp_error(FATAL, "MPP_DEFINE_DOMAINS2D: north is folded, nhalo .GT. compute domain size "// &
+                  "and nhalo .GE. half of global domain size")
+
+
              if( domain%y(tile)%cyclic )call mpp_error( FATAL, &
                 'MPP_DEFINE_DOMAINS: an axis cannot be both folded south and cyclic for '//trim(domain%name) )
              domain%fold = domain%fold + FOLD_NORTH_EDGE
@@ -949,6 +1015,68 @@
        end if
     end if
 
+    !--- check the send and recv size are matching.
+    !--- or ntiles>1 mosaic, 
+    !--- the check will be done in mpp_define_mosaic
+    if(debug_message_passing .and. domain%ntiles == 1 ) then
+       allocate(msg1(0:nlist-1), msg2(0:nlist-1), msg3(0:nlist-1) )
+       do p = 1, 4
+          msg1 = 0
+          msg2 = 0
+          select case(p)
+          case(1)
+             update=>domain%update_T
+             position = "T"
+          case(2)
+             update=>domain%update_C
+             position = "C"
+          case(3)
+             update=>domain%update_E
+             position = "E"
+          case(4)
+             update=>domain%update_N
+             position = "N"
+          end select
+          do m = 1, update%nrecv
+             msgsize = 0
+             do n = 1, update%recv(m)%count
+                is = update%recv(m)%is(n); ie = update%recv(m)%ie(n)
+                js = update%recv(m)%js(n); je = update%recv(m)%je(n)
+                msgsize = msgsize + (ie-is+1)*(je-js+1)
+             end do
+             from_pe = update%recv(m)%pe
+             l = from_pe-mpp_root_pe()
+             call mpp_recv( msg1(l), glen=1, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_1)
+             msg2(l) = msgsize
+          enddo
+
+          do m = 1, update%nsend
+             msgsize = 0
+             do n = 1, update%send(m)%count
+                is = update%send(m)%is(n); ie = update%send(m)%ie(n)
+                js = update%send(m)%js(n); je = update%send(m)%je(n)
+                msgsize = msgsize + (ie-is+1)*(je-js+1)
+             end do
+             msg3(m) = msgsize
+             call mpp_send( msg3(m), plen=1, to_pe=update%send(m)%pe, tag=COMM_TAG_1)
+          enddo
+          call mpp_sync_self(check=EVENT_RECV)
+
+          do m = 0, nlist-1
+             if(msg1(m) .NE. msg2(m)) then
+                print*, "My pe = ", mpp_pe(), ",domain name =", trim(domain%name), ",at position=",position,",from pe=", &
+                     domain%list(m)%pe, ":send size = ", msg1(m), ", recv size = ", msg2(m)
+                call mpp_error(FATAL, "mpp_define_domains2D: mismatch on send and recv size")
+             endif
+          enddo
+          call mpp_sync_self()
+       enddo
+       write(outunit,*)"NOTE from mpp_define_domains2D: message sizes are matched between send and recv for domain " &
+            //trim(domain%name)
+       deallocate(msg1, msg2, msg3)
+       update=>NULL()
+    endif
+
     !print out decomposition, this didn't consider maskmap.
     if( mpp_pe() .EQ. pes(0) .AND. PRESENT(name) )then
        write(*,*) trim(name)//' domain decomposition'
@@ -976,10 +1104,10 @@
 !??? how to specify pelist, we may use two dimensional variable pelist to represent.
 !z1l: We assume the tilelist are in always limited to 1, 2, ... num_tile. If we want 
 !     to remove this limitation, we need to add one more argument tilelist.
-  subroutine mpp_define_mosaic( global_indices, layout, domain, num_tile, num_contact, tile1, tile2, &
-                                istart1, iend1, jstart1, jend1, istart2, iend2, jstart2, jend2, pe_start,      &
-                                pe_end, pelist, whalo, ehalo, shalo, nhalo, xextent, yextent,                  &
-                                maskmap, name, memory_size, symmetry, xflags, yflags )
+  subroutine mpp_define_mosaic( global_indices, layout, domain, num_tile, num_contact, tile1, tile2,      &
+                                istart1, iend1, jstart1, jend1, istart2, iend2, jstart2, jend2, pe_start, &
+                                pe_end, pelist, whalo, ehalo, shalo, nhalo, xextent, yextent,             &
+                                maskmap, name, memory_size, symmetry, xflags, yflags, tile_id )
     integer,          intent(in)           :: global_indices(:,:)  ! The size of first indice is 4, (/ isg, ieg, jsg, jeg /)
                                                                    ! The size of second indice is number of tiles in mosaic.
     integer,          intent(in)           :: layout(:,:)
@@ -1001,17 +1129,25 @@
     integer,          intent(in), optional :: memory_size(2)
     logical,          intent(in), optional :: symmetry
     integer,          intent(in), optional :: xflags, yflags
+    integer,          intent(in), optional :: tile_id(:)           ! tile_id of each tile in the mosaic
 
     integer              :: n, m, ndivx, ndivy, nc, nlist, nt, pos, n1, n2
     integer              :: whalosz, ehalosz, shalosz, nhalosz, xhalosz, yhalosz, t1, t2, tile
     integer              :: flags_x, flags_y
     logical, allocatable :: mask(:,:)
     integer, allocatable :: pes(:), xext(:), yext(:), pelist_tile(:), ntile_per_pe(:), tile_count(:)
+    integer, allocatable :: tile_id_local(:)
     logical              :: is_symmetry
     integer, allocatable :: align1(:), align2(:), is1(:), ie1(:), js1(:), je1(:), is2(:), ie2(:), js2(:), je2(:)
     integer, allocatable :: isgList(:), iegList(:), jsgList(:), jegList(:)
     real,    allocatable :: refine1(:), refine2(:)
+    type(overlapSpec), pointer :: update=>NULL()
+    character(len=1)     :: position
+    integer              :: msgsize, l, p, is, ie, js, je, from_pe
+    integer, allocatable :: msg1(:), msg2(:), msg3(:)
+    integer              :: outunit
 
+    outunit = stdout()
     mosaic_defined = .true.
     !--- the size of first indice of global_indices must be 4.
     if(size(global_indices, 1) .NE. 4) call mpp_error(FATAL, &
@@ -1099,19 +1235,33 @@
     allocate(domain%list(0:nlist-1))
 
     do n = 0, nlist-1
-       nt = ntile_per_pe(mpp_root_pe()+n)
+       nt = ntile_per_pe(n)
        allocate(domain%list(n)%x(nt), domain%list(n)%y(nt), domain%list(n)%tile_id(nt) )
     end do
 
     pe = mpp_pe()
     pos = 0
+    if( PRESENT(tile_id) ) then
+       if(size(tile_id(:)) .NE. num_tile) then
+          call mpp_error(FATAL, "mpp_domains_define.inc: size(tile_id) .NE. num_tile")
+       endif
+    endif
+    allocate(tile_id_local(num_tile))
+    do n = 1, num_tile
+       if(PRESENT(tile_id)) then
+          tile_id_local(n) = tile_id(n)
+       else
+          tile_id_local(n) = n
+       endif
+    enddo
     do n = 1, num_tile
        if( pe .GE. pe_start(n) .AND. pe .LE. pe_end(n)) then
           pos = pos + 1
-          domain%tile_id(pos) = n
+          domain%tile_id(pos) = tile_id_local(n)
        end if
     end do
 
+    domain%initialized    = .true.
     domain%rotated_ninety = .FALSE.
     domain%ntiles         = num_tile      
     domain%max_ntile_pe   = maxval(ntile_per_pe)
@@ -1182,12 +1332,13 @@
           call mpp_define_domains(global_indices(:,n), layout(:,n), domain, pelist=pelist_tile, xflags = flags_x, &
                                   yflags = flags_y, whalo=whalo, ehalo=ehalo, shalo=shalo, nhalo=nhalo,           &
                                   xextent=xext, yextent=yext, maskmap=mask, name=name, symmetry=is_symmetry,      &
-                                  memory_size = memory_size, is_mosaic = .true.)
+                                  memory_size = memory_size, is_mosaic = .true., tile_id=tile_id_local(n))
        else
           call mpp_define_domains(global_indices(:,n), layout(:,n), domain, pelist=pelist_tile,                   &
                                   whalo=whalo, ehalo=ehalo, shalo=shalo, nhalo=nhalo, xextent=xext, yextent=yext, &
                                   maskmap=mask, name=name, symmetry=is_symmetry, memory_size = memory_size,       &
-                                  is_mosaic = .true., tile_count = tile_count(pe_start(n)), tile_id=n, complete = n==num_tile)
+                                  is_mosaic = .true., tile_count = tile_count(pe_start(n)), tile_id=tile_id_local(n),   &
+                                  complete = n==num_tile)
        end if
        deallocate(mask, xext, yext, pelist_tile)
     end do
@@ -1282,6 +1433,62 @@
        call check_overlap_pe_order(domain, domain%bound_N, trim(domain%name)//" bound_N")
     end if
 
+    !--- check the send and recv size are matching.
+    !--- currently only check T and C-cell. For ntiles>1 mosaic, 
+    !--- the check will be done in mpp_define_mosaic
+    if(debug_message_passing) then
+       allocate(msg1(0:nlist-1), msg2(0:nlist-1), msg3(0:nlist-1) )
+       do p = 1, 2
+          msg1 = 0
+          msg2 = 0
+          select case(p)
+          case(1)
+             update=>domain%update_T
+             position = "T"
+          case(2)
+             update=>domain%update_C
+             position = "C"
+          end select
+          do m = 1, update%nrecv
+             msgsize = 0
+             do n = 1, update%recv(m)%count
+                is = update%recv(m)%is(n); ie = update%recv(m)%ie(n)
+                js = update%recv(m)%js(n); je = update%recv(m)%je(n)
+                msgsize = msgsize + (ie-is+1)*(je-js+1)
+             end do
+             from_pe = update%recv(m)%pe
+             l = from_pe-mpp_root_pe()
+             call mpp_recv( msg1(l), glen=1, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_2)
+             msg2(l) = msgsize
+          enddo
+
+          do m = 1, update%nsend
+             msgsize = 0
+             do n = 1, update%send(m)%count
+                is = update%send(m)%is(n); ie = update%send(m)%ie(n)
+                js = update%send(m)%js(n); je = update%send(m)%je(n)
+                msgsize = msgsize + (ie-is+1)*(je-js+1)
+             end do
+             msg3(m) = msgsize
+             call mpp_send( msg3(m), plen=1, to_pe=update%send(m)%pe, tag=COMM_TAG_2)
+          enddo
+          call mpp_sync_self(check=EVENT_RECV)
+
+          do m = 0, nlist-1
+             if(msg1(m) .NE. msg2(m)) then
+                print*, "My pe = ", mpp_pe(), ",domain name =", trim(domain%name), ",at position=",position,",from pe=", &
+                     domain%list(m)%pe, ":send size = ", msg1(m), ", recv size = ", msg2(m)
+                call mpp_error(FATAL, "mpp_define_mosaic: mismatch on send and recv size")
+             endif
+          enddo
+          call mpp_sync_self()
+       enddo
+       write(outunit,*)"NOTE from mpp_define_mosaic: message sizes are matched between send and recv for domain " &
+            //trim(domain%name)//"(T and C-cell)"
+       deallocate(msg1, msg2)
+       update=>NULL()
+    endif
+
     !--- release memory
     deallocate(align1, align2, is1, ie1, js1, je1, is2, ie2, js2, je2  )
     deallocate(isgList, iegList, jsgList, jegList, refine1, refine2 )
@@ -1307,6 +1514,9 @@
     integer                          :: isg, ieg, jsg, jeg, ioff, joff
     integer                          :: list, middle, ni, nj, isgd, iegd, jsgd, jegd
     integer                          :: ism, iem, jsm, jem, whalo, ehalo, shalo, nhalo
+    integer                          :: is2, ie2, js2, je2
+    integer                          :: is3, ie3, js3, je3
+    integer                          :: isd2, ied2, jsd2, jed2
     logical                          :: folded, need_adjust_1, need_adjust_2, need_adjust_3, folded_north
     type(overlap_type)               :: overlap
     type(overlapSpec),   pointer     :: update=>NULL()
@@ -1315,6 +1525,7 @@
     type(overlapSpec),   pointer     :: check =>NULL()
     integer                          :: nsend, nrecv
     integer                          :: nsend_check, nrecv_check
+    integer                          :: unit
 
     !--- since we restrict that if multiple tiles on one pe, all the tiles are limited to this pe. 
     !--- In this case, if ntiles on this pe is greater than 1, no overlapping between processor within each tile
@@ -1391,409 +1602,466 @@
                .AND. ( jsc == je .or. jec == js ) ) then
              !--- do nothing, this point will come from other pe
           else 
-             if( ie.GT.ieg )then
-                if( domain%x(tMe)%cyclic .AND. iec.LT.is )then !try cyclic offset
-                   is = is-ioff; ie = ie-ioff
-                   call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
-                end if
-             end if
-             !--- when the south face is folded, the east halo point at right side domain will be folded.
+             !--- when the north face is folded, the east halo point at right side domain will be folded.
              !--- the position should be on CORNER or NORTH
-             if( je == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) & 
-                  .AND. is .GE. middle .AND. domain%list(m)%x(tNbr)%compute%end+ehalo+ishift .LE. ieg ) then
-                call insert_update_overlap( overlap, domain%list(m)%pe,              &
-                                            is, ie, js, je-1, isc, iec, jsc, jec, dir)
-                is = domain%list(m)%x(tNbr)%compute%end+1+ishift; ie = domain%list(m)%x(tNbr)%compute%end+ehalo+ishift
-                js = je
-                select case (position)
-                case(NORTH)
-                   i=is; is = isg+ieg-ie; ie = isg+ieg-i  
-                case(CORNER)
-                   i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift      
-                end select
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, je, isc, iec, jsc, jec, dir, .true.)
-             else 
-                if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-                   ! (js, jeg) and (jsg, je).
-                   call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                               is, ie, jsg, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
-                   call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                               is, ie, js, jeg, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
+             if( je == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) ) then
+                call fill_overlap_send_fold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle) 
+             else
+                if(x_cyclic_offset ==0 .AND. y_cyclic_offset == 0) then             
+                   call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic, symmetry=domain%symmetry) 
                 else
-                   call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                               is, ie, js, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
-                end if
-             end if
+                   if( ie.GT.ieg ) then
+                      if( domain%x(tMe)%cyclic .AND. iec.LT.is )then !try cyclic offset
+                         is = is-ioff; ie = ie-ioff
+                         call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                      end if
+                   end if
+                   call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                        isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry) 
+                endif
+             endif
           end if
 
           !to_pe's SE halo
           dir = 2
           is = domain%list(m)%x(tNbr)%compute%end+1+ishift; ie = domain%list(m)%x(tNbr)%compute%end+ehalo+ishift
-          js = domain%list(m)%y(tNbr)%compute%begin-shalo;    je = domain%list(m)%y(tNbr)%compute%begin-1
+          js = domain%list(m)%y(tNbr)%compute%begin-shalo;  je = domain%list(m)%y(tNbr)%compute%begin-1
           need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( ie.GT.ieg )then
-             if( domain%x(tMe)%cyclic .AND. iec.LT.is )then !try cyclic offset
-                is = is-ioff; ie = ie-ioff
-                need_adjust_1 = .false.
-                if(jsg .GT. js) then
-                   if( domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
-                      js = js+joff; je = je+joff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
-                      else if(y_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
+          !--- divide into two parts, one part is x_cyclic_offset/y_cyclic_offset is non-zeor,
+          !--- the other part is both are zero.
+          is2 = 0; ie2 = -1; js2 = 0; je2 = -1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+             if(je .LT. jsg) then ! js .LT. jsg
+                if( domain%y(tMe)%cyclic ) then
+                   js = js + joff; je = je + joff
+                endif
+             else if(js .Lt. jsg) then ! split into two parts
+                if( domain%y(tMe)%cyclic ) then
+                   js2 = js + joff; je2 = jsg-1+joff 
+                   js = jsg;  
+                endif
+             endif
+             call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+             if(je2 .GE. js2) call fill_overlap_send_nofold(overlap, domain, m, is, ie, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+          else 
+             if( ie.GT.ieg )then
+                if( domain%x(tMe)%cyclic .AND. iec.LT.is )then !try cyclic offset
+                   is = is-ioff; ie = ie-ioff
+                   need_adjust_1 = .false.
+                   if(jsg .GT. js) then
+                      if( domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
+                         js = js+joff; je = je+joff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                         else if(y_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
+                         end if
                       end if
+                   else
+                      call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                      need_adjust_3 = .false.
                    end if
-                else
-                   call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
-                   need_adjust_3 = .false.
                 end if
              end if
-          end if
-          if( need_adjust_3 .AND. jsg.GT.js )then
-             if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
-                js = js+joff; je = je+joff
-                if(need_adjust_1 .AND. ie.LE.ieg) then
-                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)  
+             if( need_adjust_3 .AND. jsg.GT.js )then
+                if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   if(need_adjust_1 .AND. ie.LE.ieg) then
+                      call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)  
+                   end if
                 end if
              end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jeg) and (jsg, je).   
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, jeg, isc, iec, jsc, jec, dir)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, jsg, je, isc, iec, jsc, jec, dir)        
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isg, ie).            
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ieg, js, je, isc, iec, jsc, jec, dir)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isg, ie, js, je, isc, iec, jsc, jec, dir)
-          else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isc, iec, jsc, jec, dir)
-          end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, isg, ieg, jsg, jeg, dir)   
+          endif
+
           !to_pe's southern halo
           dir = 3
           is = domain%list(m)%x(tNbr)%compute%begin; ie = domain%list(m)%x(tNbr)%compute%end+ishift
           js = domain%list(m)%y(tNbr)%compute%begin-shalo; je = domain%list(m)%y(tNbr)%compute%begin-1
-          if( jsg.GT.js )then
+          js2 = 0; je2 = -1
+          if( jsg.GT.je )then ! jsg .GT. js
              if( domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
                 js = js+joff; je = je+joff
                 call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
              end if
+          else if (jsg .GT. js) then ! split into two parts
+             if( domain%y(tMe)%cyclic) then
+                js2 = js + joff; je2 = jsg-1+joff 
+                js = jsg
+             endif       
           end if
-          if(is>ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isg, ie). 
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isg, ie, js, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ieg, js, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
-          else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
-          end if
+
+          call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
+          if(je2 .GE. js2) call fill_overlap(overlap, domain, m, is, ie, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
 
           !to_pe's SW halo
           dir = 4
           is = domain%list(m)%x(tNbr)%compute%begin-whalo; ie = domain%list(m)%x(tNbr)%compute%begin-1
           js = domain%list(m)%y(tNbr)%compute%begin-shalo; je = domain%list(m)%y(tNbr)%compute%begin-1
           need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( isg.GT.is )then
-             if( domain%x(tMe)%cyclic .AND. ie.LT.isc )then !try cyclic offset
-                is = is+ioff; ie = ie+ioff
-                need_adjust_1 = .false.
-                if(jsg .GT. js) then
-                   if( domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
-                      js = js+joff; je = je+joff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
-                      else if(y_cyclic_offset .NE. 0) then
-                         call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
-                      end if
-                   end if
-                else                  
-                   call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
-                   need_adjust_3 = .false.
-                end if
-             end if
-          end if
-          if( need_adjust_3 .AND. jsg.GT.js )then
-             if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
-                js = js+joff; je = je+joff
-                if(need_adjust_1 .AND. isg.LE.is  )then
-                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)  
-                end if
-             end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jeg) and (jsg, je).   
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, jeg, isc, iec, jsc, jec, dir)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, jsg, je, isc, iec, jsc, jec, dir)        
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isg, ie).            
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ieg, js, je, isc, iec, jsc, jec, dir)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isg, ie, js, je, isc, iec, jsc, jec, dir)
+          is2 = 0; ie2 = -1; js2 = 0; je2 = -1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+             if(je .LT. jsg) then ! js .LT. jsg
+                if( domain%y(tMe)%cyclic ) then
+                   js = js + joff; je = je + joff
+                endif
+             else if(js .Lt. jsg) then ! split into two parts
+                if( domain%y(tMe)%cyclic ) then
+                   js2 = js + joff; je2 = jsg-1+joff
+                   js = jsg;  
+                endif
+             endif             
+             call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+             if(je2 .GE. js2) call fill_overlap_send_nofold(overlap, domain, m, is, ie, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
           else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isc, iec, jsc, jec, dir)
-          end if
+             if( isg.GT.is )then
+                if( domain%x(tMe)%cyclic .AND. ie.LT.isc )then !try cyclic offset
+                   is = is+ioff; ie = ie+ioff
+                   need_adjust_1 = .false.
+                   if(jsg .GT. js) then
+                      if( domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
+                         js = js+joff; je = je+joff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                         else if(y_cyclic_offset .NE. 0) then
+                            call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
+                         end if
+                      end if
+                   else                  
+                      call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                      need_adjust_3 = .false.
+                   end if
+                end if
+             end if
+             if( need_adjust_3 .AND. jsg.GT.js )then
+                if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. je.LT.jsc )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   if(need_adjust_1 .AND. isg.LE.is  )then
+                      call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)  
+                   end if
+                end if
+             end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, isg, ieg, jsg, jeg, dir) 
+          endif
 
           !to_pe's western halo
           dir = 5
           is = domain%list(m)%x(tNbr)%compute%begin-whalo;    ie = domain%list(m)%x(tNbr)%compute%begin-1
           js = domain%list(m)%y(tNbr)%compute%begin; je = domain%list(m)%y(tNbr)%compute%end+jshift
-          if( isg.GT.is )then
-             if( domain%x(tMe)%cyclic .AND. ie.LT.isc )then !try cyclic offset
-                is = is+ioff; ie = ie+ioff
-                call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
-             end if
-          end if
+
           !--- when the north face is folded, some point at j=nj will be folded.
           !--- the position should be on CORNER or NORTH
-          if( je == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) &
-               .AND. ( (domain%x(tMe)%cyclic .AND. domain%list(m)%x(tNbr)%compute%begin == isg)            &
-               .OR. ( domain%list(m)%x(tNbr)%compute%begin-1 .GE. middle ) ) ) then
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je-1, isc, iec, jsc, jec, dir)
-             !--- consider at j = jeg for west edge.
-             !--- when the data is at corner and not symmetry, i = isg -1 will get from cyclic condition
-             if(position == CORNER .AND. .NOT. domain%symmetry .AND. domain%list(m)%x(tNbr)%compute%begin == isg) then
-                call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                           ie, ie, je, je, isc, iec, jsc, jec, dir, .true.)
-             end if
-             is = domain%list(m)%x(tNbr)%compute%begin-whalo;  ie = domain%list(m)%x(tNbr)%compute%begin-1
-             je = domain%list(m)%y(tNbr)%compute%end+jshift;   js = je  
-             if ( domain%list(m)%x(tNbr)%compute%begin == isg ) then
-                select case (position)
-                case(NORTH)
-                   i=is; is = 2*isg-ie-1; ie = 2*isg-i-1
-                case(CORNER)
-                   i=is; is = 2*isg-ie-2+2*ishift; ie = 2*isg-i-2+2*ishift  
-                end select
-                if(ie .GT. domain%x(tMe)%compute%end+ishift) call mpp_error( FATAL, &
-                     'mpp_domains_define.inc(compute_overlaps): west edge ubound error send.' )     
-             else 
-                select case (position)
-                case(NORTH)
-                   i=is; is = isg+ieg-ie; ie = isg+ieg-i
-                case(CORNER)
-                   i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift
-                end select
-             end if
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isc, iec, jsc, jec, dir, .true.)
+          if( je == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+             call fill_overlap_send_fold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle) 
           else
-             if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-                ! (js, jeg) and (jsg, je).
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, jsg, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, jeg, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
+             if(x_cyclic_offset ==0 .AND. y_cyclic_offset == 0) then             
+                call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic, symmetry=domain%symmetry) 
              else
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, je, isc, iec, jsc, jec, dir, symmetry=domain%symmetry)
+                if( isg.GT.is )then
+                   if( domain%x(tMe)%cyclic .AND. ie.LT.isc )then !try cyclic offset
+                      is = is+ioff; ie = ie+ioff
+                      call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                   endif
+                end if
+                call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                     isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry) 
              end if
           end if
 
           !to_pe's NW halo
           dir = 6
-          is = domain%list(m)%x(tNbr)%compute%begin-whalo;    ie = domain%list(m)%x(tNbr)%compute%begin-1
+          is = domain%list(m)%x(tNbr)%compute%begin-whalo;  ie = domain%list(m)%x(tNbr)%compute%begin-1
           js = domain%list(m)%y(tNbr)%compute%end+1+jshift; je = domain%list(m)%y(tNbr)%compute%end+nhalo+jshift
-          need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( isg.GT.is )then
-             if( domain%x(tMe)%cyclic .AND. ie.LT.isc )then !try cyclic offset
-                is = is+ioff; ie = ie+ioff
-                need_adjust_1 = .false.
-                if(je .GT. jeg) then
-                   if( domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
-                      js = js-joff; je = je-joff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
-                      else if(y_cyclic_offset .NE. 0) then
-                         call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
-                      end if
-                   end if
-                else                  
-                   call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
-                   need_adjust_3 = .false.
-                end if
-             end if
-          end if
-          folded = .FALSE.
-          if( need_adjust_3 .AND. je.GT.jeg )then
-             if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
-                js = js-joff; je = je-joff
-                if( need_adjust_1  .AND. isg.LE.is)then
-                   call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)   
-                end if
-             else if( folded_north )then
-                folded = .TRUE.
-                call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
-             end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jeg) and (jsg, je).   
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, jeg, isc, iec, jsc, jec, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, jsg, je, isc, iec, jsc, jec, dir, folded)        
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isg, ie).            
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ieg, js, je, isc, iec, jsc, jec, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isg, ie, js, je, isc, iec, jsc, jec, dir, folded)
+          is2 = 0; ie2 = -1; js2 = 0; je2 = -1
+          is3 = 0; ie3 = -1; js3 = 0; je3 = -1
+          folded = .FALSE.    
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+             if(js .GT. jeg) then ! je > jeg
+                if( domain%y(tMe)%cyclic ) then
+                   js = js-joff; je = je-joff
+                else if(folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                endif
+             else if(je .GT. jeg) then ! split into two parts
+                if( domain%y(tMe)%cyclic ) then
+                   is2 = is; ie2 = ie; js2 = js; je2 = jeg
+                   js = jeg+1-joff; je = je -joff
+                else if(folded_north) then
+                   folded = .TRUE.
+                   is2 = is; ie2 = ie; js2 = js; je2 = jeg
+                   js  = jeg+1
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                   if( is .GT. ieg) then
+                     is = is - ioff; ie = ie - ioff
+                   else if( ie .GT. ieg ) then
+                     is3 = is; ie3 = ieg; js3 = js; je3 = je
+                     is = ieg+1-ioff; ie = ie - ioff 
+                   endif
+                endif
+             endif
+
+             if( je == jeg .AND. jec == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+                call fill_overlap_send_fold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle) 
+             else
+                call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded) 
+             endif
+             if(ie3 .GE. is3) call fill_overlap_send_nofold(overlap, domain, m, is3, ie3, js3, je3, &
+                                    isc, iec, jsc, jec, isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded) 
+             if(ie2 .GE. is2) then
+                if(je2 == jeg .AND. jec == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_send_fold(overlap, domain, m, is2, ie2, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle) 
+                else
+                   call fill_overlap_send_nofold(overlap, domain, m, is2, ie2, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+                endif
+             endif
           else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isc, iec, jsc, jec, dir, folded)
-          end if
-          !--- when north edge is folded, ie will be less than isg when position is EAST and CORNER
-          if(is .LT. isg .AND. domain%x(tMe)%cyclic) then
-             is = is + ioff
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, is, js, je, isc, iec, jsc, jec, dir, folded)
+             need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
+             if( isg.GT.is )then
+                if( domain%x(tMe)%cyclic .AND. ie.LT.isc )then !try cyclic offset
+                   is = is+ioff; ie = ie+ioff
+                   need_adjust_1 = .false.
+                   if(je .GT. jeg) then
+                      if( domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
+                         js = js-joff; je = je-joff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                         else if(y_cyclic_offset .NE. 0) then
+                            call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
+                         end if
+                      end if
+                   else                  
+                      call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                      need_adjust_3 = .false.
+                   end if
+                end if
+             end if
+             folded = .FALSE.
+             if( need_adjust_3 .AND. je.GT.jeg )then
+                if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
+                   js = js-joff; je = je-joff
+                   if( need_adjust_1  .AND. isg.LE.is)then
+                      call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)   
+                   end if
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
+             end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                  isg, ieg, jsg, jeg, dir)
           endif
+
 
           !to_pe's northern halo
           dir = 7
           folded = .FALSE. 
           is = domain%list(m)%x(tNbr)%compute%begin; ie = domain%list(m)%x(tNbr)%compute%end+ishift
           js = domain%list(m)%y(tNbr)%compute%end+1+jshift; je = domain%list(m)%y(tNbr)%compute%end+nhalo+jshift
-          if( je.GT.jeg )then
-             if( domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
-                js = js-joff; je = je-joff
-                call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
-             else if( folded_north )then
-                folded = .TRUE.
-                call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
-             end if
-          end if
+
           !--- when domain symmetry and position is EAST or CORNER, the point when isc == ie, 
           !--- no need to send, because the data on that point will come from other pe. 
           !--- come from two pe ( there will be only one point on one pe. ).
           if( domain%symmetry .AND. (position == EAST .OR. position == CORNER ) &
-               .AND. ( isc == ie .or. iec == is ) ) then
+               .AND. ( isc == ie .or. iec == is ) .AND. (.not. folded_north) ) then
              !--- do nothing, this point will come from other pe
           else
-             if(is>ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-                ! (is, ieg) and (isg, ie). 
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            isg, ie, js, je, isc, iec, jsc, jec, dir, folded, symmetry=domain%symmetry)
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ieg, js, je, isc, iec, jsc, jec, dir, folded, symmetry=domain%symmetry)
-             else
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, je, isc, iec, jsc, jec, dir, folded, symmetry=domain%symmetry)
+             js2 = -1; je2 = 0
+             if( js .GT. jeg) then ! je .GT. jeg
+                if( domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
+                   js = js-joff; je = je-joff
+                   call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
+             else if( je.GT.jeg )then ! split into two parts
+                if( domain%y(tMe)%cyclic)then !try cyclic offset
+                   is2 = is; ie2 = ie; js2 = js;         je2 = jeg
+                   js = jeg+1-joff; je = je - joff
+                else if( folded_north )then
+                   folded = .TRUE.
+                   is2 = is; ie2 = ie; js2 = js; je2 = jeg 
+                   js  = jeg+1;
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
              end if
+             if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then             
+                if( je == jeg .AND. jec == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_send_fold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                        isg, ieg, dir, ishift, position, ioff, middle, domain%symmetry) 
+                else
+                   call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded, domain%symmetry) 
+                endif
+             else
+                call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                  isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
+             endif
+
+             if(ie2 .GE. is2) then
+                if(je2 == jeg .AND. jec == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_send_fold(overlap, domain, m, is2, ie2, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle, domain%symmetry) 
+                else
+                   call fill_overlap_send_nofold(overlap, domain, m, is2, ie2, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic, symmetry=domain%symmetry) 
+                endif
+             endif
           end if
+
           !--- when north edge is folded, ie will be less than isg when position is EAST and CORNER
           if(is .LT. isg .AND. domain%x(tMe)%cyclic) then
-             is = is + ioff
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, is, js, je, isc, iec, jsc, jec, dir, folded)
+!             is = is + ioff
+!             call insert_update_overlap( overlap, domain%list(m)%pe, & 
+!                                         is, is, js, je, isc, iec, jsc, jec, dir, folded)
+!???             if(je2 .GE. js2)call insert_update_overlap( overlap, domain%list(m)%pe, & 
+!                                         is, is, js2, je2, isc, iec, jsc, jec, dir, folded)
+          endif
+
+          !--- Now calculate the overlapping for fold-edge. Currently we only consider about folded-north
+          !--- for folded-north-edge, only need to consider to_pe's north(7) direction 
+          !--- only position at NORTH and CORNER need to be considered          
+          if( folded_north .AND. (position == NORTH .OR. position == CORNER) &
+              .AND. domain%x(tMe)%pos .LT. (size(domain%x(tMe)%list(:))+1)/2 ) then 
+             if( domain%list(m)%y(tNbr)%compute%end+nhalo+jshift .GE. jeg .AND. isc .LE. middle)then
+                js = jeg; je = jeg
+                is = domain%list(m)%x(tNbr)%compute%begin; ie = domain%list(m)%x(tNbr)%compute%end+ishift
+                is = max(is, middle)
+                select case (position)
+                case(NORTH)
+                   i=is; is = isg+ieg-ie; ie = isg+ieg-i
+                case(CORNER)
+                   i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift
+                end select
+                call insert_update_overlap(overlap, domain%list(m)%pe, & 
+                     is, ie, js, je, isc, iec, jsc, jec, dir, .true.) 
+             endif
+             if(debug_update_level .NE. NO_CHECK) then
+                je = domain%list(m)%y(tNbr)%compute%end+jshift;
+                if(je == jeg) then
+                   is = max(is, isc); ie = min(ie, iec)
+                   js = max(js, jsc); je = min(je, jec)
+                   if(ie.GE.is .AND. je.GE.js )then
+                      nsend_check = nsend_check+1
+                      if(nsend_check > size(checkList(:)) ) then
+                         call expand_check_overlap_list(checkList, nlist)
+                      endif
+                      call allocate_check_overlap(checkList(nsend_check), 1)
+                      call insert_check_overlap(checkList(nsend_check), domain%list(m)%pe, &
+                           tMe, 4, ONE_HUNDRED_EIGHTY, is, ie, js, je)
+                   end if
+                end if
+             endif
           endif
 
           !to_pe's NE halo
           dir = 8
           is = domain%list(m)%x(tNbr)%compute%end+1+ishift; ie = domain%list(m)%x(tNbr)%compute%end+ehalo+ishift
           js = domain%list(m)%y(tNbr)%compute%end+1+jshift; je = domain%list(m)%y(tNbr)%compute%end+nhalo+jshift
-          need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( ie.GT.ieg )then
-             if( domain%x(tMe)%cyclic .AND. iec.LT.is )then !try cyclic offset
-                is = is-ioff; ie = ie-ioff
-                need_adjust_1 = .false.
-                if(je .GT. jeg) then
-                   if( domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
-                      js = js-joff; je = je-joff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
-                      else if(y_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
-                      end if
-                   end if
-                else                  
-                   call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
-                   need_adjust_3 = .false.
-                end if
-             end if
-          end if
-          folded = .false.
-          if( need_adjust_3 .AND. je.GT.jeg )then
-             if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
-                js = js-joff; je = je-joff
-                if( need_adjust_1 .AND. ie.LE.ieg)then
-                   call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)  
-                end if
-             else if( folded_north )then
-                folded = .TRUE.
-                call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
-             end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jeg) and (jsg, je).   
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, jeg, isc, iec, jsc, jec, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, jsg, je, isc, iec, jsc, jec, dir, folded)        
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isg, ie).            
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ieg, js, je, isc, iec, jsc, jec, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isg, ie, js, je, isc, iec, jsc, jec, dir, folded)
-          else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isc, iec, jsc, jec, dir, folded)
-          end if
+          is2 = 0; ie2=-1; js2=0; je2=-1
+          is3 = 0; ie3 = -1; js3 = 0; je3 = -1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+             folded = .FALSE. 
+             if(js .GT. jeg) then ! je > jeg
+                if( domain%y(tMe)%cyclic ) then
+                   js = js-joff; je = je-joff
+                else if(folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                endif
+             else if(je .GT. jeg) then ! split into two parts
+                if( domain%y(tMe)%cyclic ) then
+                   is2 = is; ie2 = ie; js2 = js; je2 = jeg
+                   js = jeg+1-joff; je = je -joff
+                else if(folded_north) then
+                   folded = .TRUE.
+                   is2 = is; ie2 = ie; js2 = js; je2 = jeg
+                   js  = jeg+1
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
 
-          !--- Now calculate the overlapping for fold-edge. Currently we only consider about folded-north
-          !--- for folded-north-edge, only need to consider to_pe's north(7) direction 
-          !--- only position at NORTH and CORNER need to be considered
-          if( folded_north .AND. ( position == NORTH .OR. position == CORNER) ) then
-             if( domain%y(tMe)%data%begin .LE. jeg .AND. jeg .LE. domain%y(tMe)%data%end+jshift )then !fold is within domain
-                dir = 7
-                !--- calculate the overlapping for sending
-                if( domain%x(tMe)%pos .LT. (size(domain%x(tMe)%list(:))+1)/2 )then 
-                   js = domain%list(m)%y(tNbr)%compute%end+jshift;   je = js
-                   if( je == jeg )then   ! fold is within domain.
-                      is = domain%list(m)%x(tNbr)%compute%begin; ie = domain%list(m)%x(tNbr)%compute%end+ishift
-                      select case (position)
-                      case(NORTH)
-                         is = max(is, middle)
-                         i=is; is = isg+ieg-ie; ie = isg+ieg-i
-                      case(CORNER)
-                         is = max(is, middle)
-                         i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift
-                      end select
-                      call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                                 is, ie, js, je, isc, iec, jsc, jec, dir, .true.)           
-                      is = max(is, isc); ie = min(ie, iec)
-                      js = max(js, jsc); je = min(je, jec)
-                      if(debug_update_level .NE. NO_CHECK .AND. ie.GE.is .AND. je.GE.js )then
-                         nsend_check = nsend_check+1
-                         if(nsend_check > size(checkList(:)) ) then
-                            call expand_check_overlap_list(checkList, nlist)
-                         endif
-                         call allocate_check_overlap(checkList(nsend_check), 1)
-                         call insert_check_overlap(checkList(nsend_check), domain%list(m)%pe, &
-                                                   tMe, 4, ONE_HUNDRED_EIGHTY, is, ie, js, je)
+                   if( ie .LT. isg )then
+                      is = is+ioff; ie = ie+ioff
+                   else if( is .LT. isg) then
+                      is3 = isg; ie3 = ie; js3 = js; je3 = je
+                      is = is+ioff; ie = isg-1+ioff;
+                   endif
+                endif
+             endif
+             if( je == jeg .AND. jec == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+                call fill_overlap_send_fold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                     isg, ieg, dir, ishift, position, ioff, middle) 
+             else
+                call fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded) 
+             endif
+             if(ie3 .GE. is3) call fill_overlap_send_nofold(overlap, domain, m, is3, ie3, js3, je3, &
+                                    isc, iec, jsc, jec, isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded) 
+             if(ie2 .GE. is2) then
+                if(je2 == jeg .AND. jec == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_send_fold(overlap, domain, m, is2, ie2, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle) 
+                else
+                   call fill_overlap_send_nofold(overlap, domain, m, is2, ie2, js2, je2, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+                endif
+             endif
+          else
+             need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
+             if( ie.GT.ieg )then
+                if( domain%x(tMe)%cyclic .AND. iec.LT.is )then !try cyclic offset
+                   is = is-ioff; ie = ie-ioff
+                   need_adjust_1 = .false.
+                   if(je .GT. jeg) then
+                      if( domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
+                         js = js-joff; je = je-joff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                         else if(y_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
+                         end if
                       end if
+                   else                  
+                      call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                      need_adjust_3 = .false.
                    end if
                 end if
              end if
-          end if
-       end if
+             folded = .false.
+             if( need_adjust_3 .AND. je.GT.jeg )then
+                if( need_adjust_2 .AND. domain%y(tMe)%cyclic .AND. jec.LT.js )then !try cyclic offset
+                   js = js-joff; je = je-joff
+                   if( need_adjust_1 .AND. ie.LE.ieg)then
+                      call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)  
+                   end if
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
+             end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                  isg, ieg, jsg, jeg, dir)
+          endif
+       endif
+
        !--- copy the overlapping information 
        if( overlap%count > 0) then
          nsend = nsend + 1
@@ -1805,6 +2073,19 @@
          call init_overlap_type(overlap)
        endif
     end do  ! end of send set up.
+
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do m =1,nsend
+          write(unit, *) "********to_pe = " ,overlapList(m)%pe, " count = ",overlapList(m)%count
+          do n = 1, overlapList(m)%count
+             write(unit, *) overlapList(m)%is(n), overlapList(m)%ie(n), overlapList(m)%js(n), overlapList(m)%je(n), &
+                  overlapList(m)%dir(n), overlapList(m)%rotation(n)
+          enddo
+       enddo
+       if(nsend >0) call flush(unit)
+    endif
 
     ! copy the overlapping information into domain data structure
     if(nsend>0) then
@@ -1855,221 +2136,199 @@
                .AND. ( jsd == je .or. jed == js ) ) then
              ! --- do nothing, this point will come from other pe
           else
-             if( ied.GT.ieg )then
-                if( domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
-                   is = is+ioff; ie = ie+ioff
-                   call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
-                end if
-             end if
-
              !--- when the north face is folded, the east halo point at right side domain will be folded.
              !--- the position should be on CORNER or NORTH
-             if( jed == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) &        
-                  .AND. isd .GE. middle .AND. ied .LE. ieg ) then
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                                     is, ie, js, je, isd, ied, jsd, jed-1, dir)
-                is=isc; ie=iec; js=jsc; je=jec
-                jsd = jed
-                select case (position)
-                case(NORTH)
-                   i=is; is = isg+ieg-ie; ie = isg+ieg-i  
-                case(CORNER)
-                   i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift      
-                end select
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, je, isd, ied, jsd, jed, dir, .TRUE.)
-             else 
-                if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-                   ! (js, jeg) and (jsg, je).
-                   call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                               is, ie, js, jeg, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-                   call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                               is, ie, jsg, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
+             if( jed == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) ) then
+                call fill_overlap_recv_fold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ishift, position, ioff, middle) 
+             else
+                if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+                   call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
                 else
-                   call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                               is, ie, js, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-                end if
-             end if
-          end if
+                   if( ied.GT.ieg )then
+                      if( domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
+                         is = is+ioff; ie = ie+ioff
+                         call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                      end if
+                   end if
+                   call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                      isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
+                endif
+             endif
+          endif
+
           !recv_se     
           dir = 2 
           isd = domain%x(tMe)%compute%end+1+ishift; ied = domain%x(tMe)%data%end+ishift
           jsd = domain%y(tMe)%data%begin;    jed = domain%y(tMe)%compute%begin-1
           is=isc; ie=iec; js=jsc; je=jec
-          need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( jsd.LT.jsg )then
-             if( domain%y(tMe)%cyclic .AND. js.GT.jed )then !try cyclic offset
-                js = js-joff; je = je-joff
-                need_adjust_1 = .false.
-                if( ied.GT.ieg )then
-                   if( domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
-                      is = is+ioff; ie = ie+ioff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then
-                         call apply_cyclic_offset(js, je, x_cyclic_offset, jsgd, jeg, nj)
-                      else if(y_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, iegd, ni)
+          !--- divide into two parts, one part is x_cyclic_offset/y_cyclic_offset is non-zeor,
+          !--- the other part is both are zero.
+          is2 = 0; ie2 = -1; js2 = 0; je2 = -1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then  
+             if(jed .LT. jsg) then ! then jsd < jsg
+                if( domain%y(tMe)%cyclic ) then
+                   js = js-joff; je = je-joff
+                endif
+             else if(jsd .LT. jsg) then !split into two parts
+                if( domain%y(tMe)%cyclic ) then
+                   js2 = js-joff; je2 = je-joff
+                endif
+             endif
+             call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+             if(je2 .GE. js2) call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js2, je2, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+          else        
+             need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
+             if( jsd.LT.jsg )then
+                if( domain%y(tMe)%cyclic .AND. js.GT.jed )then !try cyclic offset
+                   js = js-joff; je = je-joff
+                   need_adjust_1 = .false.
+                   if( ied.GT.ieg )then
+                      if( domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
+                         is = is+ioff; ie = ie+ioff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then
+                            call apply_cyclic_offset(js, je, x_cyclic_offset, jsgd, jeg, nj)
+                         else if(y_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, iegd, ni)
+                         end if
                       end if
+                   else
+                      call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
+                      need_adjust_3 = .false.
                    end if
-                else
-                   call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
-                   need_adjust_3 = .false.
                 end if
              end if
-          end if
-          if( need_adjust_3 .AND. ied.GT.ieg )then
-             if( need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
-                is = is+ioff; ie = ie+ioff
-                if( need_adjust_1 .AND. jsd.GE.jsg )then
-                   call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+             if( need_adjust_3 .AND. ied.GT.ieg )then
+                if( need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
+                   is = is+ioff; ie = ie+ioff
+                   if( need_adjust_1 .AND. jsd.GE.jsg )then
+                      call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+                   end if
                 end if
              end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jeg) and (jsgd, je).  
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, jeg, isd, ied, jsd, jed, dir)
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, jsgd, je, isd, ied, jsd, jed, dir)
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, iegd) and (isg, ie).            
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, iegd, js, je, isd, ied, jsd, jed, dir)
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        isg, ie, js, je, isd, ied, jsd, jed, dir)
-          else
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, je, isd, ied, jsd, jed, dir)
-          end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                 isg, ieg, jsg, jeg, dir)
+          endif
 
           !recv_s      
           dir = 3
           isd = domain%x(tMe)%compute%begin; ied = domain%x(tMe)%compute%end+ishift
           jsd = domain%y(tMe)%data%begin;    jed = domain%y(tMe)%compute%begin-1
           is=isc; ie=iec; js=jsc; je=jec
-          if( jsd.LT.jsg )then
-             if( domain%y(tMe)%cyclic .AND. js.GT.jed )then !try cyclic offset
+          js2 = 0; je2 = -1
+          if( jed .LT. jsg) then ! jsd < jsg
+             if( domain%y(tMe)%cyclic ) then
                 js = js-joff; je = je-joff
                 call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni)
+             endif
+          else if( jsd.LT.jsg )then ! split into two parts
+             if( domain%y(tMe)%cyclic)then !try cyclic offset
+                js2 = js-joff; je2 = je-joff
              end if
           end if
-          if(is>ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isg, ie). 
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ieg, js, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        isg, ie, js, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-          else
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-          end if
+          call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+               isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
+          if(je2 .GE. js2) call fill_overlap(overlap, domain, m, is, ie, js2, je2, isd, ied, jsd, jed, &
+               isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
 
           !recv_sw 
           dir = 4
           isd = domain%x(tMe)%data%begin; ied = domain%x(tMe)%compute%begin-1
           jsd = domain%y(tMe)%data%begin; jed = domain%y(tMe)%compute%begin-1
           is=isc; ie=iec; js=jsc; je=jec
-          need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( jsd.LT.jsg )then
-             if( domain%y(tMe)%cyclic .AND. js.GT.jed )then !try cyclic offset
-                js = js-joff; je = je-joff
-                need_adjust_1 = .false.
-                if( isd.LT.isg )then
-                   if( domain%x(tMe)%cyclic .AND. is.GT.ied )then !try cyclic offset
-                      is = is-ioff; ie = ie-ioff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, -x_cyclic_offset, jsgd, jeg, nj)
-                      else if(y_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(is, ie, -y_cyclic_offset, isgd, ieg, ni)
+          is2 = 0; ie2 = -1; js2 = 0; je2 = -1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then  
+             if( ied.LT.isg )then ! isd < isg
+                if( domain%x(tMe)%cyclic ) then
+                   is = is-ioff; ie = ie-ioff
+                endif
+             else if (isd.LT.isg )then ! split into two parts
+                if( domain%x(tMe)%cyclic ) then
+                   is2 = is-ioff; ie2 = ie-ioff
+                endif
+             endif
+             if( jed.LT.jsg )then  ! jsd < jsg
+                if( domain%y(tMe)%cyclic ) then
+                   js = js-joff; je = je-joff
+                endif
+             else if( jsd.LT.jsg )then ! split into two parts
+                if( domain%y(tMe)%cyclic ) then
+                   js2 = js-joff; je2 = je-joff
+                endif
+             endif
+          else        
+             need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
+             if( jsd.LT.jsg )then
+                if( domain%y(tMe)%cyclic .AND. js.GT.jed )then !try cyclic offset
+                   js = js-joff; je = je-joff
+                   need_adjust_1 = .false.
+                   if( isd.LT.isg )then
+                      if( domain%x(tMe)%cyclic .AND. is.GT.ied )then !try cyclic offset
+                         is = is-ioff; ie = ie-ioff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, -x_cyclic_offset, jsgd, jeg, nj)
+                         else if(y_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(is, ie, -y_cyclic_offset, isgd, ieg, ni)
+                         end if
                       end if
+                   else            
+                      call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni) 
+                      need_adjust_3 = .false.  
                    end if
-                else            
-                   call apply_cyclic_offset(is, ie, -y_cyclic_offset, isg, ieg, ni) 
-                   need_adjust_3 = .false.  
                 end if
              end if
-          end if
-          if( need_adjust_3 .AND. isd.LT.isg )then
-             if( need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. is.GT.ied )then !try cyclic offset
-                is = is-ioff; ie = ie-ioff
-                if(need_adjust_1 .AND. jsd.GE.jsg) then
-                   call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+             if( need_adjust_3 .AND. isd.LT.isg )then
+                if( need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. is.GT.ied )then !try cyclic offset
+                   is = is-ioff; ie = ie-ioff
+                   if(need_adjust_1 .AND. jsd.GE.jsg) then
+                      call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                   end if
                 end if
              end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jeg) and (jsgd, je). 
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, jeg, isd, ied, jsd, jed, dir)
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, jsgd, je, isd, ied, jsd, jed, dir)
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isgd, ie).  
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ieg, js, je, isd, ied, jsd, jed, dir)
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        isgd, ie, js, je, isd, ied, jsd, jed, dir)
-          else
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, je, isd, ied, jsd, jed, dir)
-          end if
+          endif
+          call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+               isg, ieg, jsg, jeg, dir)          
+
+          if(ie2 .GE. is2)call fill_overlap(overlap, domain, m, is2, ie2, js, je, isd, ied, jsd, jed, &
+               isg, ieg, jsg, jeg, dir) 
+          if(je2 .GE. js2)call fill_overlap(overlap, domain, m, is, ie, js2, je2, isd, ied, jsd, jed, &
+               isg, ieg, jsg, jeg, dir) 
+
+          if(ie2 .GE. is2 .AND. je2 .GE. js2)call fill_overlap(overlap, domain, m, is2, ie2, js2, je2, isd, ied, jsd, jed, &
+               isg, ieg, jsg, jeg, dir) 
+
+
           !recv_w      
           dir = 5
           isd = domain%x(tMe)%data%begin;    ied = domain%x(tMe)%compute%begin-1
           jsd = domain%y(tMe)%compute%begin; jed = domain%y(tMe)%compute%end+jshift
           is=isc; ie=iec; js=jsc; je=jec
-          if( isd.LT.isg )then
-             if( domain%x(tMe)%cyclic .AND. is.GT.ied )then !try cyclic offset
-                is = is-ioff; ie = ie-ioff
-                call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
-             end if
-          end if
+
           !--- when the north face is folded, some point at j=nj will be folded.
           !--- the position should be on CORNER or NORTH
-          if( jed == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) & 
-               .AND. ( (domain%x(tMe)%cyclic .AND. isd < isg ) .OR. ( ied .GE. middle ) ) )  then
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, je, isd, ied, jsd, jed-1, dir)
-             !--- consider at j = jeg for west edge.
-             !--- when the data is at corner and not symmetry, i = isg -1 will get from cyclic condition
-             if( position == CORNER .AND. .NOT. domain%symmetry .AND. isd < isg ) then
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, je, ied, ied, jed, jed, dir)
-             end if
-             is=isc; ie=iec; js=jsc; je=jec
-             if(isd < isg) then
-                select case (position)
-                case(NORTH)
-                   i=is; is = 2*isg-ie-1; ie = 2*isg-i-1     
-                case(CORNER)
-                   ied = ied -1 + ishift
-                   i=is; is = 2*isg-ie-2+2*ishift; ie = 2*isg-i-2+2*ishift 
-                end select
-                if(ie .GT. domain%x(tMe)%compute%end+ishift) call mpp_error( FATAL, &
-                     'mpp_domains_define.inc(compute_overlaps): west edge ubound error recv.' )     
-             else 
-                select case (position)
-                case(NORTH)
-                   i=is; is = isg+ieg-ie; ie = isg+ieg-i
-                case(CORNER)
-                   i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift
-                end select
-             end if
-             call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                        is, ie, js, je, isd, ied, jed, jed, dir, .TRUE.)
+          if( jed == jeg .AND. folded_north .AND. (position == CORNER .OR. position == NORTH) ) then
+             call fill_overlap_recv_fold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                  isg, ieg, dir, ishift, position, ioff, middle) 
           else
-             if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-                ! (js, jeg) and (jsg, je).
-                call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                           is, ie, js, jeg, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-                call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                           is, ie, jsg, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
+             if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+                call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic, symmetry=domain%symmetry)
              else
-                call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                           is, ie, js, je, isd, ied, jsd, jed, dir, symmetry=domain%symmetry)
-             end if
-          end if
+                if( isd.LT.isg )then
+                   if( domain%x(tMe)%cyclic .AND. is.GT.ied )then !try cyclic offset
+                      is = is-ioff; ie = ie-ioff
+                      call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                   end if
+                end if
+                call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
+             endif
+          endif
 
           !recv_nw     
           dir = 6
@@ -2077,55 +2336,87 @@
           isd = domain%x(tMe)%data%begin;    ied = domain%x(tMe)%compute%begin-1
           jsd = domain%y(tMe)%compute%end+1+jshift; jed = domain%y(tMe)%data%end+jshift
           is=isc; ie=iec; js=jsc; je=jec
-          need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( jed.GT.jeg )then
-             if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
-                js = js+joff; je = je+joff
-                need_adjust_1 = .false.
-                if( isd.LT.isg )then
-                   if( domain%x(tMe)%cyclic .AND. is.GE.ied )then !try cyclic offset
-                      is = is-ioff; ie = ie-ioff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jegd, nj)
-                      else if(y_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(is, ie, y_cyclic_offset, isgd, ieg, ni)
-                      end if
-                   end if
-                else
-                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni) 
-                   need_adjust_3 = .false. 
+          is2 = 0; ie2 = -1; js2 = 0; je2 = -1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+             js2 = -1; je2 = 0
+             if( jsd .GT. jeg ) then ! jed > jeg
+                if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
                 end if
-             else if( folded_north )then
-                folded = .TRUE.
-                call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
-             end if
-          end if
-          if( need_adjust_3 .AND. isd.LT.isg )then
-             if( need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. is.GE.ied )then !try cyclic offset
-                is = is-ioff; ie = ie-ioff
-                if( need_adjust_1 .AND. jed.LE.jeg )then
-                   call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+             else if( jed.GT.jeg )then ! split into two parts
+                if( domain%y(tMe)%cyclic)then !try cyclic offset
+                   is2 = is; ie2 = ie; js2 = js; je2 = je
+                   isd2 = isd; ied2 = ied; jsd2 = jsd; jed2 = jeg
+                   js = js + joff; je = je + joff
+                   jsd = jeg+1
+                else if( folded_north )then
+                   folded = .TRUE.
+                   is2 = is; ie2 = ie; js2 = js; je2 = je
+                   isd2 = isd; ied2 = ied; jsd2 = jsd; jed2 = jeg
+                   jsd = jeg+1                   
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
                 end if
-             end if
-          end if
+             endif
 
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jegd) and (jsg, je).  
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, jegd, isd, ied, jsd, jed, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, jsg, je, isd, ied, jsd, jed, dir, folded)
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, ieg) and (isgd, ie). 
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ieg, js, je, isd, ied, jsd, jed, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isgd, ie, js, je, isd, ied, jsd, jed, dir, folded)
+             if( jeg .GE. js .AND. jeg .LE. je .AND. jed == jeg .AND. folded_north &
+                  .AND. (position == CORNER .OR. position == NORTH)) then
+                call fill_overlap_recv_fold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ishift, position, ioff, middle) 
+             else
+                call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded) 
+             endif
+
+             if(ie2 .GE. is2) then
+                if( jeg .GE. js2 .AND. jeg .LE. je2 .AND. jed2 == jeg .AND. folded_north &
+                    .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_recv_fold(overlap, domain, m, is2, ie2, js2, je2, isd2, ied2, jsd2, jed2, &
+                        isg, ieg, dir, ishift, position, ioff, middle) 
+                else
+                   call fill_overlap_recv_nofold(overlap, domain, m, is2, ie2, js2, je2, isd2, ied2, jsd2, jed2, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+                endif
+             endif
           else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isd, ied, jsd, jed, dir, folded)
-          end if
+             need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
+             if( jed.GT.jeg )then
+                if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   need_adjust_1 = .false.
+                   if( isd.LT.isg )then
+                      if( domain%x(tMe)%cyclic .AND. is.GE.ied )then !try cyclic offset
+                         is = is-ioff; ie = ie-ioff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jegd, nj)
+                         else if(y_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(is, ie, y_cyclic_offset, isgd, ieg, ni)
+                         end if
+                      end if
+                   else
+                      call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni) 
+                      need_adjust_3 = .false. 
+                   end if
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
+             end if
+             if( need_adjust_3 .AND. isd.LT.isg )then
+                if( need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. is.GE.ied )then !try cyclic offset
+                   is = is-ioff; ie = ie-ioff
+                   if( need_adjust_1 .AND. jed.LE.jeg )then
+                      call apply_cyclic_offset(js, je, -x_cyclic_offset, jsg, jeg, nj)
+                   end if
+                end if
+             end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                  isg, ieg, jsg, jeg, dir)
+          endif
 
           !--- when north edge is folded, is will be less than isg when position is EAST and CORNER
           if(is .LT. isg .AND. domain%x(tMe)%cyclic) then
@@ -2140,130 +2431,193 @@
           isd = domain%x(tMe)%compute%begin; ied = domain%x(tMe)%compute%end+ishift
           jsd = domain%y(tMe)%compute%end+1+jshift; jed = domain%y(tMe)%data%end+jshift
           is=isc; ie=iec; js=jsc; je=jec
-          if( jed.GT.jeg )then
-             if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
-                js = js+joff; je = je+joff
-                call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
-             else if( folded_north )then
-                folded = .TRUE.
-                call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
-             end if
-          end if
+
           !--- when domain symmetry and position is EAST or CORNER, the point at i=isd will 
           !--- come from two pe ( there will be only one point on one pe. ).
           if( domain%symmetry .AND. (position == EAST .OR. position == CORNER ) &
-               .AND. (isd == ie .or. ied == is ) ) then
+               .AND. (isd == ie .or. ied == is ) .AND. (.not. folded_north) ) then
              !--- do nothing, this point will come from other pe
           else
-             if(is>ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-                ! (is, ieg) and (isg, ie).
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ieg, js, je, isd, ied, jsd, jed, dir, folded, symmetry=domain%symmetry)
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            isg, ie, js, je, isd, ied, jsd, jed, dir, folded, symmetry=domain%symmetry)
-             else
-                call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                            is, ie, js, je, isd, ied, jsd, jed, dir, folded, symmetry=domain%symmetry)
+             js2 = -1; je2 = 0
+             if( jsd .GT. jeg ) then ! jed > jeg
+                if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
+             else if( jed.GT.jeg )then ! split into two parts
+                if( domain%y(tMe)%cyclic)then !try cyclic offset
+                   is2 = is; ie2 = ie; js2 = js; je2 = je
+                   isd2 = isd; ied2 = ied; jsd2 = jsd; jed2 = jeg
+                   js = js + joff; je = je + joff
+                   jsd = jeg+1
+                else if( folded_north )then
+                   folded = .TRUE.
+                   is2 = is; ie2 = ie; js2 = js; je2 = je
+                   isd2 = isd; ied2 = ied; jsd2 = jsd; jed2 = jeg
+                   jsd = jeg+1
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
              end if
-          end if
+             if(x_cyclic_offset == 0 .and. y_cyclic_offset == 0) then
+                if( jeg .GE. js .AND. jeg .LE. je .AND. jed == jeg .AND. folded_north &
+                     .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_recv_fold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                        isg, ieg, dir, ishift, position, ioff, middle, symmetry=domain%symmetry) 
+                else
+                   call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded, symmetry=domain%symmetry) 
+                endif
+             else
+                call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, jsg, jeg, dir, symmetry=domain%symmetry)
+             endif                
+             if(ie2 .GE. is2) then
+                if(jeg .GE. js2 .AND. jeg .LE. je2 .AND. jed2 == jeg .AND. folded_north &
+                   .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_recv_fold(overlap, domain, m, is2, ie2, js2, je2, isd2, ied2, jsd2, jed2, &
+                        isg, ieg, dir, ishift, position, ioff, middle, symmetry=domain%symmetry) 
+                else
+                   call fill_overlap_recv_nofold(overlap, domain, m, is2, ie2, js2, je2, isd2, ied2, jsd2, jed2, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded, symmetry=domain%symmetry) 
+                endif
+             endif
+          endif
+
           !--- when north edge is folded, ie will be less than isg when position is EAST and CORNER
           if(is .LT. isg .AND. domain%x(tMe)%cyclic) then
-             is = is + ioff
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, is, js, je, isd, ied, jsd, jed, dir, folded)
+!             is = is + ioff
+!             call insert_update_overlap( overlap, domain%list(m)%pe, & 
+!                  is, is, js, je, isd, ied, jsd, jed, dir, folded)
           endif
+
+          !--- Now calculate the overlapping for fold-edge. Currently we only consider about folded-north
+          !--- for folded-north-edge, only need to consider to_pe's north(7) direction 
+          !--- only position at NORTH and CORNER need to be considered
+          
+          if( folded_north .AND. (position == NORTH .OR. position == CORNER) &
+               .AND. domain%x(tMe)%pos .GE. size(domain%x(tMe)%list(:))/2) then 
+             if( jed .GE. jeg .AND. ied .GE. middle)then
+                jsd = jeg; jed = jeg
+                is=isc; ie=iec; js = jsc; je = jec
+                isd = max(isd, middle)
+                select case (position)
+                case(NORTH)
+                   i=is; is = isg+ieg-ie; ie = isg+ieg-i
+                case(CORNER)
+                   i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift
+                end select
+                call insert_update_overlap(overlap, domain%list(m)%pe, & 
+                     is, ie, js, je, isd, ied, jsd, jed, dir, .true.)                 
+             endif
+             if(debug_update_level .NE. NO_CHECK) then
+                jsd = domain%y(tMe)%compute%end+jshift;   jed = jsd
+                if(jed == jeg) then
+                   is = max(is, isd); ie = min(ie, ied)
+                   js = max(js, jsd); je = min(je, jed)
+                   if(ie.GE.is .AND. je.GE.js )then
+                      nrecv_check = nrecv_check+1
+                      if(nrecv_check > size(checkList(:)) ) then
+                         call expand_check_overlap_list(checkList, nlist)
+                      endif
+                      call allocate_check_overlap(checkList(nrecv_check), 1)
+                      call insert_check_overlap(checkList(nrecv_check), domain%list(m)%pe, &
+                           tMe, 4, ONE_HUNDRED_EIGHTY, is, ie, js, je)
+                   end if
+                end if
+             endif
+
+          endif
+
           !recv_ne     
           dir = 8
           folded = .false.
           isd = domain%x(tMe)%compute%end+1+ishift; ied = domain%x(tMe)%data%end+ishift
           jsd = domain%y(tMe)%compute%end+1+jshift; jed = domain%y(tMe)%data%end+jshift
           is=isc; ie=iec; js=jsc; je=jec
-          need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
-          if( jed.GT.jeg )then
-             if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
-                js = js+joff; je = je+joff
-                need_adjust_1 = .false.
-                if( ied.GT.ieg )then
-                   if( domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
-                      is = is+ioff; ie = ie+ioff
-                      need_adjust_2 = .false.
-                      if(x_cyclic_offset .NE. 0) then  
-                         call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jegd, nj)
-                      else if(y_cyclic_offset .NE. 0) then 
-                         call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, iegd, ni)
-                      end if
-                   end if
-                else           
-                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni) 
-                   need_adjust_3 = .false.         
+          is2 = 0; ie2=-1; js2=0; je2=-1
+          if(x_cyclic_offset == 0 .AND. y_cyclic_offset == 0) then
+             js2 = -1; je2 = 0
+             if( jsd .GT. jeg ) then ! jed > jeg
+                if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni)
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
                 end if
-             else if( folded_north )then
-                folded = .TRUE.
-                call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
-             end if
-          end if
-          if(  need_adjust_3 .AND. ied.GT.ieg )then
-             if(  need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
-                is = is+ioff; ie = ie+ioff
-                if( need_adjust_1 .AND. jed.LE.jeg)then
-                   call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
+             else if( jed.GT.jeg )then ! split into two parts
+                if( domain%y(tMe)%cyclic)then !try cyclic offset
+                   is2 = is; ie2 = ie; js2 = js; je2 = je
+                   isd2 = isd; ied2 = ied; jsd2 = jsd; jed2 = jeg
+                   js = js + joff; je = je + joff
+                   jsd = jeg+1
+                else if( folded_north )then
+                   folded = .TRUE.
+                   is2 = is; ie2 = ie; js2 = js; je2 = je
+                   isd2 = isd; ied2 = ied; jsd2 = jsd; jed2 = jeg
+                   jsd = jeg+1
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
                 end if
-             end if
-          end if
-          if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
-             ! (js, jegd) and (jsg, je). 
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, jsg, je, isd, ied, jsd, jed, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, jegd, isd, ied, jsd, jed, dir, folded)
-          else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
-             ! (is, iegd) and (isg, ie).    
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, iegd, js, je, isd, ied, jsd, jed, dir, folded)
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         isg, ie, js, je, isd, ied, jsd, jed, dir, folded)
+             endif
+             if( jeg .GE. js .AND. jeg .LE. je .AND. jed == jeg .AND. folded_north &
+                  .AND. (position == CORNER .OR. position == NORTH)) then
+                call fill_overlap_recv_fold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ishift, position, ioff, middle) 
+             else
+                call fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                     isg, ieg, dir, ioff, domain%x(tMe)%cyclic, folded) 
+             endif
+             if(ie2 .GE. is2) then
+                if(jeg .GE. js2 .AND. jeg .LE. je2 .AND. jed2 == jeg .AND. folded_north &
+                     .AND. (position == CORNER .OR. position == NORTH)) then
+                   call fill_overlap_recv_fold(overlap, domain, m, is2, ie2, js2, je2, isd2, ied2, jsd2, jed2, &
+                        isg, ieg, dir, ishift, position, ioff, middle) 
+                else
+                   call fill_overlap_recv_nofold(overlap, domain, m, is2, ie2, js2, je2, isd2, ied2, jsd2, jed2, &
+                        isg, ieg, dir, ioff, domain%x(tMe)%cyclic) 
+                endif
+             endif
           else
-             call insert_update_overlap( overlap, domain%list(m)%pe, & 
-                                         is, ie, js, je, isd, ied, jsd, jed, dir, folded)
-          end if
-       endif
-       !--- Now calculate the overlapping for fold-edge. Currently we only consider about folded-north
-       !--- for folded-north-edge, only need to consider to_pe's north(7) direction 
-       !--- only position at NORTH and CORNER need to be considered
-       if( folded_north .AND. ( position == NORTH .OR. position == CORNER) ) then
-          if( domain%y(tMe)%data%begin .LE. jeg .AND. jeg .LE. domain%y(tMe)%data%end )then !fold is within domain
-             dir = 7
-             !--- calculating overlapping for receving on north
-             if( domain%x(tMe)%pos .GE. size(domain%x(tMe)%list(:))/2 )then 
-                jsd = domain%y(tMe)%compute%end+jshift;   jed = jsd
-                if( jed == jeg )then   ! fold is within domain.
-                   isd = domain%x(tMe)%compute%begin; ied = domain%x(tMe)%compute%end+ishift
-                   is=isc; ie=iec; js = jsc; je = jec
-                   select case (position)
-                   case(NORTH)
-                      isd = max(isd, middle)
-                      i=is; is = isg+ieg-ie; ie = isg+ieg-i
-                   case(CORNER)
-                      isd = max(isd, middle)
-                      i=is; is = isg+ieg-ie-1+ishift; ie = isg+ieg-i-1+ishift
-                   end select
-                   call insert_update_overlap(overlap, domain%list(m)%pe, & 
-                                              is, ie, js, je, isd, ied, jsd, jed, dir, .TRUE.) 
-                   is = max(is, isd); ie = min(ie, ied)
-                   js = max(js, jsd); je = min(je, jed)
-                   if(debug_update_level .NE. NO_CHECK .AND. ie.GE.is .AND. je.GE.js )then
-                      nrecv_check = nrecv_check+1          
-                      if(nrecv_check > size(checkList(:)) ) then
-                         call expand_check_overlap_list(checkList, nlist)
-                      endif
-                      call allocate_check_overlap(checkList(nrecv_check), 1)
-                      call insert_check_overlap(checkList(nrecv_check), domain%list(m)%pe, &
-                                                tMe, 4, ONE_HUNDRED_EIGHTY, is, ie, js, je)
+             need_adjust_1 = .true.; need_adjust_2 = .true.; need_adjust_3 = .true.
+             if( jed.GT.jeg )then
+                if( domain%y(tMe)%cyclic .AND. je.LT.jsd )then !try cyclic offset
+                   js = js+joff; je = je+joff
+                   need_adjust_1 = .false.
+                   if( ied.GT.ieg )then
+                      if( domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
+                         is = is+ioff; ie = ie+ioff
+                         need_adjust_2 = .false.
+                         if(x_cyclic_offset .NE. 0) then  
+                            call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jegd, nj)
+                         else if(y_cyclic_offset .NE. 0) then 
+                            call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, iegd, ni)
+                         end if
+                      end if
+                   else           
+                      call apply_cyclic_offset(is, ie, y_cyclic_offset, isg, ieg, ni) 
+                      need_adjust_3 = .false.         
+                   end if
+                else if( folded_north )then
+                   folded = .TRUE.
+                   call get_fold_index_north(isg, ieg, jeg, ishift, position, is, ie, js, je)
+                end if
+             end if
+             if(  need_adjust_3 .AND. ied.GT.ieg )then
+                if(  need_adjust_2 .AND. domain%x(tMe)%cyclic .AND. ie.LT.isd )then !try cyclic offset
+                   is = is+ioff; ie = ie+ioff
+                   if( need_adjust_1 .AND. jed.LE.jeg)then
+                      call apply_cyclic_offset(js, je, x_cyclic_offset, jsg, jeg, nj)
                    end if
                 end if
              end if
-          end if
-       end if
+             call fill_overlap(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                  isg, ieg, jsg, jeg, dir)
+          endif
+       endif
+
        !--- copy the overlapping information
        if( overlap%count > 0) then
           nrecv = nrecv + 1
@@ -2275,6 +2629,19 @@
           call init_overlap_type(overlap)
        endif
     enddo ! end of recv do loop
+
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do m =1,nrecv
+          write(unit, *) "********from_pe = " ,overlapList(m)%pe, " count = ",overlapList(m)%count
+          do n = 1, overlapList(m)%count
+             write(unit, *) overlapList(m)%is(n), overlapList(m)%ie(n), overlapList(m)%js(n), overlapList(m)%je(n), &
+                  overlapList(m)%dir(n), overlapList(m)%rotation(n)
+          enddo
+       enddo
+       if(nrecv >0) call flush(unit)
+    endif
 
     ! copy the overlapping information into domain
     if(nrecv>0) then
@@ -2318,6 +2685,230 @@
 
   end subroutine compute_overlaps
 
+
+  subroutine fill_overlap_send_nofold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ioff, is_cyclic, folded, symmetry) 
+    type(overlap_type), intent(inout) :: overlap
+    type(domain2d),     intent(inout) :: domain
+    integer,            intent(in   ) :: m, is, ie, js, je
+    integer,            intent(in   ) :: isc, iec, jsc, jec
+    integer,            intent(in   ) :: isg, ieg, dir, ioff
+    logical,            intent(in   ) :: is_cyclic
+    logical, optional,  intent(in   ) :: folded, symmetry
+
+    call insert_update_overlap( overlap, domain%list(m)%pe,              &
+            is, ie, js, je, isc, iec, jsc, jec, dir, reverse=folded, symmetry=symmetry)  
+    if(is_cyclic) then
+       if(ie .GT. ieg) then
+          call insert_update_overlap( overlap, domain%list(m)%pe,              &
+               is-ioff, ie-ioff, js, je, isc, iec, jsc, jec, dir, reverse=folded, symmetry=symmetry)  
+       else if( is .LT. isg ) then
+          call insert_update_overlap( overlap, domain%list(m)%pe,              &
+               is+ioff, ie+ioff, js, je, isc, iec, jsc, jec, dir, reverse=folded, symmetry=symmetry)  
+       endif
+    endif
+
+  end subroutine fill_overlap_send_nofold
+  !##################################################################################
+  subroutine fill_overlap_send_fold(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                    isg, ieg, dir, ishift, position, ioff, middle, symmetry) 
+    type(overlap_type), intent(inout) :: overlap
+    type(domain2d),     intent(inout) :: domain
+    integer,            intent(in   ) :: m, is, ie, js, je
+    integer,            intent(in   ) :: isc, iec, jsc, jec
+    integer,            intent(in   ) :: isg, ieg, dir, ishift, position, ioff, middle
+    logical, optional,  intent(in   ) :: symmetry
+    integer                           :: is1, ie1, is2, ie2, i
+ 
+    !--- consider at j = jeg for west edge.
+    !--- when the data is at corner and not symmetry, i = isg -1 will get from cyclic condition
+    if(position == CORNER .AND. .NOT. domain%symmetry .AND. is .LE. isg-1 .AND. ie .GE. isg-1) then
+       call insert_update_overlap(overlap, domain%list(m)%pe, & 
+            isg-1+ioff, isg-1+ioff, je, je, isc, iec, jsc, jec, dir, .true.)
+    end if    
+ 
+    is1 = 0; ie1 = -1; is2 = 0; ie2 = -1
+    !--- east edge 
+    if( is > ieg ) then 
+       is2 = is-ioff; ie2 = ie-ioff
+    else if( ie > ieg ) then ! split into two parts
+       is1 = is; ie1 = ieg
+       is2 = ieg+1-ioff; ie2 = ie-ioff
+    else if( is .GE. middle ) then
+       is1 = is; ie1 = ie
+    else if( ie .GE. middle ) then ! split into two parts
+       is1 = middle; ie1 = ie
+       is2 = is;     ie2 = middle-1
+    else if( ie < isg ) then ! west boundary 
+       is1 = is+ieg-isg+1-ishift; ie1 = ie+ieg-isg+1-ishift
+    else if( is < isg ) then ! split into two parts
+       is1 = is+ieg-isg+1-ishift; ie1 = isg-1+ieg-isg+1-ishift
+       is2 = isg; ie2 = ie
+    else
+       is2 = is; ie2 = ie
+    endif
+
+    if( ie1 .GE. is1) then
+       call insert_update_overlap( overlap, domain%list(m)%pe,              &
+            is1, ie1, js, je-1, isc, iec, jsc, jec, dir, symmetry=symmetry)
+
+       select case (position)
+       case(NORTH)
+          i=is1; is1 = isg+ieg-ie1; ie1 = isg+ieg-i  
+       case(CORNER)
+          i=is1; is1 = isg+ieg-ie1-1+ishift; ie1 = isg+ieg-i-1+ishift      
+       end select
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            is1, ie1, je, je, isc, iec, jsc, jec, dir, .true., symmetry=symmetry)
+    endif
+
+    if(ie2 .GE. is2) then
+       call insert_update_overlap( overlap, domain%list(m)%pe,              &
+            is2, ie2, js, je, isc, iec, jsc, jec, dir, symmetry=symmetry)
+    endif
+
+  end subroutine fill_overlap_send_fold
+
+
+  !#############################################################################
+  subroutine fill_overlap_recv_nofold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                                    isg, ieg, dir, ioff, is_cyclic, folded, symmetry) 
+    type(overlap_type), intent(inout) :: overlap
+    type(domain2d),     intent(inout) :: domain
+    integer,            intent(in   ) :: m, is, ie, js, je
+    integer,            intent(in   ) :: isd, ied, jsd, jed
+    integer,            intent(in   ) :: isg, ieg, dir, ioff
+    logical,            intent(in   ) :: is_cyclic
+    logical, optional,  intent(in   ) :: folded, symmetry
+    integer                           :: is1, ie1, is2, ie2
+    integer                           :: isd1, ied1, isd2, ied2
+
+    is1 = 0; ie1 = -1; is2 = 0; ie2 = -1
+    isd1=isd; ied1=ied
+    isd2=isd; ied2=ied
+
+    call insert_update_overlap( overlap, domain%list(m)%pe,              &
+            is, ie, js, je, isd, ied, jsd, jed, dir, reverse=folded, symmetry=symmetry)  
+    if(is_cyclic) then
+       if(ied .GT. ieg) then
+          call insert_update_overlap( overlap, domain%list(m)%pe,              &
+               is+ioff, ie+ioff, js, je, isd, ied, jsd, jed, dir, reverse=folded, symmetry=symmetry)  
+       else if( isd .LT. isg ) then
+          call insert_update_overlap( overlap, domain%list(m)%pe,              &
+               is-ioff, ie-ioff, js, je, isd, ied, jsd, jed, dir, reverse=folded, symmetry=symmetry)  
+       else if ( is .LT. isg ) then
+          call insert_update_overlap( overlap, domain%list(m)%pe,              &
+               is+ioff, ie+ioff, js, je, isd, ied, jsd, jed, dir, reverse=folded, symmetry=symmetry)  
+       else if ( ie .GT. ieg ) then
+          call insert_update_overlap( overlap, domain%list(m)%pe,              &
+               is-ioff, ie-ioff, js, je, isd, ied, jsd, jed, dir, reverse=folded, symmetry=symmetry)  
+       endif
+    endif
+
+  end subroutine fill_overlap_recv_nofold
+  !#################################################################################
+  subroutine fill_overlap_recv_fold(overlap, domain, m, is, ie, js, je, isd, ied, jsd, jed, &
+                                    isg, ieg, dir, ishift, position, ioff, middle, symmetry) 
+    type(overlap_type), intent(inout) :: overlap
+    type(domain2d),     intent(inout) :: domain
+    integer,            intent(in   ) :: m, is, ie, js, je
+    integer,            intent(in   ) :: isd, ied, jsd, jed
+    integer,            intent(in   ) :: isg, ieg, dir, ishift, position, ioff, middle
+    logical, optional,  intent(in   ) :: symmetry
+    integer                           :: is1, ie1, is2, ie2, is3, ie3
+    integer                           :: isd1, ied1, isd2, ied2
+
+    !--- consider at j = jeg for west edge.
+    !--- when the data is at corner and not symmetry, i = isg -1 will get from cyclic condition
+    if( position == CORNER .AND. .NOT. domain%symmetry .AND. isd .LE. isg-1 .AND. ied .GE. isg-1 ) then
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            is-ioff, ie-ioff, js, je, isg-1, isg-1, jed, jed, dir, .true.)
+    end if
+
+    is1 = 0;  ie1 = -1; is2 = 0;  ie2 = -1
+    isd1=isd; ied1=ied
+    isd2=isd; ied2=ied
+    select case (position)
+    case(NORTH)
+       is3 = isg+ieg-ie; ie3 = isg+ieg-is  
+    case(CORNER)
+       is3 = isg+ieg-ie-1+ishift; ie3 = isg+ieg-is-1+ishift      
+    end select
+
+    if(isd .GT. ieg) then ! east 
+       is2 = is + ioff; ie2 = ie + ioff;
+    else if(ied .GT. ieg) then ! split into two parts
+       is1 = is; ie1 = ie; 
+       isd1 = isd; ied1 = ieg;
+       is2 = is + ioff; ie2 = ie + ioff
+       isd2 = ieg + 1; ied2 = ied
+    else if(isd .GE. middle) then
+       is1 = is; ie1 = ie
+    else if(ied .GE. middle) then ! split into two parts
+       is1 = is; ie1 = ie
+       isd1 = middle; ied1 = ied
+       is2 = is; ie2 = ie
+       isd2 = isd; ied2 = middle-1
+    else if(ied .LT. isg) then
+       is1 = is - ioff; ie1 = ie - ioff;
+       is3 = is3 - ioff; ie3 = ie3 - ioff;
+    else if(isd .LT. isg) then ! split into two parts
+       is1 = is - ioff; ie1 = ie - ioff;
+       is3 = is3 - ioff; ie3 = ie3 - ioff;
+       isd1 = isd; ied1 = isg-1
+       is2 = is;        ie2 = ie
+       isd2 = isg;      ied2 = ied
+   else
+       is2 = is  ; ie2 =ie
+       isd2 = isd; ied2 = ied
+   endif
+
+   if( ie1 .GE. is1) then
+      call insert_update_overlap( overlap, domain%list(m)%pe,              &
+           is1, ie1, js, je, isd1, ied1, jsd, jed-1, dir, symmetry=symmetry)
+
+      call insert_update_overlap( overlap, domain%list(m)%pe, & 
+           is3, ie3, js, je, isd1, ied1, jed, jed, dir, .true., symmetry=symmetry)
+   endif
+
+   if(ie2 .GE. is2) then
+      call insert_update_overlap( overlap, domain%list(m)%pe,              &
+           is2, ie2, js, je, isd2, ied2, jsd, jed, dir, symmetry=symmetry)
+   endif
+        
+  end subroutine fill_overlap_recv_fold
+
+!#####################################################################################
+  subroutine fill_overlap(overlap, domain, m, is, ie, js, je, isc, iec, jsc, jec, &
+                                  isg, ieg, jsg, jeg, dir, reverse, symmetry)
+    type(overlap_type), intent(inout) :: overlap
+    type(domain2d),     intent(inout) :: domain
+    integer,            intent(in   ) :: m, is, ie, js, je
+    integer,            intent(in   ) :: isc, iec, jsc, jec
+    integer,            intent(in   ) :: isg, ieg, jsg, jeg
+    integer,            intent(in   ) :: dir
+    logical, optional,  intent(in   ) :: reverse, symmetry
+
+    if(js > je) then ! seperate into two regions due to x_cyclic_offset is nonzero, the two region are
+       ! (js, jeg) and (jsg, je).
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            is, ie, jsg, je, isc, iec, jsc, jec, dir, reverse, symmetry)
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            is, ie, js, jeg, isc, iec, jsc, jec, dir, reverse, symmetry)
+    else if(is > ie) then ! seperate into two regions due to y_cyclic_offset is nonzero, the two region are
+       ! (is, ieg) and (isg, ie).            
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            is, ieg, js, je, isc, iec, jsc, jec, dir, reverse, symmetry)
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            isg, ie, js, je, isc, iec, jsc, jec, dir, reverse, symmetry)    
+    else
+       call insert_update_overlap( overlap, domain%list(m)%pe, & 
+            is, ie, js, je, isc, iec, jsc, jec, dir, reverse, symmetry)
+    end if
+
+
+  end subroutine fill_overlap
+
   !####################################################################################
   subroutine compute_overlaps_fold_south( domain, position, ishift, jshift)
     !computes remote domain overlaps
@@ -2334,11 +2925,12 @@
     logical                          :: folded
     type(overlap_type)               :: overlap
     type(overlapSpec),   pointer     :: update=>NULL()
-    type(overlap_type)               :: overlapList(MAXLIST)
-    type(overlap_type)               :: checkList(MAXLIST)
+    type(overlap_type),  pointer     :: overlapList(:)=>NULL()
+    type(overlap_type),  pointer     :: checkList(:)=>NULL()
     type(overlapSpec),   pointer     :: check =>NULL()
     integer                          :: nsend, nrecv
     integer                          :: nsend_check, nrecv_check
+    integer                          :: unit
 
     !--- since we restrict that if multiple tiles on one pe, all the tiles are limited to this pe. 
     !--- In this case, if ntiles on this pe is greater than 1, no overlapping between processor within each tile
@@ -2368,6 +2960,9 @@
        call mpp_error(FATAL, &
         "mpp_domains_define.inc(compute_overlaps_fold_south): the value of position should be CENTER, EAST, CORNER or NORTH")
     end select
+
+    allocate(overlapList(MAXLIST) )
+    allocate(checkList(MAXLIST)   )
 
     !--- overlap is used to store the overlapping temporarily.
     call allocate_update_overlap( overlap, MAXOVERLAP)
@@ -2523,7 +3118,7 @@
              !--- when the south face is folded, some point at j=nj will be folded.
              !--- the position should be on CORNER or NORTH
              if( js == jsg .AND. (position == CORNER .OR. position == NORTH) &
-                  .AND. ( domain%list(m)%x(tNbr)%compute%begin == isg .OR. domain%list(m)%x(tNbr)%compute%begin-1 .GE. middle  ) ) then
+                  .AND. ( domain%list(m)%x(tNbr)%compute%begin == isg .OR. domain%list(m)%x(tNbr)%compute%begin-1 .GE. middle)) then
                 call insert_update_overlap( overlap, domain%list(m)%pe, & 
                                             is, ie, js+1, je, isc, iec, jsc, jec, dir)
                 is = domain%list(m)%x(tNbr)%compute%begin-whalo;    ie = domain%list(m)%x(tNbr)%compute%begin-1
@@ -2616,12 +3211,27 @@
        !--- copy the overlapping information 
        if( overlap%count > 0) then
          nsend = nsend + 1
-         if(nsend > MAXLIST) call mpp_error(FATAL,  &
-             "mpp_domains_define.inc(compute_overlaps_south): nsend is greater than MAXLIST, increase MAXLIST")
+         if(nsend > size(overlapList(:)) ) then
+            call mpp_error(NOTE, 'mpp_domains_define.inc(compute_overlaps_south): overlapList for send is expanded')
+            call expand_update_overlap_list(overlapList, nlist)
+         endif
          call add_update_overlap(overlapList(nsend), overlap)
          call init_overlap_type(overlap)
        endif
     end do  ! end of send set up.
+
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do m =1,nsend
+          write(unit, *) "********to_pe = " ,overlapList(m)%pe, " count = ",overlapList(m)%count
+          do n = 1, overlapList(m)%count
+             write(unit, *) overlapList(m)%is(n), overlapList(m)%ie(n), overlapList(m)%js(n), overlapList(m)%je(n), &
+                  overlapList(m)%dir(n), overlapList(m)%rotation(n)
+          enddo
+       enddo
+       if( nsend > 0) call flush(unit)
+    endif
 
     ! copy the overlapping information into domain data structure
     if(nsend>0) then
@@ -2640,10 +3250,15 @@
        enddo
     endif
 
-    do m = 1, MAXLIST
+    do m = 1,size(overlapList(:))
        call deallocate_overlap_type(overlapList(m))
-       if(debug_update_level .NE. NO_CHECK) call deallocate_overlap_type(checkList(m))
     enddo
+
+    if(debug_update_level .NE. NO_CHECK) then
+       do m = 1,size(checkList(:))
+          call deallocate_overlap_type(checkList(m))
+       enddo
+    endif
 
     isgd = isg - domain%whalo
     iegd = ieg + domain%ehalo
@@ -2866,12 +3481,27 @@
        !--- copy the overlapping information
        if( overlap%count > 0) then
           nrecv = nrecv + 1
-          if(nrecv > MAXLIST) call mpp_error(FATAL,  &
-             "mpp_domains_define.inc(compute_overlaps_south): nrecv is greater than MAXLIST, increase MAXLIST")
+          if(nrecv > size(overlapList(:)) )then
+            call mpp_error(NOTE, 'mpp_domains_define.inc(compute_overlaps_south): overlapList for recv is expanded')
+            call expand_update_overlap_list(overlapList, nlist)
+          endif
           call add_update_overlap( overlapList(nrecv), overlap)
           call init_overlap_type(overlap)
        endif
     enddo ! end of recv do loop
+
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do m =1,nrecv
+          write(unit, *) "********from_pe = " ,overlapList(m)%pe, " count = ",overlapList(m)%count
+          do n = 1, overlapList(m)%count
+             write(unit, *) overlapList(m)%is(n), overlapList(m)%ie(n), overlapList(m)%js(n), overlapList(m)%je(n), &
+                  overlapList(m)%dir(n), overlapList(m)%rotation(n)
+          enddo
+       enddo
+       if(nrecv >0) call flush(unit)
+    endif
 
     ! copy the overlapping information into domain
     if(nrecv>0) then
@@ -2897,11 +3527,19 @@
     endif
 
     call deallocate_overlap_type(overlap)
-    do m = 1, MAXLIST
+
+    do m = 1,size(overlapList(:))
        call deallocate_overlap_type(overlapList(m))
-       if(debug_update_level .NE. NO_CHECK) call deallocate_overlap_type(checkList(m))
     enddo
 
+    if(debug_update_level .NE. NO_CHECK) then
+       do m = 1,size(checkList(:))
+          call deallocate_overlap_type(checkList(m))
+       enddo
+    endif
+
+    deallocate(overlapList)
+    deallocate(checkList)
     update => NULL()
     check=>NULL()
     domain%initialized = .true.
@@ -2929,6 +3567,7 @@
     type(overlapSpec),   pointer     :: check =>NULL()
     integer                          :: nsend, nrecv
     integer                          :: nsend_check, nrecv_check
+    integer                          :: unit
 
     !--- since we restrict that if multiple tiles on one pe, all the tiles are limited to this pe. 
     !--- In this case, if ntiles on this pe is greater than 1, no overlapping between processor within each tile
@@ -3034,7 +3673,7 @@
              !--- when the west face is folded, the south halo points at 
              !--- the position should be on CORNER or EAST
              if( is == isg .AND. (position == CORNER .OR. position == EAST) &
-                  .AND. ( domain%list(m)%y(tNbr)%compute%begin == jsg .OR. domain%list(m)%y(tNbr)%compute%begin-1 .GE. middle  ) ) then
+                  .AND. ( domain%list(m)%y(tNbr)%compute%begin == jsg .OR. domain%list(m)%y(tNbr)%compute%begin-1 .GE. middle)) then
                 call insert_update_overlap( overlap, domain%list(m)%pe, &
                                             is+1, ie, js, je, isc, iec, jsc, jec, dir)
                 is = domain%list(m)%x(tNbr)%compute%begin; ie = is
@@ -3211,6 +3850,19 @@
          call init_overlap_type(overlap)
        endif
     end do  ! end of send set up.
+
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do m =1,nsend
+          write(unit, *) "********to_pe = " ,overlapList(m)%pe, " count = ",overlapList(m)%count
+          do n = 1, overlapList(m)%count
+             write(unit, *) overlapList(m)%is(n), overlapList(m)%ie(n), overlapList(m)%js(n), overlapList(m)%je(n), &
+                  overlapList(m)%dir(n), overlapList(m)%rotation(n)
+          enddo
+       enddo
+       if(nsend >0) call flush(unit)
+    endif
 
    ! copy the overlapping information into domain data structure
     if(nsend>0) then
@@ -3461,6 +4113,19 @@
           call init_overlap_type(overlap)
        endif
     enddo ! end of recv do loop
+
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do m =1,nrecv
+          write(unit, *) "********from_pe = " ,overlapList(m)%pe, " count = ",overlapList(m)%count
+          do n = 1, overlapList(m)%count
+             write(unit, *) overlapList(m)%is(n), overlapList(m)%ie(n), overlapList(m)%js(n), overlapList(m)%je(n), &
+                  overlapList(m)%dir(n), overlapList(m)%rotation(n)
+          enddo
+       enddo
+       if(nrecv >0) call flush(unit)
+    endif
 
     ! copy the overlapping information into domain
     if(nrecv>0) then
@@ -4533,6 +5198,7 @@
     integer                           :: nsend, nrecv, nsend2, nrecv2
     type(contact_type), dimension(domain%ntiles)            :: eCont, wCont, sCont, nCont
     type(overlap_type), dimension(0:size(domain%list(:))-1) :: overlapSend, overlapRecv
+    integer                                                 :: unit
 
     if( position .NE. CENTER )  call mpp_error(FATAL,  "mpp_domains_define.inc: " //&
          "routine define_contact_point can only be used to calculate overlapping for cell center.")
@@ -4811,6 +5477,7 @@
                    nyd = jed - jsd + 1
                    select case ( align2Send(n) )
                    case ( WEST, EAST )
+                      ioff = isd - is2Send(n) 
                       joff = jsd - js2Send(n)
                       joff = get_refine_count( joff, refineSend(n), .true., dir )
                       nyd  = get_refine_count( nyd, refineSend(n), .false., dir  )
@@ -4818,6 +5485,7 @@
                       ioff = isd - is2Send(n) 
                       ioff = get_refine_count( ioff, refineSend(n), .true., dir  )
                       nxd  = get_refine_count( nxd, refineSend(n), .false., dir  )
+                      joff = jsd - js2Send(n)
                    end select
 
                    !--- get the index in current pe.
@@ -4861,6 +5529,11 @@
                 nxc = iec - isc + 1; nyc = jec - jsc + 1
                 select case ( align2Recv(n) )
                 case ( WEST, EAST )
+                   if(align2Recv(n) == WEST) then
+                      ioff = isc - is2Recv(n) 
+                   else
+                      ioff = ie2Recv(n) - iec
+                   endif
                    joff = jsc - js2Recv(n)
                    joff = get_refine_count( joff, 1/refineRecv(n), .true., dir  )
                    nyc  = get_refine_count( nyc, 1/refineRecv(n), .false., dir  )
@@ -4868,6 +5541,11 @@
                    ioff = isc - is2Recv(n) 
                    ioff = get_refine_count( ioff, 1/refineRecv(n), .true., dir  )
                    nxc  = get_refine_count( nxc, 1/refineRecv(n), .false., dir  )
+                   if(align2Recv(n) == SOUTH) then
+                      joff = jsc - js2Recv(n)
+                   else
+                      joff = je2Recv(n) - jec
+                   endif
                 end select
 
                 !--- get the index in current pe.
@@ -4875,12 +5553,26 @@
                 case ( ZERO )
                    isd1 = is1Recv(n) + ioff; ied1 = isd1 + nxc - 1
                    jsd1 = js1Recv(n) + joff; jed1 = jsd1 + nyc - 1
+                   if( align1Recv(n) == WEST ) then
+                      ied1 = ie1Recv(n)-ioff;   isd1 = ied1 - nxc + 1
+                   endif
+                   if( align1Recv(n) == SOUTH ) then
+                      jed1 = je1Recv(n)-joff;  jsd1 = jed1 - nyc + 1
+                   endif
                 case ( NINETY )                      ! N -> W or S -> E
-                   isd1 = is1Recv(n);        ied1 = isd1 + nyc - 1
+                   if( align1Recv(n) == WEST ) then
+                      ied1 = ie1Recv(n)-joff;   isd1 = ied1 - nyc + 1
+                   else
+                      isd1 = is1Recv(n)+joff;   ied1 = isd1 + nyc - 1
+                   endif
                    jed1 = je1Recv(n) - ioff; jsd1 = jed1 - nxc + 1
                 case ( MINUS_NINETY )                ! W -> N or E -> S
                    ied1 = ie1Recv(n) - joff; isd1 = ied1 - nyc + 1
-                   jsd1 = js1Recv(n);        jed1 = jsd1 + nxc - 1
+                   if( align1Recv(n) == SOUTH ) then
+                      jed1 = je1Recv(n)-ioff;  jsd1 = jed1 - nxc + 1
+                   else
+                      jsd1 = js1Recv(n)+ioff;  jed1 = jsd1 + nxc - 1
+                   endif
                 end select
 
                 !--- loop over 8 direction to get the overlapping starting from east with clockwise.
@@ -4975,6 +5667,21 @@
        if(overlapSend(m)%count>0) nsend = nsend + 1
     enddo
 
+    if(debug_message_passing) then
+       !--- write out send information
+       unit = mpp_pe() + 1000
+       do list = 0, nlist-1
+          m = mod( domain%pos+list, nlist )
+          if(overlapSend(m)%count==0) cycle
+          write(unit, *) "********to_pe = " ,overlapSend(m)%pe, " count = ",overlapSend(m)%count
+          do n = 1, overlapSend(m)%count
+             write(unit, *) overlapSend(m)%is(n), overlapSend(m)%ie(n), overlapSend(m)%js(n), overlapSend(m)%je(n), &
+                  overlapSend(m)%dir(n), overlapSend(m)%rotation(n)
+          enddo
+       enddo
+       if(nsend >0) call flush(unit)
+    endif
+
     dirlist(1) = 1; dirlist(2) = 3; dirlist(3) = 5; dirlist(4) = 7
     dirlist(5) = 2; dirlist(6) = 4; dirlist(7) = 6; dirlist(8) = 8
     
@@ -5031,6 +5738,19 @@
        m = mod( domain%pos+list, nlist )
        if(overlapRecv(m)%count>0) nrecv = nrecv + 1
     enddo
+
+    if(debug_message_passing) then
+       do list = 0, nlist-1
+          m = mod( domain%pos+list, nlist )
+          if(overlapRecv(m)%count==0) cycle
+          write(unit, *) "********from_pe = " ,overlapRecv(m)%pe, " count = ",overlapRecv(m)%count
+          do n = 1, overlapRecv(m)%count
+             write(unit, *) overlapRecv(m)%is(n), overlapRecv(m)%ie(n), overlapRecv(m)%js(n), overlapRecv(m)%je(n), &
+                  overlapRecv(m)%dir(n), overlapRecv(m)%rotation(n)
+          enddo
+       enddo
+       if(nrecv >0) call flush(unit)
+    endif
 
     if(nrecv >0) then
        if(associated(domain%update_T%recv)) then
@@ -5112,6 +5832,7 @@
     call define_refine_overlap( domain, CENTER )  
 
     domain%initialized = .true.
+
 
   end subroutine define_contact_point
 
@@ -6769,7 +7490,8 @@ if(present(whalo) .or. present(ehalo) .or. present(shalo) .or. present(nhalo) ) 
       yextent = domain_in%y(1)%list(:)%compute%size,                     &
       symmetry=domain_in%symmetry,                                       &
       maskmap = domain_in%pearray .NE. NULL_PE )
-
+ domain_out%ntiles = domain_in%ntiles
+ domain_out%tile_id = domain_in%tile_id
 else    
  call mpp_define_null_domain(domain_out)
  nlist = size(domain_in%list(:))
@@ -6780,6 +7502,8 @@ else
  enddo
  call mpp_modify_domain(domain_in%x(1), domain_out%x(1), isc, iec, isg, ieg)
  call mpp_modify_domain(domain_in%y(1), domain_out%y(1), jsc, jec, jsg, jeg)
+ domain_out%ntiles = domain_in%ntiles
+ domain_out%tile_id = domain_in%tile_id
 endif
 
 end subroutine mpp_modify_domain2D
@@ -6841,7 +7565,7 @@ end subroutine mpp_deallocate_domain2D
 
 subroutine deallocate_domain2D_local(domain)
 type(domain2D), intent(inout) :: domain
-integer :: i, nlist, ntileMe
+integer :: i, ntileMe
 
 ntileMe = size(domain%x(:))
 
@@ -7003,7 +7727,7 @@ subroutine allocate_update_overlap( overlap, count)
   allocate(overlap%jsMe        (count), overlap%jeMe    (count) )
   allocate(overlap%dir         (count), overlap%rotation(count) )
   allocate(overlap%is_refined  (count), overlap%index   (count) )
-  allocate(overlap%from_contact(count)                          )
+  allocate(overlap%from_contact(count), overlap%msgsize (count) )
   overlap%is_refined   = .FALSE.
   overlap%rotation     =  ZERO
   overlap%from_contact = .FALSE.
@@ -7096,6 +7820,7 @@ end subroutine allocate_update_overlap
     overlap%rotation    (count) = rotation
     overlap%from_contact(count) = from_contact
     overlap%is_refined  (count) = refined
+    overlap%msgsize     (count) = (ie-is+1)*(je-js+1)
 
   end subroutine insert_mosaic_update_overlap
 
@@ -7124,6 +7849,7 @@ subroutine deallocate_overlap_type( overlap)
   if(ASSOCIATED(overlap%is_refined)) deallocate(overlap%is_refined)
   if(ASSOCIATED(overlap%index)) deallocate(overlap%index)
   if(ASSOCIATED(overlap%from_contact)) deallocate(overlap%from_contact)
+  if(ASSOCIATED(overlap%msgsize)) deallocate(overlap%msgsize)
   overlap%count = 0
 
 end subroutine deallocate_overlap_type
@@ -7155,7 +7881,7 @@ subroutine add_update_overlap( overlap_out, overlap_in)
   type(overlap_type), intent(inout) :: overlap_out
   type(overlap_type), intent(in   ) :: overlap_in
   type(overlap_type)                :: overlap
-  integer                          :: count, count_in, count_out
+  integer                          :: count, count_in, count_out, n
 
   ! if overlap_out%count == 0, then just copy overlap_in to overlap_out
   count_in  = overlap_in %count
@@ -7206,6 +7932,7 @@ subroutine add_update_overlap( overlap_out, overlap_in)
      overlap_out%is_refined  (1:count_out) = overlap%is_refined  (1:count_out)
      overlap_out%index       (1:count_out) = overlap%index       (1:count_out)
      overlap_out%from_contact(1:count_out) = overlap%from_contact(1:count_out)        
+     overlap_out%msgsize     (1:count_out) = overlap%msgsize     (1:count_out)
      call deallocate_overlap_type(overlap)
   end if
   overlap_out%count                           = count
@@ -7224,6 +7951,11 @@ subroutine add_update_overlap( overlap_out, overlap_in)
   overlap_out%is_refined  (count_out+1:count) = overlap_in%is_refined  (1:count_in)
   overlap_out%index       (count_out+1:count) = overlap_in%index       (1:count_in)
   overlap_out%from_contact(count_out+1:count) = overlap_in%from_contact(1:count_in)
+
+  do n = count_out+1, count
+     overlap_out%msgsize(n) = (overlap_out%ie(n)-overlap_out%is(n)+1)*(overlap_out%je(n)-overlap_out%js(n)+1)
+  enddo
+
 
 end subroutine add_update_overlap
 

@@ -1,31 +1,3 @@
-/*
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-*/
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -268,6 +240,42 @@ double box_area(double ll_lon, double ll_lat, double ur_lon, double ur_lat)
   Vertices must be listed counter-clockwise around polygon.
   grid is in radians.
   ----------------------------------------------------------------------------*/
+double poly_area_dimensionless(const double x[], const double y[], int n)
+{
+  double area = 0.0;
+  int    i;
+
+  for (i=0;i<n;i++) {
+    int ip = (i+1) % n;
+    double dx = (x[ip]-x[i]);
+    double lat1, lat2;
+    double dy, dat;
+    
+    lat1 = y[ip];
+    lat2 = y[i];
+    if(dx > M_PI)  dx = dx - 2.0*M_PI;
+    if(dx < -M_PI) dx = dx + 2.0*M_PI;
+    if (dx==0.0) continue;
+    
+    if ( fabs(lat1-lat2) < SMALL_VALUE) /* cheap area calculation along latitude */
+      area -= dx*sin(0.5*(lat1+lat2));
+    else {
+#ifdef fix_truncate      
+      dy = 0.5*(lat1-lat2);
+      dat = sin(dy)/dy;
+      area -= dx*sin(0.5*(lat1+lat2))*dat;
+#else
+      area += dx*(cos(lat1)-cos(lat2))/(lat1-lat2);
+#endif
+    }
+  }
+  if(area < 0)
+    return (-area/(4*M_PI));
+  else
+    return (area/(4*M_PI));
+
+}; /* poly_area */
+
 double poly_area(const double x[], const double y[], int n)
 {
   double area = 0.0;
@@ -297,7 +305,10 @@ double poly_area(const double x[], const double y[], int n)
 #endif
     }
   }
-  return area*RADIUS*RADIUS;
+  if(area < 0)
+     return -area*RADIUS*RADIUS;
+  else  
+     return area*RADIUS*RADIUS;
 
 }; /* poly_area */
 
@@ -320,8 +331,10 @@ double poly_area_no_adjust(const double x[], const double y[], int n)
     else
       area += dx*(cos(lat1)-cos(lat2))/(lat1-lat2);
   }
-  return area*RADIUS*RADIUS;
-
+  if(area < 0)
+     return area*RADIUS*RADIUS;
+  else
+     return area*RADIUS*RADIUS;
 }; /* poly_area_no_adjust */
 
 int delete_vtx(double x[], double y[], int n, int n_del)

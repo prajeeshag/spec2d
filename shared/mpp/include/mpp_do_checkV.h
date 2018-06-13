@@ -28,7 +28,9 @@
       integer :: buffer_recv_size
       integer :: rank_x, rank_y, ind_x, ind_y, cur_rank
       integer :: nsend_x, nsend_y, nrecv_x, nrecv_y
+      integer :: outunit
 
+      outunit = stdout()
       update_flags = XUPDATE+YUPDATE   !default
       if( PRESENT(flags) ) update_flags = flags
 
@@ -95,7 +97,7 @@
             endif
             cur_rank = max(rank_x, rank_y)
             m = from_pe-mpp_root_pe()
-            call mpp_recv( msg1(m), glen=1, from_pe=from_pe, block=.FALSE.)
+            call mpp_recv( msg1(m), glen=1, from_pe=from_pe, block=.FALSE., tag=COMM_TAG_1)
             msg2(m) = msgsize
          end do
 
@@ -134,7 +136,7 @@
                endif
             endif
             cur_rank = min(rank_x, rank_y)
-            call mpp_send( msgsize, plen=1, to_pe=to_pe)        
+            call mpp_send( msgsize, plen=1, to_pe=to_pe, tag=COMM_TAG_1)        
          enddo
 
          call mpp_sync_self(check=EVENT_RECV)
@@ -147,7 +149,7 @@
          enddo
 
          call mpp_sync_self()
-         write(stdout(),*)"NOTE from mpp_do_checkV: message sizes are matched between send and recv for domain " &
+         write(outunit,*)"NOTE from mpp_do_checkV: message sizes are matched between send and recv for domain " &
               //trim(domain%name)
          deallocate(msg1, msg2)
       endif
@@ -196,7 +198,7 @@
                call mpp_error( FATAL, 'MPP_DO_CHECK_V: mpp_domains_stack overflow, '// &
                     'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.' )
             end if
-            call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.false. )
+            call mpp_recv( buffer(buffer_pos+1), glen=msgsize, from_pe=from_pe, block=.false., tag=COMM_TAG_2 )
             buffer_pos = buffer_pos + msgsize
          end if
       enddo
@@ -415,7 +417,7 @@
                call mpp_error( FATAL, 'MPP_DO_CHECK_V: mpp_domains_stack overflow, ' // &
                     'call mpp_domains_set_stack_size('//trim(text)//') from all PEs.')
             end if
-            call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe )
+            call mpp_send( buffer(buffer_pos+1), plen=msgsize, to_pe=to_pe, tag=COMM_TAG_2 )
             buffer_pos = pos
          end if
       end do ! end do list = 0,nlist-1

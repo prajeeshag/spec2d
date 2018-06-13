@@ -1,43 +1,26 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module field_manager_mod
+#ifndef MAXFIELDS_ 
+#define MAXFIELDS_ 150
+#endif
+
+#ifndef MAXFIELDMETHODS_
+#define MAXFIELDMETHODS_ 150
+#endif
+
 !
-! <CONTACT EMAIL="William.Cooke@noaa.gov"> William Cooke
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov"> William Cooke
 ! </CONTACT>
 ! 
-! <REVIEWER EMAIL="Richard.Slater@noaa.gov"> Richard D. Slater
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Richard D. Slater
 ! </REVIEWER>
 !
-! <REVIEWER EMAIL="Matthew.Harrison@noaa.gov"> Matthew Harrison
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov"> Matthew Harrison
 ! </REVIEWER>
 !
-! <REVIEWER EMAIL="John.Dunne@noaa.gov"> John P. Dunne
+! <REVIEWER EMAIL="GFDL.Climate.Model.Info@noaa.gov"> John P. Dunne
 ! </REVIEWER>
 !
 ! <HISTORY
-!  SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/field_manager/field_manager.F90"/>
 
 ! <OVERVIEW>
 
@@ -198,8 +181,8 @@ implicit none
 private
 
 
-character(len=128) :: version = '$Id: field_manager.F90,v 17.0 2009/07/21 03:19:13 fms Exp $'
-character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+character(len=128) :: version = '$Id: field_manager.F90,v 19.0 2012/01/06 21:57:10 fms Exp $'
+character(len=128) :: tagname = '$Name: siena_201207 $'
 logical            :: module_is_initialized  = .false.
 
 !+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -364,7 +347,7 @@ type, public :: method_type
   character(len=fm_string_len) :: method_type
   character(len=fm_string_len) :: method_name
   character(len=fm_string_len) :: method_control
-end type
+end type method_type
 ! </TYPE> NAME="method_type"
 
 ! <TYPE NAME="method_type_short">
@@ -384,7 +367,7 @@ type, public :: method_type_short
   ! </DATA> 
   character(len=fm_string_len) :: method_type
   character(len=fm_string_len) :: method_name
-end type
+end type method_type_short
 ! </TYPE> NAME="method_type_short"
 
 ! <TYPE NAME="method_type_very_short">
@@ -399,7 +382,7 @@ type, public :: method_type_very_short
   !   see method_type :: method_type above.
   ! </DATA>
   character(len=fm_string_len) :: method_type
-end type
+end type method_type_very_short
 ! </TYPE> NAME="method_type_very_short"
 
 
@@ -471,20 +454,20 @@ integer,           parameter :: string_type       = 5
 integer,           parameter :: num_types         = 5
 integer,           parameter :: line_len          = 256
 integer,           parameter :: array_increment   = 10
-integer,           parameter :: MAX_FIELDS        = 150
-integer,           parameter :: MAX_FIELD_METHODS = 150
+integer,           parameter :: MAX_FIELDS        = MAXFIELDS_
+integer,           parameter :: MAX_FIELD_METHODS = MAXFIELDMETHODS_
 
 
 !+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 !        Private type definitions
 !+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-type, private :: field_type !{
+type, private :: field_type
   character(len=fm_field_name_len)                    :: field_type
-  character(len=fm_string_len)                    :: field_name
+  character(len=fm_string_len)                        :: field_name
   integer                                             :: model, num_methods
   type(method_type)                                   :: methods(MAX_FIELD_METHODS)
-end type field_type !}
+end type field_type
 
 type, private :: field_names_type !{
   character(len=fm_field_name_len)                    :: fld_type
@@ -3947,7 +3930,7 @@ character(len=64), parameter :: note_header  = '==>Note from ' // trim(module_na
 character (len=fm_field_name_len)  :: name
 character (len=fm_field_name_len),                          &
         dimension(:), allocatable  :: names
-character (len=fm_type_name_len)   :: field_type
+character (len=fm_type_name_len)   :: field_type_s
 integer                            :: count
 integer                            :: error
 integer                            :: index
@@ -4036,7 +4019,7 @@ if (dim .eq. 1) then  !{
     return
   endif  !}
   count = 0
-  do while (fm_loop_over_list(lists(1), name, field_type, index))  !{
+  do while (fm_loop_over_list(lists(1), name, field_type_s, index))  !{
     count = count + 1
     return_p%names(count) = name
   enddo  !}
@@ -4057,7 +4040,7 @@ endif  !}
 !        occur in all of the other lists. If so, then save the name
 !
 count = 0
-do while (fm_loop_over_list(lists(shortest), name, field_type, index))  !{
+do while (fm_loop_over_list(lists(shortest), name, field_type_s, index))  !{
   found = .true.
   do n = 1, dim  !{
     if (n .ne. shortest) then   !{
@@ -4110,10 +4093,10 @@ end function fm_intersection  !}
 !    of the next field. Return false at the end of the loop.
 ! </DESCRIPTION>
 !   <TEMPLATE>
-!     success = fm_loop_over_list(list, name, field_type, index)
+!     success = fm_loop_over_list(list, name, field_type_s, index)
 !   </TEMPLATE>
 !
-function  fm_loop_over_list(list, name, field_type, index)        &
+function  fm_loop_over_list(list, name, field_type_s, index)        &
           result (success)  !{
 !   <OUT NAME="success" TYPE="logical">
 !     A flag to indicate whether the function operated with (FALSE) or 
@@ -4125,7 +4108,7 @@ function  fm_loop_over_list(list, name, field_type, index)        &
 !   <OUT NAME="name" TYPE="character(len=*)">
 !     The name of a field from list.
 !   </OUT>
-!   <OUT NAME="field_type" TYPE="character(len=fm_type_name_len)">
+!   <OUT NAME="field_type_s" TYPE="character(len=fm_type_name_len)">
 !     The type of a list entry.
 !   </OUT>
 !   <OUT NAME="index" TYPE="integer">
@@ -4140,7 +4123,7 @@ logical                                      :: success
 !
 character(len=*),                intent(in)  :: list
 character(len=*),                intent(out) :: name
-character(len=fm_type_name_len), intent(out) :: field_type
+character(len=fm_type_name_len), intent(out) :: field_type_s
 integer,                         intent(out) :: index
 
 !+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -4226,12 +4209,12 @@ function  set_list_stuff()                                                &
 !
   if (associated(loop_list_p)) then  !{
     name = loop_list_p%name
-    field_type = field_type_name(loop_list_p%field_type)
+    field_type_s = field_type_name(loop_list_p%field_type)
     index = loop_list_p%index
     success = .true.
   else  !}{
     name = ' '
-    field_type = ' '
+    field_type_s = ' '
     index = 0
     success = .false.
     loop_list = ' '
@@ -6634,7 +6617,7 @@ implicit none
 
 
 integer :: i, j, nfields, num_methods, model
-character(len=fm_string_len) :: field_type, field_name, str, name_field_type, path
+character(len=fm_string_len) :: field_name, str, name_field_type, path
 character(len=512) :: method_name, method_control
 real :: param
 integer :: flag, index

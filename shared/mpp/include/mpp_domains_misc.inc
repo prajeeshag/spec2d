@@ -28,6 +28,7 @@
 ! </SUBROUTINE>
     subroutine mpp_domains_init(flags)
       integer, intent(in), optional :: flags
+      integer                       :: n
 #ifdef use_libSMA
       integer                       :: l=0
 #endif
@@ -77,6 +78,12 @@
          call mpp_error(FATAL, "mpp_domains_init: debug_update_level should be 'none', 'fatal', 'warning', or 'note'") 
       end select
 
+      allocate(nonblock_data(MAX_NONBLOCK_UPDATE))
+      
+      do n = 1, MAX_NONBLOCK_UPDATE
+         call init_nonblock_type(nonblock_data(n))
+      enddo
+
       call mpp_domains_set_stack_size(32768) !default, pretty arbitrary
 #ifdef use_libSMA
       call mpp_malloc( ptr_info, 16, l )
@@ -87,15 +94,59 @@
       call mpp_define_null_domain(NULL_DOMAIN2d);
 
       if( domain_clocks_on )then
-          pack_clock      = mpp_clock_id( 'Halo pack' )
-          pack_loop_clock = mpp_clock_id( 'Halo pack loop' )
-          send_clock      = mpp_clock_id( 'Halo send' )
-          recv_clock      = mpp_clock_id( 'Halo recv' )
-          unpk_clock      = mpp_clock_id( 'Halo unpk' )
-          wait_clock      = mpp_clock_id( 'Halo wait' )
+          pack_clock          = mpp_clock_id( 'Halo pack' )
+          send_clock          = mpp_clock_id( 'Halo send' )
+          recv_clock          = mpp_clock_id( 'Halo recv' )
+          unpk_clock          = mpp_clock_id( 'Halo unpk' )
+          wait_clock          = mpp_clock_id( 'Halo wait' )
+          pack_clock_nonblock = mpp_clock_id( 'Halo pack nonblock' )
+          send_clock_nonblock = mpp_clock_id( 'Halo send nonblock' )
+          recv_clock_nonblock = mpp_clock_id( 'Halo recv nonblock' )
+          unpk_clock_nonblock = mpp_clock_id( 'Halo unpk nonblock' )
+          wait_clock_nonblock = mpp_clock_id( 'Halo wait nonblock' )
+          nest_pack_clock     = mpp_clock_id( 'nest pack' )
+          nest_send_clock     = mpp_clock_id( 'nest send' )
+          nest_recv_clock     = mpp_clock_id( 'nest recv' )
+          nest_unpk_clock     = mpp_clock_id( 'nest unpk' )
+          nest_wait_clock     = mpp_clock_id( 'nest wait' )
       end if
       return
     end subroutine mpp_domains_init
+
+!#####################################################################
+subroutine init_nonblock_type( nonblock_obj )
+   type(nonblock_type), intent(inout) :: nonblock_obj
+
+
+   nonblock_obj%recv_pos           = 0
+   nonblock_obj%send_pos           = 0
+   nonblock_obj%recv_msgsize       = 0
+   nonblock_obj%send_msgsize       = 0
+   nonblock_obj%update_flags       = 0
+   nonblock_obj%update_position    = 0
+   nonblock_obj%update_gridtype    = 0
+   nonblock_obj%update_whalo       = 0
+   nonblock_obj%update_ehalo       = 0
+   nonblock_obj%update_shalo       = 0
+   nonblock_obj%update_nhalo       = 0
+   nonblock_obj%request_send_count = 0
+   nonblock_obj%request_recv_count = 0
+   nonblock_obj%size_recv(:)       = 0
+   nonblock_obj%type_recv(:)       = 0
+#ifdef use_libMPI
+   nonblock_obj%request_send(:)    = MPI_REQUEST_NULL
+   nonblock_obj%request_recv(:)    = MPI_REQUEST_NULL
+#else
+   nonblock_obj%request_send(:)    = 0
+   nonblock_obj%request_recv(:)    = 0
+#endif
+   nonblock_obj%nfields            = 0
+   nonblock_obj%field_addrs(:)     = 0
+   nonblock_obj%field_addrs2(:)    = 0
+
+   return
+
+end subroutine init_nonblock_type
 
 !#####################################################################
 ! <SUBROUTINE NAME="mpp_domains_exit">
@@ -293,21 +344,21 @@
      enddo
 !  send the check bounds and data to the root pe
      ! Force use of "scalar", integer pointer mpp interface
-     call mpp_send(ibounds(1), plen=4, to_pe=pelist2(1))
-     call mpp_send(send_buffer(1),plen=im*jm, to_pe=pelist2(1))
+     call mpp_send(ibounds(1), plen=4, to_pe=pelist2(1), tag=COMM_TAG_1)
+     call mpp_send(send_buffer(1),plen=im*jm, to_pe=pelist2(1), tag=COMM_TAG_2)
      deallocate(send_buffer)
      
    else if(pelist2(1) == pe) then        ! receive data and compare
      do p = pelist1(1), pelist1(size(pelist1(:)))
      ! Force use of "scalar", integer pointer mpp interface
-        call mpp_recv(ibounds(1), glen=4,from_pe=p)
+        call mpp_recv(ibounds(1), glen=4,from_pe=p, tag=COMM_TAG_1)
         is = ibounds(1); ie = ibounds(2); js=ibounds(3); je=ibounds(4)
         im = ie-is+1; jm=je-js+1
         if(allocated(field1)) deallocate(field1)
         if(allocated(send_buffer)) deallocate(send_buffer)
         allocate(field1(is:ie,js:je),send_buffer(im*jm))
      ! Force use of "scalar", integer pointer mpp interface
-        call mpp_recv(send_buffer(1),glen=im*jm,from_pe=p)
+        call mpp_recv(send_buffer(1),glen=im*jm,from_pe=p, tag=COMM_TAG_2)
         l = 0
         
 !  compare here, the comparison criteria can be changed according to need
@@ -414,17 +465,19 @@
 !                                                                             !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-    subroutine mpp_broadcast_domain( domain )
+    subroutine mpp_broadcast_domain_1( domain )
 !broadcast domain (useful only outside the context of its own pelist)
       type(domain2D), intent(inout) :: domain
       integer, allocatable :: pes(:)
       logical :: native         !true if I'm on the pelist of this domain
       integer :: listsize, listpos
       integer :: n
-      integer, dimension(5) :: msg, info         !pe and compute domain of each item in list
-      
+      integer, dimension(11) :: msg, info         !pe and compute domain of each item in list
+      integer                :: errunit      
+
+      errunit = stderr()
       if( .NOT.module_is_initialized ) &
-                 call mpp_error( FATAL, 'MPP_BROADCAST_DOMAIN: You must first call mpp_domains_init.' ) 
+                 call mpp_error( FATAL, 'MPP_BROADCAST_DOMAIN_1: You must first call mpp_domains_init.' ) 
       
 !get the current pelist
       allocate( pes(0:mpp_npes()-1) )
@@ -446,25 +499,44 @@
           allocate( domain%list(0:listsize-1) )
           domain%pe = NULL_PE
           domain%pos = -1
-          allocate(domain%x(1), domain%y(1))
+          allocate(domain%x(1), domain%y(1), domain%tile_id(1))
           do n = 0, listsize-1
-             allocate(domain%list(n)%x(1), domain%list(n)%y(1) )
+             allocate(domain%list(n)%x(1), domain%list(n)%y(1), domain%list(n)%tile_id(1) )
           end do
           domain%x%compute%begin =  1
           domain%x%compute%end   = -1
           domain%y%compute%begin =  1
           domain%y%compute%end   = -1
+          domain%x%global %begin = -1
+          domain%x%global %end   = -1
+          domain%y%global %begin = -1
+          domain%y%global %end   = -1
+          domain%tile_id         = -1
+          domain%whalo           = -1
+          domain%ehalo           = -1
+          domain%shalo           = -1
+          domain%nhalo           = -1
+          domain%symmetry        = .false.
       end if
 !initialize values in info
       info(1) = domain%pe
       call mpp_get_compute_domain( domain, info(2), info(3), info(4), info(5) )
-      
+      info(6) = domain%tile_id(1)
+      info(7) = domain%whalo
+      info(8) = domain%ehalo
+      info(9) = domain%shalo
+      info(10)= domain%nhalo
+      if(domain%symmetry) then
+         info(11) = 1
+      else
+         info(11) = 0
+      endif
 !broadcast your info across current pelist and unpack if needed
       listpos = 0
       do n = 0,mpp_npes()-1
          msg = info
-         if( mpp_pe().EQ.pes(n) .AND. debug )write( stderr(),* )'PE ', mpp_pe(), 'broadcasting msg ', msg
-         call mpp_broadcast( msg, 5, pes(n) )
+         if( mpp_pe().EQ.pes(n) .AND. debug )write( errunit,* )'PE ', mpp_pe(), 'broadcasting msg ', msg
+         call mpp_broadcast( msg, 11, pes(n) )
 !no need to unpack message if native
 !no need to unpack message from non-native PE
          if( .NOT.native .AND. msg(1).NE.NULL_PE )then
@@ -473,11 +545,155 @@
              domain%list(listpos)%x%compute%end   = msg(3)
              domain%list(listpos)%y%compute%begin = msg(4)
              domain%list(listpos)%y%compute%end   = msg(5)
+             domain%list(listpos)%tile_id(1)      = msg(6)
+             if(domain%x(1)%global%begin < 0) then
+                domain%x(1)%global%begin = msg(2)
+                domain%x(1)%global%end   = msg(3)
+                domain%y(1)%global%begin = msg(4)
+                domain%y(1)%global%end   = msg(5)
+                domain%whalo             = msg(7)
+                domain%ehalo             = msg(8)
+                domain%shalo             = msg(9)
+                domain%nhalo             = msg(10)
+                if(msg(11) == 1) then
+                   domain%symmetry       = .true.
+                else
+                   domain%symmetry       = .false.
+                endif
+             else
+                domain%x(1)%global%begin = min(domain%x(1)%global%begin, msg(2))
+                domain%x(1)%global%end   = max(domain%x(1)%global%end,   msg(3))
+                domain%y(1)%global%begin = min(domain%y(1)%global%begin, msg(4))
+                domain%y(1)%global%end   = max(domain%y(1)%global%end,   msg(5)) 
+             endif
              listpos = listpos + 1
-             if( debug )write( stderr(),* )'PE ', mpp_pe(), 'received domain from PE ', msg(1), 'is,ie,js,je=', msg(2:5)
+             if( debug )write( errunit,* )'PE ', mpp_pe(), 'received domain from PE ', msg(1), 'is,ie,js,je=', msg(2:5)
          end if
       end do 
-    end subroutine mpp_broadcast_domain
+
+    end subroutine mpp_broadcast_domain_1
+
+
+!##############################################################################
+    subroutine mpp_broadcast_domain_2( domain_in, domain_out )
+!broadcast domain (useful only outside the context of its own pelist)
+      type(domain2D), intent(in)    :: domain_in
+      type(domain2D), intent(inout) :: domain_out
+      integer, allocatable :: pes(:)
+      logical :: native         !true if I'm on the pelist of this domain
+      integer :: listsize, listpos
+      integer :: n
+      integer, dimension(12) :: msg, info         !pe and compute domain of each item in list
+      integer                :: errunit, npes_in, npes_out, pstart, pend
+
+      errunit = stderr()
+      if( .NOT.module_is_initialized ) &
+                 call mpp_error( FATAL, 'MPP_BROADCAST_DOMAIN_2: You must first call mpp_domains_init.' )
+
+!get the current pelist
+      allocate( pes(0:mpp_npes()-1) )
+      call mpp_get_current_pelist(pes)
+
+! domain_in must be initialized
+      if( .not. ASSOCIATED(domain_in%list) ) then
+         call mpp_error( FATAL, 'MPP_BROADCAST_DOMAIN_2: domain_in is not initialized')
+      endif
+      if( ASSOCIATED(domain_out%list) ) then
+         call mpp_error( FATAL, 'MPP_BROADCAST_DOMAIN_2: domain_out is already initialized')
+      endif
+
+      npes_in = size(domain_in%list(:))
+      if( npes_in == mpp_npes() ) then
+         call mpp_error( FATAL, 'MPP_BROADCAST_DOMAIN_2: size(domain_in%list(:)) == mpp_npes()')
+      endif
+      npes_out = mpp_npes() - npes_in
+
+!initialize domain_out%list and set null values in message
+      allocate( domain_out%list(0:npes_out-1) )
+      domain_out%pe = NULL_PE
+      domain_out%pos = -1
+      allocate(domain_out%x(1), domain_out%y(1), domain_out%tile_id(1))
+      do n = 0, npes_out-1
+         allocate(domain_out%list(n)%x(1), domain_out%list(n)%y(1), domain_out%list(n)%tile_id(1) )
+      end do
+      domain_out%x%compute%begin =  1
+      domain_out%x%compute%end   = -1
+      domain_out%y%compute%begin =  1
+      domain_out%y%compute%end   = -1
+      domain_out%x%global %begin = -1
+      domain_out%x%global %end   = -1
+      domain_out%y%global %begin = -1
+      domain_out%y%global %end   = -1
+      domain_out%tile_id         = -1
+      domain_out%whalo           = -1
+      domain_out%ehalo           = -1
+      domain_out%shalo           = -1
+      domain_out%nhalo           = -1
+      domain_out%symmetry        = .false.
+!initialize values in info
+      info(1) = domain_in%pe
+      call mpp_get_compute_domain( domain_in, info(2), info(3), info(4), info(5) )
+      info(6) = domain_in%tile_id(1)
+      info(7) = domain_in%whalo
+      info(8) = domain_in%ehalo
+      info(9) = domain_in%shalo
+      info(10)= domain_in%nhalo
+      if(domain_in%symmetry) then
+         info(11) = 1
+      else
+         info(11) = 0
+      endif
+      info(12) = domain_in%ntiles
+
+!broadcast your info across current pelist and unpack if needed
+      if( domain_in%list(0)%pe == mpp_root_pe() ) then
+          pstart = npes_in
+          pend   = mpp_npes()-1
+      else
+          pstart = 0
+          pend   = npes_out-1
+      endif
+      do n = 0,mpp_npes()-1
+         msg = info
+         if( mpp_pe().EQ.pes(n) .AND. debug )write( errunit,* )'PE ', mpp_pe(), 'broadcasting msg ', msg
+         call mpp_broadcast( msg, 12, pes(n) )
+         !--- pack if from other domain
+         if( n .GE. pstart .AND. n .LE. pend )then
+             listpos = n - pstart
+             domain_out%list(listpos)%pe = msg(1)
+             domain_out%list(listpos)%x%compute%begin = msg(2)
+             domain_out%list(listpos)%x%compute%end   = msg(3)
+             domain_out%list(listpos)%y%compute%begin = msg(4)
+             domain_out%list(listpos)%y%compute%end   = msg(5)
+             domain_out%list(listpos)%tile_id(1)      = msg(6)
+             if(domain_out%x(1)%global%begin < 0) then
+                domain_out%x(1)%global%begin = msg(2)
+                domain_out%x(1)%global%end   = msg(3)
+                domain_out%y(1)%global%begin = msg(4)
+                domain_out%y(1)%global%end   = msg(5)
+                domain_out%whalo             = msg(7)
+                domain_out%ehalo             = msg(8)
+                domain_out%shalo             = msg(9)
+                domain_out%nhalo             = msg(10)
+                if(msg(11) == 1) then
+                   domain_out%symmetry       = .true.
+                else
+                   domain_out%symmetry       = .false.
+                endif
+                domain_out%ntiles            = msg(12)
+             else
+                domain_out%x(1)%global%begin = min(domain_out%x(1)%global%begin, msg(2))
+                domain_out%x(1)%global%end   = max(domain_out%x(1)%global%end,   msg(3))
+                domain_out%y(1)%global%begin = min(domain_out%y(1)%global%begin, msg(4))
+                domain_out%y(1)%global%end   = max(domain_out%y(1)%global%end,   msg(5))
+             endif
+             if( debug )write( errunit,* )'PE ', mpp_pe(), 'received domain from PE ', msg(1), 'is,ie,js,je=', msg(2:5)
+         end if
+      end do
+
+    end subroutine mpp_broadcast_domain_2
+
+
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !                                                                             !
@@ -639,6 +855,271 @@
 #define MPP_REDISTRIBUTE_5D_ mpp_redistribute_i4_5D
 #include <mpp_update_domains2D.h>
 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                                                             !
+!              MPP_START_UPDATE_DOMAINS and MPP_COMPLETE_UPDATE_DOMAINS:      !
+!              fill halos for 2D decomposition --- non-blocking               !
+!                                                                             !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(DOUBLE_KIND)
+#undef MPP_START_UPDATE_DOMAINS_2D_
+#define MPP_START_UPDATE_DOMAINS_2D_ mpp_start_update_domain2D_r8_2D
+#undef MPP_START_UPDATE_DOMAINS_3D_
+#define MPP_START_UPDATE_DOMAINS_3D_ mpp_start_update_domain2D_r8_3D
+#undef MPP_START_UPDATE_DOMAINS_4D_
+#define MPP_START_UPDATE_DOMAINS_4D_ mpp_start_update_domain2D_r8_4D
+#undef MPP_START_UPDATE_DOMAINS_5D_
+#define MPP_START_UPDATE_DOMAINS_5D_ mpp_start_update_domain2D_r8_5D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_ mpp_complete_update_domain2D_r8_2D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_ mpp_complete_update_domain2D_r8_3D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_ mpp_complete_update_domain2D_r8_4D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_ mpp_complete_update_domain2D_r8_5D
+#ifdef  VECTOR_FIELD_
+#undef MPP_START_UPDATE_DOMAINS_2D_V_
+#define MPP_START_UPDATE_DOMAINS_2D_V_ mpp_start_update_domain2D_r8_2Dv
+#undef MPP_START_UPDATE_DOMAINS_3D_V_
+#define MPP_START_UPDATE_DOMAINS_3D_V_ mpp_start_update_domain2D_r8_3Dv
+#undef MPP_START_UPDATE_DOMAINS_4D_V_
+#define MPP_START_UPDATE_DOMAINS_4D_V_ mpp_start_update_domain2D_r8_4Dv
+#undef MPP_START_UPDATE_DOMAINS_5D_V_
+#define MPP_START_UPDATE_DOMAINS_5D_V_ mpp_start_update_domain2D_r8_5Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_V_ mpp_complete_update_domain2D_r8_2Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_V_ mpp_complete_update_domain2D_r8_3Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_V_ mpp_complete_update_domain2D_r8_4Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_V_ mpp_complete_update_domain2D_r8_5Dv
+#endif
+#include <mpp_update_domains2D_nonblock.h>
+
+#ifdef OVERLOAD_C8
+#undef  VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(DOUBLE_KIND)
+#undef MPP_START_UPDATE_DOMAINS_2D_
+#define MPP_START_UPDATE_DOMAINS_2D_ mpp_start_update_domain2D_c8_2D
+#undef MPP_START_UPDATE_DOMAINS_3D_
+#define MPP_START_UPDATE_DOMAINS_3D_ mpp_start_update_domain2D_c8_3D
+#undef MPP_START_UPDATE_DOMAINS_4D_
+#define MPP_START_UPDATE_DOMAINS_4D_ mpp_start_update_domain2D_c8_4D
+#undef MPP_START_UPDATE_DOMAINS_5D_
+#define MPP_START_UPDATE_DOMAINS_5D_ mpp_start_update_domain2D_c8_5D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_ mpp_complete_update_domain2D_c8_2D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_ mpp_complete_update_domain2D_c8_3D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_ mpp_complete_update_domain2D_c8_4D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_ mpp_complete_update_domain2D_c8_5D
+#include <mpp_update_domains2D_nonblock.h>
+#endif
+
+#ifndef no_8byte_integers
+#undef  VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(LONG_KIND)
+#undef MPP_START_UPDATE_DOMAINS_2D_
+#define MPP_START_UPDATE_DOMAINS_2D_ mpp_start_update_domain2D_i8_2D
+#undef MPP_START_UPDATE_DOMAINS_3D_
+#define MPP_START_UPDATE_DOMAINS_3D_ mpp_start_update_domain2D_i8_3D
+#undef MPP_START_UPDATE_DOMAINS_4D_
+#define MPP_START_UPDATE_DOMAINS_4D_ mpp_start_update_domain2D_i8_4D
+#undef MPP_START_UPDATE_DOMAINS_5D_
+#define MPP_START_UPDATE_DOMAINS_5D_ mpp_start_update_domain2D_i8_5D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_ mpp_complete_update_domain2D_i8_2D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_ mpp_complete_update_domain2D_i8_3D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_ mpp_complete_update_domain2D_i8_4D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_ mpp_complete_update_domain2D_i8_5D
+#include <mpp_update_domains2D_nonblock.h>
+#endif
+
+#ifdef OVERLOAD_R4
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(FLOAT_KIND)
+#undef MPP_START_UPDATE_DOMAINS_2D_
+#define MPP_START_UPDATE_DOMAINS_2D_ mpp_start_update_domain2D_r4_2D
+#undef MPP_START_UPDATE_DOMAINS_3D_
+#define MPP_START_UPDATE_DOMAINS_3D_ mpp_start_update_domain2D_r4_3D
+#undef MPP_START_UPDATE_DOMAINS_4D_
+#define MPP_START_UPDATE_DOMAINS_4D_ mpp_start_update_domain2D_r4_4D
+#undef MPP_START_UPDATE_DOMAINS_5D_
+#define MPP_START_UPDATE_DOMAINS_5D_ mpp_start_update_domain2D_r4_5D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_ mpp_complete_update_domain2D_r4_2D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_ mpp_complete_update_domain2D_r4_3D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_ mpp_complete_update_domain2D_r4_4D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_ mpp_complete_update_domain2D_r4_5D
+#ifdef  VECTOR_FIELD_
+#undef MPP_START_UPDATE_DOMAINS_2D_V_
+#define MPP_START_UPDATE_DOMAINS_2D_V_ mpp_start_update_domain2D_r4_2Dv
+#undef MPP_START_UPDATE_DOMAINS_3D_V_
+#define MPP_START_UPDATE_DOMAINS_3D_V_ mpp_start_update_domain2D_r4_3Dv
+#undef MPP_START_UPDATE_DOMAINS_4D_V_
+#define MPP_START_UPDATE_DOMAINS_4D_V_ mpp_start_update_domain2D_r4_4Dv
+#undef MPP_START_UPDATE_DOMAINS_5D_V_
+#define MPP_START_UPDATE_DOMAINS_5D_V_ mpp_start_update_domain2D_r4_5Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_V_ mpp_complete_update_domain2D_r4_2Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_V_ mpp_complete_update_domain2D_r4_3Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_V_ mpp_complete_update_domain2D_r4_4Dv
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_V_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_V_ mpp_complete_update_domain2D_r4_5Dv
+#endif
+#include <mpp_update_domains2D_nonblock.h>
+#endif
+
+#ifdef OVERLOAD_C4
+#undef VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(FLOAT_KIND)
+#undef MPP_START_UPDATE_DOMAINS_2D_
+#define MPP_START_UPDATE_DOMAINS_2D_ mpp_start_update_domain2D_c4_2D
+#undef MPP_START_UPDATE_DOMAINS_3D_
+#define MPP_START_UPDATE_DOMAINS_3D_ mpp_start_update_domain2D_c4_3D
+#undef MPP_START_UPDATE_DOMAINS_4D_
+#define MPP_START_UPDATE_DOMAINS_4D_ mpp_start_update_domain2D_c4_4D
+#undef MPP_START_UPDATE_DOMAINS_5D_
+#define MPP_START_UPDATE_DOMAINS_5D_ mpp_start_update_domain2D_c4_5D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_ mpp_complete_update_domain2D_c4_2D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_ mpp_complete_update_domain2D_c4_3D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_ mpp_complete_update_domain2D_c4_4D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_ mpp_complete_update_domain2D_c4_5D
+#include <mpp_update_domains2D_nonblock.h>
+#endif
+
+#undef VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(INT_KIND)
+#undef MPP_START_UPDATE_DOMAINS_2D_
+#define MPP_START_UPDATE_DOMAINS_2D_ mpp_start_update_domain2D_i4_2D
+#undef MPP_START_UPDATE_DOMAINS_3D_
+#define MPP_START_UPDATE_DOMAINS_3D_ mpp_start_update_domain2D_i4_3D
+#undef MPP_START_UPDATE_DOMAINS_4D_
+#define MPP_START_UPDATE_DOMAINS_4D_ mpp_start_update_domain2D_i4_4D
+#undef MPP_START_UPDATE_DOMAINS_5D_
+#define MPP_START_UPDATE_DOMAINS_5D_ mpp_start_update_domain2D_i4_5D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_2D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_2D_ mpp_complete_update_domain2D_i4_2D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_3D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_3D_ mpp_complete_update_domain2D_i4_3D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_4D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_4D_ mpp_complete_update_domain2D_i4_4D
+#undef MPP_COMPLETE_UPDATE_DOMAINS_5D_
+#define MPP_COMPLETE_UPDATE_DOMAINS_5D_ mpp_complete_update_domain2D_i4_5D
+#include <mpp_update_domains2D_nonblock.h>
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                                                   !
+!    mpp_start_do_update and mpp_complete_do_update                 !
+!    private routine. To be called in mpp_start_update_domains      !
+!    and mpp_complete_update_domains                                !
+!                                                                   !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(DOUBLE_KIND)
+#undef MPI_TYPE_
+#define MPI_TYPE_ MPI_REAL8
+#undef MPP_START_DO_UPDATE_3D_
+#define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_r8_3D
+#undef MPP_COMPLETE_DO_UPDATE_3D_
+#define MPP_COMPLETE_DO_UPDATE_3D_ mpp_complete_do_update_r8_3D
+#undef MPP_START_DO_UPDATE_3D_V_
+#define MPP_START_DO_UPDATE_3D_V_ mpp_start_do_update_r8_3Dv
+#undef MPP_COMPLETE_DO_UPDATE_3D_V_
+#define MPP_COMPLETE_DO_UPDATE_3D_V_ mpp_complete_do_update_r8_3Dv
+#include <mpp_do_update_nonblock.h>
+#include <mpp_do_updateV_nonblock.h>
+
+#ifdef OVERLOAD_C8
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(DOUBLE_KIND)
+#undef MPI_TYPE_
+#define MPI_TYPE_ MPI_DOUBLE_COMPLEX
+#undef MPP_START_DO_UPDATE_3D_
+#define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_c8_3D
+#undef MPP_COMPLETE_DO_UPDATE_3D_
+#define MPP_COMPLETE_DO_UPDATE_3D_ mpp_complete_do_update_c8_3D
+#include <mpp_do_update_nonblock.h>
+#endif
+
+#ifndef no_8byte_integers
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(LONG_KIND)
+#undef MPI_TYPE_
+#define MPI_TYPE_ MPI_INTEGER8
+#undef MPP_START_DO_UPDATE_3D_
+#define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_i8_3D
+#undef MPP_COMPLETE_DO_UPDATE_3D_
+#define MPP_COMPLETE_DO_UPDATE_3D_ mpp_complete_do_update_i8_3D
+#include <mpp_do_update_nonblock.h>
+#endif
+
+#ifdef OVERLOAD_R4
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(FLOAT_KIND)
+#undef MPI_TYPE_
+#define MPI_TYPE_ MPI_REAL4
+#undef MPP_START_DO_UPDATE_3D_
+#define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_r4_3D
+#undef MPP_COMPLETE_DO_UPDATE_3D_
+#define MPP_COMPLETE_DO_UPDATE_3D_ mpp_complete_do_update_r4_3D
+#undef MPP_START_DO_UPDATE_3D_V_
+#define MPP_START_DO_UPDATE_3D_V_ mpp_start_do_update_r4_3Dv
+#undef MPP_COMPLETE_DO_UPDATE_3D_V_
+#define MPP_COMPLETE_DO_UPDATE_3D_V_ mpp_complete_do_update_r4_3Dv
+#include <mpp_do_update_nonblock.h>
+#include <mpp_do_updateV_nonblock.h>
+#endif
+
+#ifdef OVERLOAD_C4
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(FLOAT_KIND)
+#undef MPI_TYPE_
+#define MPI_TYPE_ MPI_COMPLEX
+#undef MPP_START_DO_UPDATE_3D_
+#define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_c4_3D
+#undef MPP_COMPLETE_DO_UPDATE_3D_
+#define MPP_COMPLETE_DO_UPDATE_3D_ mpp_complete_do_update_c4_3D
+#include <mpp_do_update_nonblock.h>
+#endif
+
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(INT_KIND)
+#undef MPI_TYPE_
+#define MPI_TYPE_ MPI_INTEGER4
+#undef MPP_START_DO_UPDATE_3D_
+#define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_i4_3D
+#undef MPP_COMPLETE_DO_UPDATE_3D_
+#define MPP_COMPLETE_DO_UPDATE_3D_ mpp_complete_do_update_i4_3D
+#include <mpp_do_update_nonblock.h>
+
 !*******************************************************
 #undef VECTOR_FIELD_
 #define VECTOR_FIELD_
@@ -762,6 +1243,189 @@
 #define MPP_DO_CHECK_3D_ mpp_do_check_i4_3d
 #include <mpp_do_check.h>
 
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(DOUBLE_KIND)
+#undef MPP_UPDATE_NEST_FINE_2D_
+#define MPP_UPDATE_NEST_FINE_2D_ mpp_update_nest_fine_r8_2D
+#undef MPP_UPDATE_NEST_FINE_3D_
+#define MPP_UPDATE_NEST_FINE_3D_ mpp_update_nest_fine_r8_3D
+#undef MPP_UPDATE_NEST_FINE_4D_
+#define MPP_UPDATE_NEST_FINE_4D_ mpp_update_nest_fine_r8_4D
+#undef MPP_UPDATE_NEST_COARSE_2D_
+#define MPP_UPDATE_NEST_COARSE_2D_ mpp_update_nest_coarse_r8_2D
+#undef MPP_UPDATE_NEST_COARSE_3D_
+#define MPP_UPDATE_NEST_COARSE_3D_ mpp_update_nest_coarse_r8_3D
+#undef MPP_UPDATE_NEST_COARSE_4D_
+#define MPP_UPDATE_NEST_COARSE_4D_ mpp_update_nest_coarse_r8_4D
+#include <mpp_update_nest_domains.h>
+
+#ifdef OVERLOAD_C8
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(DOUBLE_KIND)
+#undef MPP_UPDATE_NEST_FINE_2D_
+#define MPP_UPDATE_NEST_FINE_2D_ mpp_update_nest_fine_c8_2D
+#undef MPP_UPDATE_NEST_FINE_3D_
+#define MPP_UPDATE_NEST_FINE_3D_ mpp_update_nest_fine_c8_3D
+#undef MPP_UPDATE_NEST_FINE_4D_
+#define MPP_UPDATE_NEST_FINE_4D_ mpp_update_nest_fine_c8_4D
+#undef MPP_UPDATE_NEST_COARSE_2D_
+#define MPP_UPDATE_NEST_COARSE_2D_ mpp_update_nest_coarse_c8_2D
+#undef MPP_UPDATE_NEST_COARSE_3D_
+#define MPP_UPDATE_NEST_COARSE_3D_ mpp_update_nest_coarse_c8_3D
+#undef MPP_UPDATE_NEST_COARSE_4D_
+#define MPP_UPDATE_NEST_COARSE_4D_ mpp_update_nest_coarse_c8_4D
+#include <mpp_update_nest_domains.h>
+#endif
+
+#ifndef no_8byte_integers
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(LONG_KIND)
+#undef MPP_UPDATE_NEST_FINE_2D_
+#define MPP_UPDATE_NEST_FINE_2D_ mpp_update_nest_fine_i8_2D
+#undef MPP_UPDATE_NEST_FINE_3D_
+#define MPP_UPDATE_NEST_FINE_3D_ mpp_update_nest_fine_i8_3D
+#undef MPP_UPDATE_NEST_FINE_4D_
+#define MPP_UPDATE_NEST_FINE_4D_ mpp_update_nest_fine_i8_4D
+#undef MPP_UPDATE_NEST_COARSE_2D_
+#define MPP_UPDATE_NEST_COARSE_2D_ mpp_update_nest_coarse_i8_2D
+#undef MPP_UPDATE_NEST_COARSE_3D_
+#define MPP_UPDATE_NEST_COARSE_3D_ mpp_update_nest_coarse_i8_3D
+#undef MPP_UPDATE_NEST_COARSE_4D_
+#define MPP_UPDATE_NEST_COARSE_4D_ mpp_update_nest_coarse_i8_4D
+#include <mpp_update_nest_domains.h>
+#endif
+
+#ifdef OVERLOAD_R4
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(FLOAT_KIND)
+#undef MPP_UPDATE_NEST_FINE_2D_
+#define MPP_UPDATE_NEST_FINE_2D_ mpp_update_nest_fine_r4_2D
+#undef MPP_UPDATE_NEST_FINE_3D_
+#define MPP_UPDATE_NEST_FINE_3D_ mpp_update_nest_fine_r4_3D
+#undef MPP_UPDATE_NEST_FINE_4D_
+#define MPP_UPDATE_NEST_FINE_4D_ mpp_update_nest_fine_r4_4D
+#undef MPP_UPDATE_NEST_COARSE_2D_
+#define MPP_UPDATE_NEST_COARSE_2D_ mpp_update_nest_coarse_r4_2D
+#undef MPP_UPDATE_NEST_COARSE_3D_
+#define MPP_UPDATE_NEST_COARSE_3D_ mpp_update_nest_coarse_r4_3D
+#undef MPP_UPDATE_NEST_COARSE_4D_
+#define MPP_UPDATE_NEST_COARSE_4D_ mpp_update_nest_coarse_r4_4D
+#include <mpp_update_nest_domains.h>
+#endif
+
+#ifdef OVERLOAD_C4
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(FLOAT_KIND)
+#undef MPP_UPDATE_NEST_FINE_2D_
+#define MPP_UPDATE_NEST_FINE_2D_ mpp_update_nest_fine_c4_2D
+#undef MPP_UPDATE_NEST_FINE_3D_
+#define MPP_UPDATE_NEST_FINE_3D_ mpp_update_nest_fine_c4_3D
+#undef MPP_UPDATE_NEST_FINE_4D_
+#define MPP_UPDATE_NEST_FINE_4D_ mpp_update_nest_fine_c4_4D
+#undef MPP_UPDATE_NEST_COARSE_2D_
+#define MPP_UPDATE_NEST_COARSE_2D_ mpp_update_nest_coarse_c4_2D
+#undef MPP_UPDATE_NEST_COARSE_3D_
+#define MPP_UPDATE_NEST_COARSE_3D_ mpp_update_nest_coarse_c4_3D
+#undef MPP_UPDATE_NEST_COARSE_4D_
+#define MPP_UPDATE_NEST_COARSE_4D_ mpp_update_nest_coarse_c4_4D
+#include <mpp_update_nest_domains.h>
+#endif
+
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(INT_KIND)
+#undef MPP_UPDATE_NEST_FINE_2D_
+#define MPP_UPDATE_NEST_FINE_2D_ mpp_update_nest_fine_i4_2D
+#undef MPP_UPDATE_NEST_FINE_3D_
+#define MPP_UPDATE_NEST_FINE_3D_ mpp_update_nest_fine_i4_3D
+#undef MPP_UPDATE_NEST_FINE_4D_
+#define MPP_UPDATE_NEST_FINE_4D_ mpp_update_nest_fine_i4_4D
+#undef MPP_UPDATE_NEST_COARSE_2D_
+#define MPP_UPDATE_NEST_COARSE_2D_ mpp_update_nest_coarse_i4_2D
+#undef MPP_UPDATE_NEST_COARSE_3D_
+#define MPP_UPDATE_NEST_COARSE_3D_ mpp_update_nest_coarse_i4_3D
+#undef MPP_UPDATE_NEST_COARSE_4D_
+#define MPP_UPDATE_NEST_COARSE_4D_ mpp_update_nest_coarse_i4_4D
+#include <mpp_update_nest_domains.h>
+
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(DOUBLE_KIND)
+#undef MPP_DO_UPDATE_NEST_FINE_3D_
+#define MPP_DO_UPDATE_NEST_FINE_3D_ mpp_do_update_nest_fine_r8_3D
+#undef MPP_DO_UPDATE_NEST_COARSE_3D_
+#define MPP_DO_UPDATE_NEST_COARSE_3D_ mpp_do_update_nest_coarse_r8_3D
+#include <mpp_do_update_nest.h>
+
+#ifdef OVERLOAD_C8
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(DOUBLE_KIND)
+#undef MPP_DO_UPDATE_NEST_FINE_3D_
+#define MPP_DO_UPDATE_NEST_FINE_3D_ mpp_do_update_nest_fine_c8_3D
+#undef MPP_DO_UPDATE_NEST_COARSE_3D_
+#define MPP_DO_UPDATE_NEST_COARSE_3D_ mpp_do_update_nest_coarse_c8_3D
+#include <mpp_do_update_nest.h>
+#endif
+
+#ifndef no_8byte_integers
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(LONG_KIND)
+#undef MPP_DO_UPDATE_NEST_FINE_3D_
+#define MPP_DO_UPDATE_NEST_FINE_3D_ mpp_do_update_nest_fine_i8_3D
+#undef MPP_DO_UPDATE_NEST_COARSE_3D_
+#define MPP_DO_UPDATE_NEST_COARSE_3D_ mpp_do_update_nest_coarse_i8_3D
+#include <mpp_do_update_nest.h>
+#endif
+
+#ifdef OVERLOAD_R4
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(FLOAT_KIND)
+#undef MPP_DO_UPDATE_NEST_FINE_3D_
+#define MPP_DO_UPDATE_NEST_FINE_3D_ mpp_do_update_nest_fine_r4_3D
+#undef MPP_DO_UPDATE_NEST_COARSE_3D_
+#define MPP_DO_UPDATE_NEST_COARSE_3D_ mpp_do_update_nest_coarse_r4_3D
+#include <mpp_do_update_nest.h>
+#endif
+
+#ifdef OVERLOAD_C4
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ complex(FLOAT_KIND)
+#undef MPP_DO_UPDATE_NEST_FINE_3D_
+#define MPP_DO_UPDATE_NEST_FINE_3D_ mpp_do_update_nest_fine_c4_3D
+#undef MPP_DO_UPDATE_NEST_COARSE_3D_
+#define MPP_DO_UPDATE_NEST_COARSE_3D_ mpp_do_update_nest_coarse_c4_3D
+#include <mpp_do_update_nest.h>
+#endif
+
+#undef VECTOR_FIELD_
+#define VECTOR_FIELD_
+#undef MPP_TYPE_
+#define MPP_TYPE_ integer(INT_KIND)
+#undef MPP_DO_UPDATE_NEST_FINE_3D_
+#define MPP_DO_UPDATE_NEST_FINE_3D_ mpp_do_update_nest_fine_i4_3D
+#undef MPP_DO_UPDATE_NEST_COARSE_3D_
+#define MPP_DO_UPDATE_NEST_COARSE_3D_ mpp_do_update_nest_coarse_i4_3D
+#include <mpp_do_update_nest.h>
 
 !bnc
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef test_mpp
 #ifdef SYSTEM_CLOCK
 #undef SYSTEM_CLOCK
@@ -38,6 +14,7 @@ program test   !test various aspects of mpp_mod
   use mpp_mod, only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, mpp_sync, mpp_malloc
   use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist, mpp_set_stack_size
   use mpp_mod, only : mpp_broadcast, mpp_transmit, mpp_sum, mpp_max, mpp_chksum, ALL_PES
+  use mpp_mod, only : mpp_error, FATAL, mpp_sync_self
 #ifdef use_MPI_GSM
   use mpp_mod, only : mpp_gsm_malloc, mpp_gsm_free
 #endif
@@ -55,6 +32,7 @@ program test   !test various aspects of mpp_mod
 #endif
   integer                         :: tick, tick0, ticks_per_sec, id
   integer                         :: pe, npes, root, i, j, k, l, m, n2, istat
+  integer                         :: out_unit
   real                            :: dt
 
   call mpp_init()
@@ -62,6 +40,11 @@ program test   !test various aspects of mpp_mod
   pe = mpp_pe()
   npes = mpp_npes()
   root = mpp_root_pe()
+
+  out_unit = stdout()
+  ! first test broadcast
+  call test_broadcast()
+
   call SYSTEM_CLOCK( count_rate=ticks_per_sec )
   allocate( a(n), b(n) )
   id = mpp_clock_id( 'Random number' )
@@ -89,13 +72,14 @@ program test   !test various aspects of mpp_mod
      do i = 1,npes
         call mpp_transmit( put_data=a(1), plen=l, to_pe=modulo(pe+npes-i,npes), &
                            get_data=b(1), glen=l, from_pe=modulo(pe+i,npes) )
+        call mpp_sync_self()
         !          call mpp_sync_self( (/modulo(pe+npes-i,npes)/) )
      end do
      call mpp_sync()
      call SYSTEM_CLOCK(tick)
      dt = real(tick-tick0)/(npes*ticks_per_sec)
      dt = max( dt, epsilon(dt) )
-     if( pe.EQ.root )write( stdout(),'(/a,i8,f13.6,f8.2)' )'MPP_TRANSMIT length, time, bw(Mb/s)=', l, dt, l*8e-6/dt
+     if( pe.EQ.root )write( out_unit,'(/a,i8,f13.6,f8.2)' )'MPP_TRANSMIT length, time, bw(Mb/s)=', l, dt, l*8e-6/dt
 !#ifdef SGICRAY
 !     !--- shmem_put ----------------------------------------------------
 !     call mpp_sync()
@@ -134,7 +118,7 @@ program test   !test various aspects of mpp_mod
   call SYSTEM_CLOCK(tick)
   dt = real(tick-tick0)/ticks_per_sec
   dt = max( dt, epsilon(dt) )
-  if( pe.EQ.root )write( stdout(),'(a,2i6,f9.1,i8,f13.6,f8.2/)' ) &
+  if( pe.EQ.root )write( out_unit,'(a,2i6,f9.1,i8,f13.6,f8.2/)' ) &
        'mpp_sum: pe, npes, sum(pe+1), length, time, bw(Mb/s)=', pe, npes, a(1), n, dt, n*8e-6/dt
   call mpp_clock_end(id)
   !---------------------------------------------------------------------!
@@ -150,7 +134,7 @@ program test   !test various aspects of mpp_mod
   print *, 'pe, max(pe+1)=', pe, a(1)
   !pelist check
   call mpp_sync()
-  call flush(stdout(),istat)
+  call flush(out_unit,istat)
   if( npes.GE.2 )then
      if( pe.EQ.root )print *, 'Test of pelists: bcast, sum and max using PEs 0...npes-2 (excluding last PE)'
      call mpp_declare_pelist( (/(i,i=0,npes-2)/) )
@@ -184,6 +168,7 @@ program test   !test various aspects of mpp_mod
      call mpp_sync()
      call mpp_transmit( put_data=a(1), plen=n2, to_pe=ALL_PES, &
                         get_data=a(1), glen=n2, from_pe=root )
+     call mpp_sync_self ()
 !    call mpp_transmit( put_data=a(1), plen=n, to_pe=ALL_PES, &
 !                       get_data=a(1), glen=n, from_pe=root )
      m= n2/npes
@@ -228,6 +213,47 @@ program test   !test various aspects of mpp_mod
   call mpp_exit()
 
 contains
+
+  !***********************************************
+  !currently only test the mpp_broadcast_char
+  subroutine test_broadcast()
+     integer, parameter :: ARRAYSIZE = 3
+     integer, parameter :: STRINGSIZE = 256
+     character(len=STRINGSIZE), dimension(ARRAYSIZE) :: textA, textB
+     integer :: n
+
+     textA(1) = "This is line 1 "
+     textA(2) = "Here comes the line 2 "
+     textA(3) = "Finally is line 3 "  
+     do n = 1, ARRAYSIZE  
+        textB(n) = TextA(n)
+     enddo
+
+     if(mpp_pe() .NE. mpp_root_pe()) then
+        do n =1, ARRAYSIZE
+           textA(n) = ""
+        enddo
+     endif
+
+     !--- comparing textA and textB. textA and textB are supposed to be different on pe other than root_pe
+     if(mpp_pe() == mpp_root_pe()) then
+        do n = 1, ARRAYSIZE         
+           if(textA(n) .NE. textB(n)) call mpp_error(FATAL, "test_broadcast: on root_pe, textA should equal textB")
+        enddo
+     else
+        do n = 1, ARRAYSIZE         
+           if(textA(n) == textB(n)) call mpp_error(FATAL, "test_broadcast: on root_pe, textA should not equal textB")
+        enddo 
+     endif
+     call mpp_broadcast(textA, STRINGSIZE, mpp_root_pe())
+     !--- after broadcast, textA and textB should be the same
+     do n = 1, ARRAYSIZE         
+        if(textA(n) .NE. textB(n)) call mpp_error(FATAL, "test_broadcast: after broadcast, textA should equal textB")
+     enddo
+
+     write(out_unit,*) "==> NOTE from test_broadcast: The test is succesful"
+
+  end subroutine test_broadcast
 
   subroutine test_shared_pointers(locd,n)
     integer(LONG_KIND), intent(in) :: locd

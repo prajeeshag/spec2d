@@ -1,31 +1,7 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! module within MPP for handling PSETs:
 ! PSET: Persistent Shared-memory Execution Thread
 !
-! AUTHOR: V. Balaji (v.balaji@noaa.gov)
+! AUTHOR: V. Balaji (v.balaji)
 ! DATE: 2006-01-15
 #include <fms_platform.h>
 #ifdef test_mpp_pset
@@ -37,7 +13,7 @@ module mpp_pset_mod
   use mpp_mod, only: mpp_pe, mpp_npes, mpp_root_pe, mpp_send, mpp_recv, &
        mpp_sync, mpp_error, FATAL, WARNING, stdout, stderr, mpp_chksum, &
        mpp_declare_pelist, mpp_get_current_pelist, mpp_set_current_pelist, &
-       mpp_init
+       mpp_init, COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, mpp_sync_self
   implicit none
   private
 
@@ -102,6 +78,7 @@ module mpp_pset_mod
        mpp_pset_delete, mpp_pset_root, mpp_pset_numroots, mpp_pset_init, &
        mpp_pset_get_root_pelist, mpp_pset_print_stack_chksum
 
+
 contains
   subroutine mpp_pset_init
 #ifdef use_SGI_GSM
@@ -135,7 +112,7 @@ contains
     integer, intent(in), optional :: commID
 
     integer :: npes, my_commID
-    integer :: i, j, k, out_unit
+    integer :: i, j, k, out_unit, errunit
     integer, allocatable :: my_pelist(:), root_pelist(:)
 
     call mpp_init()
@@ -145,6 +122,7 @@ contains
     verbose=.TRUE.
 #endif
     out_unit = stdout()
+    errunit  = stderr()
     pe = mpp_pe()
     if(present(pelist)) then
        npes = size(pelist(:))
@@ -227,9 +205,9 @@ contains
     call mpp_declare_pelist(root_pelist)
 
     if( verbose )then
-        write( stderr(),'(a,4i6)' )'MPP_PSET_CREATE: pe, root, next, prev=', &
+        write( errunit,'(a,4i6)' )'MPP_PSET_CREATE: pe, root, next, prev=', &
              pe, pset%root_in_pset, pset%next_in_pset, pset%prev_in_pset
-        write( stderr(),* )'PE ', pe, ' pset=', pset%pset(:)
+        write( errunit,* )'PE ', pe, ' pset=', pset%pset(:)
         write( out_unit,* )'root pelist=', pset%root_pelist(:)
     end if
   end subroutine mpp_pset_create
@@ -258,7 +236,7 @@ contains
 
 !currently only wraps mpp_send
 !on some architectures, mangling might occur
-    call mpp_send( ptr, pe )
+    call mpp_send( ptr, pe, tag=COMM_TAG_1 )
   end subroutine mpp_send_ptr_scalar
 
   subroutine mpp_send_ptr_array( ptr, pe )
@@ -267,14 +245,14 @@ contains
 
 !currently only wraps mpp_send
 !on some architectures, mangling might occur
-    call mpp_send( ptr, size(ptr), pe )
+    call mpp_send( ptr, size(ptr), pe, tag=COMM_TAG_2 )
   end subroutine mpp_send_ptr_array
 
   subroutine mpp_recv_ptr_scalar( ptr, pe )
     integer(POINTER_KIND), intent(inout) :: ptr
     integer, intent(in) :: pe
 
-    call mpp_recv( ptr, pe )
+    call mpp_recv( ptr, pe, tag=COMM_TAG_1  )
     call mpp_translate_remote_ptr( ptr, pe )
     return
   end subroutine mpp_recv_ptr_scalar
@@ -284,7 +262,7 @@ contains
     integer, intent(in) :: pe
     integer :: i
 
-    call mpp_recv( ptr, size(ptr), pe )
+    call mpp_recv( ptr, size(ptr), pe, tag=COMM_TAG_2 )
     do i = 1, size(ptr)
        call mpp_translate_remote_ptr( ptr(i), pe )
     end do
@@ -357,10 +335,10 @@ contains
          'MPP_PSET_BROADCAST: called with uninitialized PSET.' )
     if( pset%root )then
         do i = 1,pset%npset-1
-           call mpp_send( a, pset%pset(i) )
+           call mpp_send( a, pset%pset(i), tag=COMM_TAG_3 )
         end do
     else
-        call mpp_recv( a, pset%root_in_pset )
+        call mpp_recv( a, pset%root_in_pset, tag=COMM_TAG_3 )
     end if
     call mpp_pset_sync(pset)
   end subroutine mpp_pset_broadcast
@@ -383,6 +361,7 @@ contains
     else
         call mpp_recv_ptr( ptr, pset%root_in_pset )
     end if
+    call mpp_sync_self()
   end subroutine mpp_pset_broadcast_ptr_scalar
 
   subroutine mpp_pset_broadcast_ptr_array(pset,ptr)
@@ -403,6 +382,8 @@ contains
     else
         call mpp_recv_ptr( ptr, pset%root_in_pset )
     end if
+    call mpp_sync_self()
+
   end subroutine mpp_pset_broadcast_ptr_array
 
   subroutine mpp_pset_check_ptr(pset,ptr)
@@ -521,6 +502,7 @@ contains
     type(mpp_pset_type), intent(in) :: pset
     character(len=*), intent(in) :: caller
     real, intent(in) :: array(:)
+    integer          :: errunit
 
 #ifdef PSET_DEBUG
     logical :: do_print
@@ -528,13 +510,14 @@ contains
 
     if( .NOT.pset%initialized )call mpp_error( FATAL, &
          'MPP_PSET_PRINT_CHKSUM: called with uninitialized PSET.' )
+    errunit = stderr()
 
     if( pset%root )then
         do_print = pe.EQ.mpp_root_pe() !set to T to print from all PEs
         call mpp_set_current_pelist(pset%root_pelist)
         chksum = mpp_chksum( array )
         if( do_print ) &
-             write( stderr(), '(a,z18)' )trim(caller)//' chksum=', chksum
+             write( errunit, '(a,z18)' )trim(caller)//' chksum=', chksum
     end if
     call mpp_set_current_pelist(pset%pelist)
 #endif

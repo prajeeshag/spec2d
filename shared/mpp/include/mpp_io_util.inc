@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_io_util.inc,v 17.0.2.1 2009/10/15 16:13:49 z1l Exp $
+! $Id: mpp_io_util.inc,v 19.0.2.1 2012/05/11 14:54:02 Zhi.Liang Exp $
 
 
   !#####################################################################
@@ -202,6 +202,8 @@
       return
    end subroutine mpp_get_fields
 
+
+
   !#####################################################################
     subroutine mpp_get_axes( unit, axes, time_axis )
 !
@@ -240,6 +242,28 @@
    end subroutine mpp_get_axes
 
   !#####################################################################
+    subroutine mpp_get_time_axis( unit, time_axis )
+      integer, intent(in) :: unit
+      type(axistype), intent(inout) :: time_axis
+
+      if( .NOT.module_is_initialized )call mpp_error( FATAL, 'MPP_GET_AXES: must first call mpp_io_init.' )
+      if( .NOT.mpp_file(unit)%opened )&
+           call mpp_error( FATAL, 'MPP_GET_AXES: invalid unit number, file '//trim(mpp_file(unit)%name))
+
+      time_axis = mpp_file(unit)%Axis(mpp_file(unit)%recdimid)
+
+      return
+   end subroutine mpp_get_time_axis
+
+  !####################################################################
+  function mpp_get_default_calendar( )
+     character(len=len(default_axis%calendar)) :: mpp_get_default_calendar
+    
+     mpp_get_default_calendar = default_axis%calendar
+
+  end function mpp_get_default_calendar
+
+  !#####################################################################
 ! <SUBROUTINE NAME="mpp_get_times">
 !   <OVERVIEW>
 !     Get file time data.
@@ -259,7 +283,7 @@
 !  copy time information from file and convert to time_type
 !
       integer, intent(in) :: unit
-      real(DOUBLE_KIND), intent(inout) :: time_values(:)
+      real, intent(inout) :: time_values(:)
 
       integer :: ntime,i
 
@@ -485,6 +509,7 @@
 
      v%is_range = .true.
      v%min = -HUGE(v%min); v%max = HUGE(v%max)
+     if (f%natt == 0) return
      ! find indices of relevant attributes
      irange   = mpp_find_att(f%att,'valid_range')
      imin     = mpp_find_att(f%att,'valid_min')
@@ -524,7 +549,7 @@
         v%min = f%att(imissing)%fatt(1)*f%scale + f%add
      else if (ifill>0) then
      !z1l ifdef is added in to be able to compile without using use_netCDF.
-#ifdef use_netCDF4
+#ifdef use_netCDF  
         ! define min and max according to _FillValue
         if(f%att(ifill)%fatt(1)>0) then
             ! if _FillValue is positive, then it defines valid maximum
@@ -716,7 +741,7 @@
      character(len=*),  intent(in) :: fieldname, attname
      character(len=*), intent(out) :: attvalue 
      logical                       :: found_field,  found_att
-     integer                       :: i, j
+     integer                       :: i, j, length
 
      found_field = .false.
      found_att = .false.
@@ -726,9 +751,10 @@
            do j=1, size(mpp_file(unit)%Var(i)%Att(:))
               if( trim(mpp_file(unit)%Var(i)%Att(j)%name) == trim(attname) ) then
                  found_att = .true.
-                 if(len(attvalue) .LE. len_trim(mpp_file(unit)%Var(i)%Att(j)%catt) ) call mpp_error(FATAL, &
+                 length = mpp_file(unit)%Var(i)%Att(j)%len
+                 if(len(attvalue) .LE. length ) call mpp_error(FATAL, &
                       'mpp_io_util.inc: length of attvalue is less than the length of catt')
-                 attvalue = trim(mpp_file(unit)%Var(i)%Att(j)%catt)
+                 attvalue = trim(mpp_file(unit)%Var(i)%Att(j)%catt(1:length))
                  exit
               end if
            end do

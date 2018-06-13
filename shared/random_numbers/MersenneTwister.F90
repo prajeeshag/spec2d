@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Fortran-95 implementation of the Mersenne Twister 19937, following 
 !   the C implementation described below (code mt19937ar-cok.c, dated 2002/2/10), 
 !   adapted cosmetically by making the names more general.  
@@ -103,7 +79,7 @@ module MersenneTwister_mod
   integer, parameter :: blockSize = 624,         &
                         M         = 397,         &
                         MATRIX_A  = -1727483681, & ! constant vector a         (0x9908b0dfUL)
-                        UMASK     = -2147483648, & ! most significant w-r bits (0x80000000UL)
+                        UMASK     = -2147483648_8, & ! most significant w-r bits (0x80000000UL)
                         LMASK     =  2147483647    ! least significant r bits  (0x7fffffffUL)
   ! Tempering parameters
   integer, parameter :: TMASKB= -1658038656, & ! (0x9d2c5680UL)

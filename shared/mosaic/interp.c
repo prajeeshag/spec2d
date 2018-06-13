@@ -1,36 +1,136 @@
 /*
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+  Copyright 2011 NOAA Geophysical Fluid Dynamics Lab, Princeton, NJ
+  This program is distributed under the terms of the GNU General Public
+  License. See the file COPYING contained in this directory
 */
+#include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include "mosaic_util.h"
 #include "interp.h"
 #include "create_xgrid.h"
+
+/*********************************************************************
+   void cublic_spline_sp(size1, size2, grid1, grid2, data1, data2)
+
+   Calculate a shape preserving cubic spline. Monotonicity is ensured over each subinterval
+   unlike classic cubic spline interpolation.
+   It will be used to interpolation data in 1-D space.
+
+   INPUT Arguments:
+    grid1:    grid for input data grid.          
+    grid2:    grid for output data grid.         
+    size1:    size of input grid.                
+    size2:    size of output grid.               
+    data1:    input data associated with grid1.
+
+   OUTPUT ARGUMENTS:
+    data2:    output data associated with grid2. (OUTPUT)
+
+*********************************************************************/
+
+void cubic_spline_sp(int size1, int size2, const double *grid1, const double *grid2, const double *data1,
+                  double *data2 )
+{
+  double *delta=NULL, *d=NULL, *dh=NULL, *b=NULL, *c = NULL;
+  double h, h2, s, w1, w2, p;
+  int i, k, n, klo, khi, kmax;
+
+  for(i=1; i<size1; i++) {
+    if( grid1[i] <= grid1[i-1] ) error_handler("cubic_spline_sp: grid1 is not monotonic increasing");
+  }
+
+  for(i=0; i<size2; i++) {
+    if( grid2[i] < grid1[0] || grid2[i] > grid1[size1-1]) error_handler("cubic_spline_sp: grid2 lies outside grid1");
+  }
+
+  if(size1 < 2) error_handler("cubic_spline_sp: the size of input grid should be at least 2");
+  if(size1 == 2) {  /* when size1 is 2, it just reduced to a linear interpolation */
+    p = (data1[1]-data1[0])/(grid1[1]-grid1[0]);
+    for(i=0; i< size2; i++) data2[i] = p*(grid2[i] - grid1[0]) + data1[0];
+    return;
+  }
+  delta = (double *)malloc((size1-1)*sizeof(double));
+  dh = (double *)malloc((size1-1)*sizeof(double));
+  d = (double *)malloc(size1*sizeof(double));
+  for(k=0;k<size1-1;k++) {
+    dh[k] = grid1[k+1]-grid1[k];
+    delta[k] = (data1[k+1]-data1[k])/(dh[k]);
+  }
+/*
+  Interior slopes
+*/
+  for(k=1;k<size1-1;k++) {
+     if( delta[k]*delta[k-1] > 0.0 ) {
+         w1 = 2.0*dh[k] + dh[k-1];
+         w2 = dh[k] + 2.0*dh[k-1];
+         d[k] = (w1+w2)/(w1/delta[k-1]+w2/delta[k]);
+     }
+     else {
+         d[k] = 0.0;
+     }
+  }
+/* 
+End slopes
+*/
+  kmax = size1-1;
+  d[0] = ((2.0*dh[0] + dh[1])*delta[0] - dh[0]*delta[1])/(dh[0]+dh[1]);
+
+  if ( d[0]*delta[0] < 0.0 ) {
+     d[0] = 0.0;
+  }
+  else {
+     if ( delta[0]*delta[1] < 0.0 && abs(d[0]) > abs(3.0*delta[0])) {
+        d[0]=3.0*delta[0];
+     }
+  }
+
+  d[kmax] = ((2.0*dh[kmax-1] + dh[kmax-2])*delta[kmax-1] - dh[kmax-1]*delta[kmax-2])/(dh[kmax-1]+dh[kmax-2]);
+  if ( d[kmax]*delta[kmax-1] < 0.0 ) {
+     d[kmax] = 0.0;
+  }
+  else {
+     if ( delta[kmax-1]*delta[kmax-2] < 0.0 && abs(d[kmax]) > abs(3.0*delta[kmax-1])) {
+        d[kmax]=3.0*delta[kmax-1];
+     }
+  }
+  
+/* Precalculate coefficients */
+  b = (double *)malloc((size1-1)*sizeof(double));
+  c = (double *)malloc((size1-1)*sizeof(double));
+  for (k=0; k<size1-1; k++) {
+    h   = dh[k];
+    h2  = h*h;
+    c[k]   = (3.0*delta[k]-2.0*d[k]-d[k+1])/dh[k];
+    b[k]   = (d[k]-2.0*delta[k]+d[k+1])/(dh[k]*dh[k]);
+  }
+  /* interpolate data onto grid2 */
+  for(k=0; k<size2; k++) {
+    n = nearest_index(grid2[k],grid1, size1);
+    if (grid1[n] < grid2[k]) {
+	 klo = n;
+    }
+    else {
+      if(n==0) {
+	klo = n;
+      }
+      else {
+	klo = n -1;
+      }
+    }
+    khi = klo+1;
+    s   = grid2[k] - grid1[klo];
+    data2[k] = data1[klo]+s*(d[klo]+s*(c[klo]+s*b[klo]));
+  }
+
+  free(c);
+  free(b);
+  free(d);
+  free(dh);
+  free(delta);
+
+};/* cubic spline sp */
+
 
 /*********************************************************************
    void cublic_spline(size1, size2, grid1, grid2, data1, data2, yp1, ypn  )
@@ -55,6 +155,7 @@
 
 *********************************************************************/
 
+                                     
 void cubic_spline(int size1, int size2, const double *grid1, const double *grid2, const double *data1,
 		  double *data2, double yp1, double ypn  )
 {
@@ -158,7 +259,13 @@ void conserve_interp(int nx_src, int ny_src, int nx_dst, int ny_dst, const doubl
   dst_area   = (double *)malloc(nx_dst*ny_dst*sizeof(double));
   nxgrid = create_xgrid_2dx2d_order1(&nx_src, &ny_src, &nx_dst, &ny_dst, x_src, y_src, x_dst, y_dst, mask_src,
 	                       xgrid_i1, xgrid_j1, xgrid_i2, xgrid_j2, xgrid_area );
-  get_grid_area(&nx_dst, &ny_dst, x_dst, y_dst, dst_area);
+  /* The source grid may not cover the destination grid
+     so need to sum of exchange grid area to get dst_area
+     get_grid_area(&nx_dst, &ny_dst, x_dst, y_dst, dst_area);
+  */
+  for(n=0; n<nx_dst*ny_dst; n++) dst_area[n] = 0;
+  for(n=0; n<nxgrid; n++) dst_area[xgrid_j2[n]*nx_dst+xgrid_i2[n]] += xgrid_area[n];
+  
   area_frac = (double *)malloc(nxgrid*sizeof(double));
   for(n=0; n<nxgrid; n++) area_frac[n] = xgrid_area[n]/dst_area[xgrid_j2[n]*nx_dst+xgrid_i2[n]];
   
@@ -178,3 +285,42 @@ void conserve_interp(int nx_src, int ny_src, int nx_dst, int ny_dst, const doubl
   free(area_frac);
   
 }; /* conserve_interp */
+
+
+void linear_vertical_interp(int nx, int ny, int nk1, int nk2, const double *grid1, const double *grid2,
+			    double *data1, double *data2) 
+{
+  int n1, n2, i, n, k, l;
+  double w;
+
+  for(k=1; k<nk1; k++) {
+    if(grid1[k] <= grid1[k-1]) error_handler("interp.c: grid1 not monotonic");
+  }
+  for(k=1; k<nk2; k++) {
+    if(grid2[k] <= grid2[k-1]) error_handler("interp.c: grid2 not monotonic");
+  }
+  
+  if (grid1[0] > grid2[0] ) error_handler("interp.c: grid2 lies outside grid1");
+  if (grid1[nk1-1] < grid2[nk2-1] ) error_handler("interp.c: grid2 lies outside grid1");
+
+  for(k=0; k<nk2; k++) {    
+    n = nearest_index(grid2[k],grid1,nk1);
+    if (grid1[n] < grid2[k]) {
+      w = (grid2[k]-grid1[n])/(grid1[n+1]-grid1[n]);
+      for(l=0; l<nx*ny; l++) {
+	data2[k*nx*ny+l] = (1.-w)*data1[n*nx*ny+l] + w*data1[(n+1)*nx*ny+l];
+      }
+    }
+    else {
+      if(n==0)
+	for(l=0;l<nx*ny;l++) data2[k*nx*ny+l] = data1[n*nx*ny+l];
+      else {
+	w = (grid2[k]-grid1[n-1])/(grid1[n]-grid1[n-1]);
+	for(l=0; l<nx*ny; l++) {
+	  data2[k*nx*ny+l] = (1.-w)*data1[(n-1)*nx*ny+l] + w*data1[n*nx*ny+l];
+	}
+      }
+    }
+  }
+
+}

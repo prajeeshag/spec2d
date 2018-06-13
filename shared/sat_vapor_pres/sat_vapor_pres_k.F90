@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
  module sat_vapor_pres_k_mod
 
@@ -52,8 +28,8 @@
  implicit none
  private
 
- character(len=128), parameter :: version = '$Id: sat_vapor_pres_k.F90,v 17.0.2.1.2.1 2009/10/05 12:02:35 rsh Exp $'
- character(len=128), parameter :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+ character(len=128), parameter :: version = '$Id: sat_vapor_pres_k.F90,v 18.0 2010/03/02 23:58:26 fms Exp $'
+ character(len=128), parameter :: tagname = '$Name: siena_201207 $'
 
  public :: sat_vapor_pres_init_k
  public :: lookup_es_k
@@ -1254,13 +1230,13 @@
    do i = 1, size(temp,1)
      tmp = temp(i,j,k)-tminl
      ind = int(dtinvl*(tmp+tepsl))
-     !if (ind < 0 .or. ind >= table_siz)  then
-     !  nbad = nbad+1
-     !else
+     if (ind < 0 .or. ind >= table_siz)  then
+       nbad = nbad+1
+     else
        del = tmp-dtres*real(ind)
        esat(i,j,k) = TABLE(ind+1) + &
                      del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-     !endif
+     endif
    enddo
    enddo
    enddo
@@ -1330,13 +1306,13 @@
    do i = 1, size(temp,1)
      tmp = temp(i,j)-tminl
      ind = int(dtinvl*(tmp+tepsl))
-     !if (ind < 0 .or. ind >= table_siz)  then
-     !  nbad = nbad+1
-     !else
+     if (ind < 0 .or. ind >= table_siz)  then
+       nbad = nbad+1
+     else
        del = tmp-dtres*real(ind)
        esat(i,j) = TABLE(ind+1) + del*(DTABLE(ind+1) +   &
                                                   del*D2TABLE(ind+1))
-     !endif
+     endif
    enddo
    enddo
 
@@ -1374,12 +1350,12 @@
    do i = 1, size(temp,1)
      tmp = temp(i)-tminl
      ind = int(dtinvl*(tmp+tepsl))
-     !if (ind < 0 .or. ind >= table_siz)  then
-     !  nbad = nbad+1
-     !else
+     if (ind < 0 .or. ind >= table_siz)  then
+       nbad = nbad+1
+     else
        del = tmp-dtres*real(ind)
        esat(i) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-     !endif
+     endif
    enddo
 
  end subroutine lookup_es_k_1d
@@ -1413,12 +1389,12 @@
    nbad = 0
    tmp = temp-tminl
    ind = int(dtinvl*(tmp+tepsl))
-   !if (ind < 0 .or. ind >= table_siz)  then
-   !  nbad = nbad+1
-   !else
+   if (ind < 0 .or. ind >= table_siz)  then
+     nbad = nbad+1
+   else
      del = tmp-dtres*real(ind)
      esat = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-   !endif 
+   endif 
 
  end subroutine lookup_es_k_0d
 !#######################################################################

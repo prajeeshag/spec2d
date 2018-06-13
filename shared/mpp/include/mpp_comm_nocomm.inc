@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_comm_nocomm.inc,v 17.0.2.1 2009/09/08 14:20:56 nnz Exp $
+! $Id: mpp_comm_nocomm.inc,v 19.0 2012/01/06 22:00:41 fms Exp $
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !                                                                             !
@@ -14,6 +14,7 @@ subroutine mpp_init( flags,localcomm )
   integer, optional, intent(in) :: localcomm ! dummy here, used only in MPI
   integer                       :: my_pe, num_pes, len, i, logunit
   logical                       :: opened, existed
+  integer                       :: unit_begin, unit_end, unit_nml, io_status
 
   if( module_is_initialized )return
 
@@ -41,6 +42,25 @@ subroutine mpp_init( flags,localcomm )
      debug   = flags.EQ.MPP_DEBUG
      verbose = flags.EQ.MPP_VERBOSE .OR. debug
   end if
+
+  call mpp_init_logfile()
+  call read_input_nml
+
+  !--- read namelist
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, mpp_nml, iostat=io_status)
+#else
+  unit_begin = 103
+  unit_end   = 512
+  do unit_nml = unit_begin, unit_end
+     inquire( unit_nml,OPENED=opened )
+     if( .NOT.opened )exit
+  end do
+
+  open(unit_nml,file='input.nml', iostat=io_status)
+  read(unit_nml,mpp_nml,iostat=io_status)
+  close(unit_nml)  
+#endif
 
 ! non-root pe messages written to other location than stdout()
 ! 9 is reserved for etc_unit
@@ -88,7 +108,6 @@ subroutine mpp_init( flags,localcomm )
   !          if( pe.NE.root_pe )open( unit=log_unit, file=trim(configfile), status='OLD' )
   !      end if
 
-  call mpp_init_logfile()
 
   !messages
   if( verbose )call mpp_error( NOTE, 'MPP_INIT: initializing MPP module...' )
@@ -226,6 +245,16 @@ end subroutine mpp_exit
     return
   end subroutine mpp_set_stack_size
 
+    subroutine mpp_broadcast_char(data, length, from_pe, pelist )
+      character(len=*), intent(inout) :: data(:)
+      integer, intent(in) :: length, from_pe
+      integer, intent(in), optional :: pelist(:)
+
+      if( .NOT.module_is_initialized )call mpp_error( FATAL, 'mpp_broadcast_text: You must first call mpp_init.' )
+      return
+    end subroutine mpp_broadcast_char
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !                                                                             !
 !                BASIC MESSAGE PASSING ROUTINE: mpp_transmit                  !
@@ -346,7 +375,6 @@ end subroutine mpp_exit
 #include <mpp_transmit_nocomm.h>
 #endif
 
-#ifdef OVERLOAD_R4
 #undef MPP_TRANSMIT_
 #define MPP_TRANSMIT_ mpp_transmit_real4
 #undef MPP_TRANSMIT_SCALAR_
@@ -402,7 +430,6 @@ end subroutine mpp_exit
 #undef MPI_TYPE_
 #define MPI_TYPE_ MPI_REAL4
 #include <mpp_transmit_nocomm.h>
-#endif
 
 #ifdef OVERLOAD_C4
 #undef MPP_TRANSMIT_

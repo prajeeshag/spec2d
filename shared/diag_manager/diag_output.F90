@@ -1,34 +1,10 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 MODULE diag_output_mod
-  ! <CONTACT EMAIL="seth.underwood@noaa.gov">
+  ! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
   !   Seth Underwood
   ! </CONTACT>
 
   ! <OVERVIEW> <TT>diag_output_mod</TT> is an integral part of 
-  !   diag_manager_mod. Its function is to write axis-meta-data, 
+  !   <TT>diag_manager_mod</TT>. Its function is to write axis-meta-data, 
   !   field-meta-data and field data
   ! </OVERVIEW>
 
@@ -37,14 +13,13 @@ MODULE diag_output_mod
        & MPP_NETCDF, MPP_MULTI, MPP_SINGLE
   USE mpp_domains_mod, ONLY: domain1d, domain2d, mpp_define_domains, mpp_get_pelist,&
        &  mpp_get_global_domain, mpp_get_compute_domains, null_domain1d, null_domain2d,&
-       & OPERATOR(/=), mpp_get_layout, OPERATOR(==)
+       & OPERATOR(.NE.), mpp_get_layout, OPERATOR(.EQ.)
   USE mpp_mod, ONLY: mpp_npes, mpp_pe
   USE diag_axis_mod, ONLY: diag_axis_init, get_diag_axis, get_axis_length,&
        & get_axis_global_length, get_domain1d, get_domain2d, get_axis_aux, get_tile_count
-  USE diag_data_mod, ONLY: diag_fieldtype, diag_global_att_type 
+  USE diag_data_mod, ONLY: diag_fieldtype, diag_global_att_type, CMOR_MISSING_VALUE
   USE time_manager_mod, ONLY: get_calendar_type, valid_calendar_types
   USE fms_mod, ONLY: error_mesg, mpp_pe, write_version_number, FATAL
-  USE platform_mod, ONLY: r8_kind
 
   IMPLICIT NONE
 
@@ -54,7 +29,7 @@ MODULE diag_output_mod
 
   TYPE(diag_global_att_type), SAVE :: diag_global_att
 
-  INTEGER, PARAMETER      :: NETCDF = 1
+  INTEGER, PARAMETER      :: NETCDF1 = 1
   INTEGER, PARAMETER      :: mxch  = 128
   INTEGER, PARAMETER      :: mxchl = 256
   INTEGER                 :: current_file_unit = -1
@@ -71,9 +46,9 @@ MODULE diag_output_mod
   LOGICAL :: module_is_initialized = .FALSE.
 
   CHARACTER(len=128), PRIVATE :: version= &
-       '$Id: diag_output.F90,v 17.0 2009/07/21 03:18:49 fms Exp $'
+       '$Id: diag_output.F90,v 19.0 2012/01/06 21:55:50 fms Exp $'
   CHARACTER(len=128), PRIVATE :: tagname= &
-       '$Name: mom4p1_pubrel_dec2009_nnz $'
+       '$Name: siena_201207 $'
 
 CONTAINS
 
@@ -86,8 +61,7 @@ CONTAINS
   !      all_scalar_or_1d, domain)
   !   </TEMPLATE>
   !   <DESCRIPTION>
-  !     Registers the time axis, and initialized, and open the file for 
-  !     output.
+  !     Registers the time axis, and opens the file for output.
   !   </DESCRIPTION>
   !   <IN NAME="file_name" TYPE="CHARACTER(len=*)">Output file name</IN>
   !   <IN NAME="format" TYPE="INTEGER">File format (Currently only 'NETCDF' is valid)</IN>
@@ -106,7 +80,6 @@ CONTAINS
     LOGICAL         , INTENT(in)  :: all_scalar_or_1d
     TYPE(domain2d)  , INTENT(in)  :: domain
 
-    ! real(KIND=r8_kind), dimension(1) :: tdata
     INTEGER :: form, threading, fileset
     TYPE(diag_global_att_type) :: gAtt
 
@@ -119,7 +92,7 @@ CONTAINS
    
     !---- set up output file ----
     SELECT CASE (FORMAT)
-    CASE (NETCDF)
+    CASE (NETCDF1)
        form      = MPP_NETCDF
        threading = MPP_MULTI
        fileset   = MPP_MULTI
@@ -134,7 +107,7 @@ CONTAINS
     END IF
 
     !---- open output file (return file_unit id) -----
-    IF ( domain == NULL_DOMAIN2D ) THEN
+    IF ( domain .EQ. NULL_DOMAIN2D ) THEN
        CALL mpp_open(file_unit, file_name, action=MPP_OVERWR, form=form,&
             & threading=threading, fileset=fileset)
     ELSE
@@ -157,7 +130,7 @@ CONTAINS
 
   ! <SUBROUTINE NAME="write_axis_meta_data">
   !   <OVERVIEW>
-  !     Write the axes data to file.
+  !     Write the axes meta data to file.
   !   </OVERVIEW>
   !   <TEMPLATE>
   !     SUBROUTINE write_axis_meta_data(file_unit, axes, time_ops)
@@ -288,7 +261,7 @@ CONTAINS
        time_axis_flag (num_axis_in_file) = .FALSE.
 
        !  ---- write edges axis to file ----
-       IF ( Domain /= null_domain1d ) THEN
+       IF ( Domain .NE. null_domain1d ) THEN
           ! assume domain decomposition is irregular and loop through all prev and next
           ! domain pointers extracting domain extents.  Assume all pes are used in
           ! decomposition
@@ -351,7 +324,7 @@ CONTAINS
   !   </IN>
   !   <IN NAME="mval" TYPE="REAL, OPTIONAL">Missing value, must be within valid range</IN>
   !   <IN NAME="avg_name" TYPE="CHARACTER(len=*), OPTIONAL">
-  !     Name of varuable containing time averaging info
+  !     Name of variable containing time averaging info
   !   </IN>
   !   <IN NAME="time_method" TYPE="CHARACTER(len=*), OPTIONAL">
   !     Name of transformation applied to the time-varying data, i.e. "avg", "min", "max"
@@ -475,6 +448,7 @@ CONTAINS
                & name, units, long_name,&
                & RANGE(1), RANGE(2),&
                & missing=Field%miss_pack,&
+               & fill=Field%miss_pack,&
                & scale=scale, add=add, pack=ipack,&
                & time_method=time_method)
        ELSE
@@ -482,6 +456,8 @@ CONTAINS
                & Axis_types(axis_indices(1:num)),&
                & name, units,  long_name,&
                & RANGE(1), RANGE(2),&
+               & missing=CMOR_MISSING_VALUE,&
+               & fill=CMOR_MISSING_VALUE,&
                & scale=scale, add=add, pack=ipack,&
                & time_method=time_method)
        END IF
@@ -491,11 +467,14 @@ CONTAINS
                & Axis_types(axis_indices(1:num)),&
                & name, units, long_name,&
                & missing=Field%miss_pack,&
+               & fill=Field%miss_pack,&
                & pack=ipack, time_method=time_method)
        ELSE
           CALL mpp_write_meta(file_unit, Field%Field,&
                & Axis_types(axis_indices(1:num)),&
                & name, units, long_name,&
+               & missing=CMOR_MISSING_VALUE,&
+               & fill=CMOR_MISSING_VALUE,&
                & pack=ipack, time_method=time_method)
        END IF
     END IF
@@ -538,7 +517,7 @@ CONTAINS
   !   </TEMPLATE>
   !   <DESCRIPTION>
   !     Writes axis data to file.  This subroutine is to be called once per file
-  !     after all <TT>write_meta_data</TT> call, and before the first 
+  !     after all <TT>write_meta_data</TT> calls, and before the first 
   !     <TT>diag_field_out</TT> call.
   !   </DESCRIPTION>
   !   <IN NAME="file_unit" TYPE="INTEGER">Output file unit number</IN>
@@ -565,16 +544,17 @@ CONTAINS
   !     SUBROUTINE diag_field_out(file_unit, field, data, time)
   !   </TEMPLATE>
   !   <DESCRIPTION>
+  !     Writes field data to an output file.
   !   </DESCRIPTION>
   !   <IN NAME="file_unit" TYPE="INTEGER">Output file unit number</IN>
   !   <INOUT NAME="field" TYPE="TYPE(diag_fieldtype)"></INOUT>
   !   <INOUT NAME="data" TYPE="REAL, DIMENSIONS(:,:,:,:)"></INOUT>
-  !   <IN NAME="time" TYPE="REAL(KIND=r8_kind), OPTIONAL"></IN>
+  !   <IN NAME="time" TYPE="REAL, OPTIONAL"></IN>
   SUBROUTINE diag_field_out(file_unit, Field, DATA, time)
     INTEGER, INTENT(in) :: file_unit
     TYPE(diag_fieldtype), INTENT(inout) :: Field
     REAL , INTENT(inout) :: data(:,:,:,:)
-    REAL(KIND=r8_kind), OPTIONAL, INTENT(in) :: time
+    REAL, OPTIONAL, INTENT(in) :: time
 
     !---- replace original missing value with (un)packed missing value ----
     !print *, 'PE,name,miss_pack_present=',mpp_pe(), &
@@ -584,7 +564,7 @@ CONTAINS
     END IF
 
     !---- output data ----
-    IF ( Field%Domain /= null_domain2d ) THEN
+    IF ( Field%Domain .NE. null_domain2d ) THEN
        CALL mpp_write(file_unit, Field%Field, Field%Domain, DATA, time, tile_count=Field%tile_count)
     ELSE
        CALL mpp_write(file_unit, Field%Field, DATA, time)
@@ -614,11 +594,13 @@ CONTAINS
 
   ! <FUNCTION NAME="get_axis_index">
   !   <OVERVIEW>
+  !     Return the axis index number.
   !   </OVERVIEW>
   !   <TEMPLATE>
   !     INTEGER FUNCTION get_axis_index(num)
   !   </TEMPLATE>
   !   <DESCRIPTION>
+  !     Return the axis index number.
   !   </DESCRIPTION>
   !   <IN NAME="num" TYPE="INTEGER"></IN>
   FUNCTION get_axis_index(num) RESULT ( index )
@@ -642,11 +624,13 @@ CONTAINS
 
   ! <SUBROUTINE NAME="get_diag_global_att">
   !   <OVERVIEW>
+  !     Return the global attribute type.
   !   </OVERVIEW>
   !   <TEMPLATE>
   !     CALL get_diag_global_att(gAtt)
   !   </TEMPLATE>
   !   <DESCRIPTION>
+  !     Return the global attribute type.
   !   </DESCRIPTION>
   !   <OUT NAME="gAtt" TYPE="TYPE(diag_global_att_type"></OUT>
   SUBROUTINE get_diag_global_att(gAtt)
@@ -658,17 +642,24 @@ CONTAINS
 
   ! <SUBROUTINE NAME="set_diag_global_att">
   !   <OVERVIEW>
+  !     Set the global attribute type.
   !   </OVERVIEW>
   !   <TEMPLATE>
   !     CALL set_diag_global_att(component, gridType, timeName)
   !   </TEMPLATE>
   !   <DESCRIPTION>
+  !     Set the global attribute type.
   !   </DESCRIPTION>
   !   <IN NAME="component" TYPE="CHARACTER(len=*)"></IN>
   !   <IN NAME="gridType" TYPE="CHARACTER(len=*)"></IN>
   !   <IN NAME="tileName" TYPE="CHARACTER(len=*)"></IN>
   SUBROUTINE set_diag_global_att(component, gridType, tileName)
     CHARACTER(len=*),INTENT(in) :: component, gridType, tileName 
+
+    ! The following two lines are set to remove compile time warnings
+    ! about 'only used once'.
+    CHARACTER(len=64) :: component_tmp
+    component_tmp = component
     ! Don't know how to set these for specific component
     ! Want to be able to say 
     ! if(output_file has component) then
@@ -677,5 +668,6 @@ CONTAINS
     ! endif
   END SUBROUTINE set_diag_global_att
   ! </SUBROUTINE>
+
 END MODULE diag_output_mod
 

@@ -1,27 +1,3 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 !
 ! xgrid_mod - implements exchange grids.  An exchange grid is the grid whose
@@ -62,19 +38,18 @@
 !             PE.  For the make_exchange_reproduce option, a special side 1 get
 !             is used.  This get communicates individual exchange cells.  The
 !             cells are summed in the order they appear in the grid spec. file.
-!                                    Michael Winton (Michael.Winton@noaa.gov) Oct 2001
+!                                    Michael Winton (Michael.Winton) Oct 2001
 !
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 module xgrid_mod
 
-! <CONTACT EMAIL="Michael.Winton@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Michael Winton
 ! </CONTACT>
-! <CONTACT EMAIL="Zhi.Liang@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Zhi Liang
 ! </CONTACT>
 
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
 !    <TT>xgrid_mod</TT> implements exchange grids for coupled models running on
@@ -126,23 +101,41 @@ module xgrid_mod
 !     J_OCN_ATMxOCN, and AREA_ATMxOCN</TT>.  These fields may be generated
 !     by the <TT>make_xgrids</TT> utility.
 ! </DATASET>
+
+#include <fms_platform.h>
+
 use       fms_mod,   only: file_exist, open_namelist_file, check_nml_error,  &
                            error_mesg, close_file, FATAL, NOTE, stdlog,      &
                            write_version_number, read_data, field_exist,     &
                            field_size, lowercase, string,                    &
                            get_mosaic_tile_grid
+use     fms_io_mod,  only: get_var_att_value
 use mpp_mod,         only: mpp_npes, mpp_pe, mpp_root_pe, mpp_send, mpp_recv, &
-                           mpp_sync_self, stdout, mpp_max
+                           mpp_sync_self, stdout, mpp_max, EVENT_RECV,        &
+                           mpp_get_current_pelist, mpp_clock_id, mpp_min,     &
+                           mpp_clock_begin, mpp_clock_end, MPP_CLOCK_SYNC,    &
+                           COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4,    &
+                           COMM_TAG_5, COMM_TAG_6, COMM_TAG_7, COMM_TAG_8,    &
+			   COMM_TAG_9, COMM_TAG_10
+use mpp_mod,         only: input_nml_file, mpp_set_current_pelist, mpp_sum
 use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_compute_domains, &
                            Domain2d, mpp_global_sum, mpp_update_domains,    &
                            mpp_modify_domain, mpp_get_data_domain, XUPDATE, &
                            YUPDATE, mpp_get_current_ntile, mpp_get_tile_id, &
                            mpp_get_ntile_count, mpp_get_tile_list,          &
-                           mpp_get_global_domain
+                           mpp_get_global_domain, Domain1d,                 &
+                           mpp_deallocate_domain, mpp_define_domains,       &
+                           mpp_get_domain_npes, mpp_get_domain_root_pe,     &
+                           mpp_domain_is_initialized, mpp_broadcast_domain, &
+                           mpp_get_domain_pelist
 use mpp_io_mod,      only: mpp_open, MPP_MULTI, MPP_SINGLE, MPP_OVERWR
-use constants_mod,   only: PI
-use mosaic_mod,          only: get_mosaic_xgrid, get_mosaic_xgrid_size
-use stock_constants_mod, only: ISTOCK_TOP, ISTOCK_BOTTOM, ISTOCK_SIDE, STOCK_NAMES, STOCK_UNITS, NELEMS, stocks_file, stock_type
+use constants_mod,   only: PI, RADIUS
+use mosaic_mod,          only: get_mosaic_xgrid, get_mosaic_xgrid_size, &
+                               get_mosaic_ntiles, get_mosaic_ncontacts, &
+                               get_mosaic_contact, get_mosaic_grid_sizes
+
+use stock_constants_mod, only: ISTOCK_TOP, ISTOCK_BOTTOM, ISTOCK_SIDE, STOCK_NAMES, &
+                               STOCK_UNITS, NELEMS, stocks_file, stock_type
 use gradient_mod,        only: gradient_cubic
 
 implicit none
@@ -160,6 +153,7 @@ integer, parameter :: FIRST_ORDER        = 1
 integer, parameter :: SECOND_ORDER       = 2
 integer, parameter :: VERSION1           = 1 ! grid spec file
 integer, parameter :: VERSION2           = 2 ! mosaic grid file
+integer, parameter :: MAX_FIELDS         = 80
 
 ! <NAMELIST NAME="xgrid_nml">
 !   <DATA NAME="make_exchange_reproduce" TYPE="logical"  DEFAULT=".false.">
@@ -177,7 +171,10 @@ logical :: make_exchange_reproduce = .false. ! exactly same on different # PEs
 logical :: xgrid_log = .false. 
 character(len=64) :: interp_method = 'first_order'
 logical :: debug_stocks = .false. 
-namelist /xgrid_nml/ make_exchange_reproduce, interp_method, debug_stocks, xgrid_log
+logical :: xgrid_clocks_on = .false.
+logical :: monotonic_exchange = .false.
+namelist /xgrid_nml/ make_exchange_reproduce, interp_method, debug_stocks, xgrid_log, xgrid_clocks_on, &
+                     monotonic_exchange
 ! </NAMELIST>
 logical :: init = .true.
 integer :: remapping_method
@@ -286,6 +283,10 @@ end type grid_box_type
 
 type grid_type
   character(len=3)                :: id                               ! grid identifier
+  integer                         :: npes                             ! number of processor on this grid.
+  logical                         :: on_this_pe                       ! indicate the domain is defined on this pe
+  integer                         :: root_pe                          ! indicate the root pe of the domain
+  integer, pointer, dimension(:)  :: pelist                           ! pelist of the domain
   integer                         :: ntile                            ! number of tiles in mosaic
   integer                         :: ni, nj                           ! max of global size of all the tiles
   integer, pointer, dimension(:)  :: tile =>NULL()                    ! tile id ( pe index )
@@ -295,6 +296,8 @@ type grid_type
   integer, pointer                :: js_me =>NULL(),  je_me =>NULL()  ! my domain - j-range
   integer                         :: isd_me, ied_me                   ! my data domain - i-range
   integer                         :: jsd_me, jed_me                   ! my data domain - j-range
+  integer                         :: nxd_me, nyd_me                   ! data domain size
+  integer                         :: nxc_me, nyc_me                   ! compute domain size
   integer, pointer                :: tile_me                          ! my tile id
   integer                         :: im , jm , km                     ! global domain range
   real, pointer, dimension(:)     :: lon =>NULL(), lat =>NULL()       ! center of global grids
@@ -303,6 +306,7 @@ type grid_type
   real, pointer, dimension(:,:)   :: area =>NULL()                    ! cell area
   real, pointer, dimension(:,:)   :: area_inv =>NULL()                ! 1 / area for normalization
   integer                         :: first, last                      ! xgrid index range
+  integer                         :: first_get, last_get              ! xgrid index range for get_2_from_xgrid
   integer                         :: size                             ! # xcell patterns
   type(xcell_type), pointer       :: x(:) =>NULL()                    ! xcell patterns
   integer                         :: size_repro                       ! # side 1 patterns for repro
@@ -319,18 +323,37 @@ type x1_type
 !  real    :: area_ratio !(= x1_area/grid1_area) ! will be added in the future to improve efficiency
   real    :: di, dj ! weight for the gradient of flux
   integer :: tile           ! tile index of side 1 mosaic.
+  integer :: pos
 end type x1_type
 
 type x2_type
-  integer :: i, j, k
+  integer :: i, j, k, pos
   real    :: area   ! geographic area of exchange cell
 !  real    :: area_ratio !(=x2_area/grid2_area )  ! will be added in the future to improve efficiency
 end type x2_type
 
+type overlap_type
+   integer          :: count
+   integer          :: pe
+   integer, pointer :: i(:)  =>NULL()
+   integer, pointer :: j(:)  =>NULL()
+   integer, pointer :: tile(:)  =>NULL()
+   real,    pointer :: di(:) =>NULL()
+   real,    pointer :: dj(:) =>NULL()
+end type overlap_type
+
+type comm_type
+  integer                         :: nsend, nrecv
+  integer                         :: sendsize, recvsize
+  type(overlap_type), pointer, dimension(:) :: send=>NULL()
+  type(overlap_type), pointer, dimension(:) :: recv=>NULL()  
+end type comm_type
+
 type xmap_type
   private
   integer :: size            ! # of exchange grid cells with area > 0 on this pe
-
+  integer :: size_put1       ! # of exchange grid cells for put_1_to_xgrid
+  integer :: size_get2       ! # of exchange grid cells for get_2_to_xgrid
   integer :: me, npes, root_pe
   logical, pointer, dimension(:) :: your1my2  =>NULL()! true if side 1 domain on
                                                       ! indexed pe overlaps side 2
@@ -345,22 +368,40 @@ type xmap_type
   ! Description of the individual exchange grid cells (index is cell #)
   !
   type(x1_type), pointer, dimension(:) :: x1 =>NULL() ! side 1 info
+  type(x1_type), pointer, dimension(:) :: x1_put =>NULL() ! side 1 info
   type(x2_type), pointer, dimension(:) :: x2 =>NULL() ! side 2 info
+  type(x2_type), pointer, dimension(:) :: x2_get =>NULL() ! side 2 info
 
-  real, pointer,    dimension(:) :: send_buffer =>NULL() ! for non-blocking sends
-  real, pointer,    dimension(:) :: recv_buffer =>NULL() ! for non-blocking recv
   integer, pointer, dimension(:) :: send_count_repro =>NULL()
   integer, pointer, dimension(:) :: recv_count_repro  =>NULL()
+  integer                        :: send_count_repro_tot ! sum(send_count_repro)
+  integer                        :: recv_count_repro_tot ! sum(recv_count_repro)
   integer :: version                                  ! version of xgrids. version=VERSION! is for grid_spec file 
                                                       ! and version=VERSION2 is for mosaic grid.
+  integer, pointer, dimension(:) :: ind_get1 =>NULL() ! indx for side1 get and side2 put.
+  integer, pointer, dimension(:) :: ind_put1 =>NULL() ! indx for side1 put and side 2get.
+  type(comm_type), pointer       :: put1 =>NULL()      ! for put_1_to_xgrid
+  type(comm_type), pointer       :: get1 =>NULL()      ! for get_1_from_xgrid
 end type xmap_type
 
 !-----------------------------------------------------------------------
- character(len=128) :: version = '$Id: xgrid.F90,v 17.0.2.1.2.2 2009/12/03 00:09:09 z1l Exp $'
- character(len=128) :: tagname = '$Name: mom4p1_pubrel_dec2009_nnz $'
+ character(len=128) :: version = '$Id: xgrid.F90,v 19.0.2.2.4.3 2012/05/16 18:29:28 Zhi.Liang Exp $'
+ character(len=128) :: tagname = '$Name: siena_201207 $'
 
  real, parameter                              :: EPS = 1.0e-10
+ real, parameter                              :: LARGE_NUMBER = 1.e20
  logical :: module_is_initialized = .FALSE.
+ integer :: id_put_1_to_xgrid_order_1 = 0
+ integer :: id_put_1_to_xgrid_order_2 = 0
+ integer :: id_get_1_from_xgrid = 0
+ integer :: id_get_2_from_xgrid = 0
+ integer :: id_put_2_to_xgrid = 0
+ integer :: id_setup_xmap = 0
+
+ ! The following is for nested model
+ integer :: nnest=0, tile_nest, tile_parent
+ integer :: is_nest=0, ie_nest=0, js_nest=0, je_nest=0
+ integer :: is_parent=0, ie_parent=0, js_parent=0, je_parent=0 
 
  ! The following is required to compute stocks of water, heat, ...
 
@@ -402,11 +443,15 @@ end function in_box
 subroutine xgrid_init(remap_method) 
   integer, intent(out) :: remap_method
 
-  integer :: unit, ierr, io
+  integer :: unit, ierr, io, out_unit
 
   if (module_is_initialized) return
   module_is_initialized = .TRUE.
 
+
+#ifdef INTERNAL_FILE_NML
+      read (input_nml_file, xgrid_nml, iostat=io)
+#else
   if ( file_exist( 'input.nml' ) ) then
       unit = open_namelist_file ( )
       ierr = 1
@@ -417,26 +462,46 @@ subroutine xgrid_init(remap_method)
   10 continue
       call close_file ( unit )
   endif
+#endif
 
 !--------- write version number and namelist ------------------
   call write_version_number (version, tagname)
 
   unit = stdlog ( )
+  out_unit = stdout()
   if ( mpp_pe() == mpp_root_pe() ) write (unit,nml=xgrid_nml)
   call close_file (unit)
 
 !--------- check interp_method has suitable value
+!--- when monotonic_exchange is true, interp_method must be second order.
 
   select case(trim(interp_method))
   case('first_order')
      remap_method = FIRST_ORDER
+     if( monotonic_exchange ) call error_mesg('xgrid_mod', &
+         'xgrid_nml monotonic_exchange must be .false. when interp_method = first_order', FATAL)  
+     write(out_unit,*)"NOTE from xgrid_mod: use first_order conservative exchange"
   case('second_order')
+     if(monotonic_exchange) then
+        write(out_unit,*)"NOTE from xgrid_mod: use monotonic second_order conservative exchange"
+     else
+        write(out_unit,*)"NOTE from xgrid_mod: use second_order conservative exchange"
+     endif
      remap_method = SECOND_ORDER
   case default
      call error_mesg('xgrid_mod', ' nml interp_method = ' //trim(interp_method)// &
       ' is not a valid namelist option', FATAL)
   end select
-  
+
+  if(xgrid_clocks_on) then
+     id_put_1_to_xgrid_order_1 = mpp_clock_id("put_1_to_xgrid_order_1", flags=MPP_CLOCK_SYNC)
+     id_put_1_to_xgrid_order_2 = mpp_clock_id("put_1_to_xgrid_order_2", flags=MPP_CLOCK_SYNC)
+     id_get_1_from_xgrid       = mpp_clock_id("get_1_from_xgrid", flags=MPP_CLOCK_SYNC) 
+     id_get_2_from_xgrid       = mpp_clock_id("get_2_from_xgrid", flags=MPP_CLOCK_SYNC) 
+     id_put_2_to_xgrid         = mpp_clock_id("put_2_to_xgrid", flags=MPP_CLOCK_SYNC) 
+     id_setup_xmap             = mpp_clock_id("setup_xmap", flags=MPP_CLOCK_SYNC) 
+  endif
+
   remapping_method = remap_method
 
 end subroutine xgrid_init
@@ -452,82 +517,358 @@ character(len=3), intent(in)           :: grid1_id, grid_id
 integer,          intent(in)           :: tile1, tile2
 logical,        intent(in)             :: use_higher_order
 
-  integer, allocatable, dimension(:) :: i1, j1, i2, j2            ! xgrid quintuples
-  real,    allocatable, dimension(:) :: area, di, dj              ! from grid file
-  type (grid_type), pointer, save    :: grid1 =>NULL()
-  integer                            :: l, ll, ll_repro, p, siz(4), nxgrid, size_prev
-  type(xcell_type), allocatable      :: x_local(:)
-  integer                            :: size_repro, out_unit
-  logical                            :: scale_exist = .false.
-  real,    allocatable, dimension(:) :: scale
+  integer, pointer,       dimension(:)   :: i1=>NULL(), j1=>NULL()
+  integer, pointer,       dimension(:)   :: i2=>NULL(), j2=>NULL()            
+  real,    pointer,       dimension(:)   :: di=>NULL(), dj=>NULL()
+  real,    pointer,       dimension(:)   :: area =>NULL()     
+  integer, pointer,       dimension(:)   :: i1_tmp=>NULL(), j1_tmp=>NULL()
+  integer, pointer,       dimension(:)   :: i2_tmp=>NULL(), j2_tmp=>NULL()
+  real,    pointer,       dimension(:)   :: di_tmp=>NULL(), dj_tmp=>NULL()
+  real,    pointer,       dimension(:)   :: area_tmp =>NULL()
+  integer, pointer,       dimension(:)   :: i1_side1=>NULL(), j1_side1=>NULL()
+  integer, pointer,       dimension(:)   :: i2_side1=>NULL(), j2_side1=>NULL()            
+  real,    pointer,       dimension(:)   :: di_side1=>NULL(), dj_side1=>NULL()
+  real,    pointer,       dimension(:)   :: area_side1 =>NULL()    
 
+  real,    allocatable, dimension(:,:) :: tmp
+  integer, allocatable, dimension(:)   :: nsend1, nsend2, nrecv1, nrecv2
+  integer, allocatable, dimension(:)   :: pelist
+  real,    allocatable, dimension(:)   :: send_buffer, recv_buffer
+  type (grid_type),   pointer, save    :: grid1 =>NULL()
+  integer                              :: l, ll, ll_repro, p, siz(4), nxgrid, size_prev
+  type(xcell_type),   allocatable      :: x_local(:)
+  integer                              :: size_repro, out_unit
+  logical                              :: scale_exist = .false.
+  logical                              :: is_distribute = .false.
+  real,    allocatable,   dimension(:) :: scale
+  real                                 :: garea
+  integer                              :: npes, isc, iec, nxgrid_local
+  integer                              :: nxgrid1, nxgrid2, nset1, nset2
+  integer                              :: pos, nsend, nrecv, l1, l2, n
+  integer                              :: start(4), nread(4)
+  type(domain1d)                       :: domain
+  integer, allocatable, dimension(:,:) :: ibuf1, ibuf2
+  logical                              :: found
+  character(len=128)                   :: attvalue
 
   scale_exist = .false.
   grid1 => xmap%grids(1)
   out_unit = stdout()
+  npes     = xmap%npes
+
   select case(xmap%version)
   case(VERSION1)
      call field_size(grid_file, 'AREA_'//grid1_id//'x'//grid_id, siz)
      nxgrid = siz(1);
      if(nxgrid .LE. 0) return
-     allocate(i1(nxgrid), j1(nxgrid), i2(nxgrid), j2(nxgrid), area(nxgrid))
-     call read_data(grid_file, 'I_'//grid1_id//'_'//grid1_id//'x'//grid_id, i1)
-     call read_data(grid_file, 'J_'//grid1_id//'_'//grid1_id//'x'//grid_id, j1)
-     call read_data(grid_file, 'I_'//grid_id//'_'//grid1_id//'x'//grid_id, i2)
-     call read_data(grid_file, 'J_'//grid_id//'_'//grid1_id//'x'//grid_id, j2)
-     call read_data(grid_file, 'AREA_'//grid1_id//'x'//grid_id, area)
-     if(use_higher_order) then
-        allocate(di(nxgrid), dj(nxgrid))
-        call read_data(grid_file, 'DI_'//grid1_id//'x'//grid_id, di)
-        call read_data(grid_file, 'DJ_'//grid1_id//'x'//grid_id, dj)
-     end if
   case(VERSION2)
      !--- max_size is the exchange grid size between super grid.
      nxgrid = get_mosaic_xgrid_size(grid_file)
-     allocate(i1(nxgrid), j1(nxgrid), i2(nxgrid), j2(nxgrid), area(nxgrid) )
+     if(nxgrid .LE. 0) return
+  end select
+
+  !--- define a domain to read exchange grid.
+  if(nxgrid > npes) then
+     is_distribute = .true.
+     call mpp_define_domains((/1,nxgrid/), npes, domain)
+     call mpp_get_compute_domain(domain, isc, iec)
+  else
+     is_distribute = .false.
+     isc = 1; iec = nxgrid
+  endif
+  nxgrid_local = iec - isc + 1
+  allocate(i1_tmp(isc:iec), j1_tmp(isc:iec), i2_tmp(isc:iec), j2_tmp(isc:iec), area_tmp(isc:iec) )
+  if(use_higher_order) allocate(di_tmp(isc:iec), dj_tmp(isc:iec))
+
+  start = 1; nread = 1
+
+  select case(xmap%version)
+  case(VERSION1)
+     start(1) = isc; nread(1) = nxgrid_local
+     allocate(tmp(nxgrid_local,1))
+     call read_data(grid_file, 'I_'//grid1_id//'_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+     i1_tmp = tmp(:,1)
+     call read_data(grid_file, 'J_'//grid1_id//'_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+     j1_tmp = tmp(:,1)
+     call read_data(grid_file, 'I_'//grid_id//'_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+     i2_tmp = tmp(:,1)
+     call read_data(grid_file, 'J_'//grid_id//'_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+     j2_tmp = tmp(:,1)
+     call read_data(grid_file, 'AREA_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+     area_tmp = tmp(:,1)
      if(use_higher_order) then
-        allocate(di(nxgrid), dj(nxgrid))
-        call get_mosaic_xgrid(grid_file, i1, j1, i2, j2, area, di, dj)
-     else
-        call get_mosaic_xgrid(grid_file, i1, j1, i2, j2, area)
+        call read_data(grid_file, 'DI_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+        di_tmp = tmp(:,1)
+        call read_data(grid_file, 'DJ_'//grid1_id//'x'//grid_id, tmp, start, nread, no_domain=.TRUE.)
+        dj_tmp = tmp(:,1)
      end if
+     deallocate(tmp)
+  case(VERSION2)
+     nread(1) = 2; start(2) = isc; nread(2) = nxgrid_local
+     allocate(tmp(2, isc:iec))
+     call read_data(grid_file, "tile1_cell", tmp, start, nread, no_domain=.TRUE.)
+     i1_tmp(isc:iec) = tmp(1, isc:iec)
+     j1_tmp(isc:iec) = tmp(2, isc:iec)
+     call read_data(grid_file, "tile2_cell", tmp, start, nread, no_domain=.TRUE.)
+     i2_tmp(isc:iec) = tmp(1, isc:iec)
+     j2_tmp(isc:iec) = tmp(2, isc:iec)
+     if(use_higher_order) then
+        call read_data(grid_file, "tile1_distance", tmp, start, nread, no_domain=.TRUE.)
+        di_tmp(isc:iec) = tmp(1, isc:iec)
+        dj_tmp(isc:iec) = tmp(2, isc:iec)
+     end if
+     start = 1; nread = 1
+     start(1) = isc; nread(1) = nxgrid_local
+     deallocate(tmp)
+     allocate(tmp(isc:iec,1) )
+     call read_data(grid_file, "xgrid_area", tmp(:,1:1), start, nread, no_domain=.TRUE.)
+     ! check the units of "xgrid_area 
+     call get_var_att_value(grid_file, "xgrid_area", "units", attvalue)
+     if( trim(attvalue) == 'm2' ) then
+        garea = 4*PI*RADIUS*RADIUS;
+        area_tmp = tmp(:,1)/garea
+     else if( trim(attvalue) == 'none' ) then
+        area_tmp = tmp(:,1)
+     else 
+        call error_mesg('xgrid_mod', 'In file '//trim(grid_file)//', xgrid_area units = '// &
+                          trim(attvalue)//' should be "m2" or "none"', FATAL)
+     endif     
+
      !--- if field "scale" exist, read this field. Normally this 
      !--- field only exist in landXocean exchange grid cell.
      if(grid1_id == 'LND' .AND. grid_id == 'OCN') then
         if(field_exist(grid_file, "scale")) then
-           allocate(scale(nxgrid))
+           allocate(scale(isc:iec))
            write(out_unit, *)"NOTE from load_xgrid(xgrid_mod): field 'scale' exist in the file "// &
                trim(grid_file)//", this field will be read and the exchange grid cell area will be multiplied by scale"
-           call read_data(grid_file, "scale", scale)
+           call read_data(grid_file, "scale", tmp, start, nread, no_domain=.TRUE.)
+           scale = tmp(:,1)
            scale_exist = .true.
         endif
      endif
+     deallocate(tmp)
   end select
 
-  size_repro = 0
-  if(grid1%tile_me == tile1) then
-     do l=1,nxgrid
-        if (in_box(i1(l), j1(l), grid1%is_me, grid1%ie_me, grid1%js_me, grid1%je_me) ) then
-           grid1%area(i1(l),j1(l)) = grid1%area(i1(l),j1(l))+area(l)
-           do p=0,xmap%npes-1
-              if (grid%tile(p) == tile2) then
-                 if (in_box(i2(l), j2(l), grid%is(p), grid%ie(p), grid%js(p), grid%je(p)))  then
-                    xmap%your2my1(p) = .true.
-                 end if
-              end if
-           end do
-           size_repro = size_repro + 1
-        end if
-     end do
+  nset1 = 5
+  nset2 = 5
+  if(use_higher_order) then
+     nset1 = nset1 + 2
+     nset2 = nset2 + 2
   end if
+  if(scale_exist) nset2 = nset1 + 1
+
+  !---z1l: The following change is for the situation that some processor is masked out.
+  !---loop through all the pe to see if side 1 and side of each exchange grid is on some processor
+  allocate(i1(isc:iec), j1(isc:iec), i2(isc:iec), j2(isc:iec), area(isc:iec) )
+  if(use_higher_order) allocate(di(isc:iec), dj(isc:iec))
+  pos = isc-1
+
+  do l = isc, iec
+     found = .false.
+     !--- first check if the exchange grid is on one of side 1 processor
+     do p = 0, npes - 1
+        if(grid1%tile(p) == tile1) then
+           if (in_box(i1_tmp(l), j1_tmp(l), grid1%is(p), grid1%ie(p), grid1%js(p), grid1%je(p)))  then
+              found = .true.
+              exit
+           endif
+        endif
+     enddo
+     !--- Then check if the exchange grid is on one of side 2 processor
+     if( found ) then
+        do p = 0, npes - 1
+           if(grid%tile(p) == tile2) then
+              if (in_box(i2_tmp(l), j2_tmp(l), grid%is(p), grid%ie(p), grid%js(p), grid%je(p)))  then
+                 pos = pos+1
+                 i1(pos) = i1_tmp(l)
+                 j1(pos) = j1_tmp(l)
+                 i2(pos) = i2_tmp(l)
+                 j2(pos) = j2_tmp(l)
+                 area(pos) = area_tmp(l)
+                 if(use_higher_order) then
+                    di(pos) = di_tmp(l)
+                    dj(pos) = dj_tmp(l)
+                 endif
+                 exit
+              endif
+           endif
+        enddo
+     endif
+  enddo
+
+  deallocate(i1_tmp, i2_tmp, j1_tmp, j2_tmp, area_tmp)
+  if(use_higher_order) deallocate( di_tmp, dj_tmp)
+  iec = pos
+  nxgrid_local = iec - isc + 1
+
+
+  if(is_distribute) then
+     !--- Since the xgrid is distributed according to side 2 grid. Send all the xgrid to its own side 2. 
+     !--- Also need to send the xgrid to its own side 1 for the reproducing ability between processor count.
+     !--- first find out number of points need to send to other pe and fill the send buffer.
+     allocate(pelist(0:npes-1))
+     call mpp_get_current_pelist(pelist)
+     allocate(nsend1(0:npes-1), nsend2(0:npes-1))
+     allocate(nrecv1(0:npes-1), nrecv2(0:npes-1))
+     nsend1 = 0; nrecv1 = 0
+     nsend2 = 0; nrecv2 = 0
+
+     allocate( send_buffer(nxgrid_local * (nset1+nset2)) )
+     pos = 0
+     do p = 0, npes - 1
+        
+        if(grid%tile(p) == tile2) then
+           do l = isc, iec
+              if (in_box(i2(l), j2(l), grid%is(p), grid%ie(p), grid%js(p), grid%je(p)))  then
+                 nsend2(p) = nsend2(p) + 1
+                 send_buffer(pos+1) = i1(l)
+                 send_buffer(pos+2) = j1(l)
+                 send_buffer(pos+3) = i2(l)
+                 send_buffer(pos+4) = j2(l)
+                 send_buffer(pos+5) = area(l)
+                 if(use_higher_order) then
+                    send_buffer(pos+6) = di(l)
+                    send_buffer(pos+7) = dj(l)
+                 endif
+                 if(scale_exist) send_buffer(pos+nset2) = scale(l)
+                 pos = pos + nset2
+              endif
+           enddo
+        endif
+        if(grid1%tile(p) == tile1) then
+           do l = isc, iec
+              if (in_box(i1(l), j1(l), grid1%is(p), grid1%ie(p), grid1%js(p), grid1%je(p)))  then
+                 nsend1(p) = nsend1(p) + 1
+                 send_buffer(pos+1) = i1(l)
+                 send_buffer(pos+2) = j1(l)
+                 send_buffer(pos+3) = i2(l)
+                 send_buffer(pos+4) = j2(l)
+                 send_buffer(pos+5) = area(l)
+                 if(use_higher_order) then
+                    send_buffer(pos+6) = di(l)
+                    send_buffer(pos+7) = dj(l)
+                 endif
+                 pos = pos + nset1
+              endif
+           enddo
+        endif
+     enddo
+
+     !--- send the size of the data on side 1 to be sent over.
+     allocate(ibuf1(2, 0:npes-1), ibuf2(2, 0:npes-1))
+     do p = 0, npes - 1
+        call mpp_recv( ibuf2(1,p), glen=2, from_pe=pelist(p), block=.FALSE., tag=COMM_TAG_1)
+     enddo
+
+     do p = 0, npes-1
+        ibuf1(1,p) = nsend1(p)
+        ibuf1(2,p) = nsend2(p)
+        call mpp_send( ibuf1(1, p), plen=2, to_pe=pelist(p), tag=COMM_TAG_1)
+     enddo
+     call mpp_sync_self(check=EVENT_RECV)
+
+     do p = 0, npes-1
+        nrecv1(p) = ibuf2(1,p)
+        nrecv2(p) = ibuf2(2,p)    
+     enddo
+     call mpp_sync_self()
+
+     !--- now get the data
+     nxgrid1 = sum(nrecv1)
+     nxgrid2 = sum(nrecv2)
+     if(nxgrid1>0 .OR. nxgrid2>0) allocate(recv_buffer(nxgrid1*nset1+nxgrid2*nset2))
+     pos = 0
+     do p = 0,npes-1
+        nrecv = nrecv1(p)*nset1+nrecv2(p)*nset2
+        if(nrecv==0) cycle
+        call mpp_recv(recv_buffer(pos+1), glen=nrecv, from_pe=pelist(p), block=.FALSE., tag=COMM_TAG_2)
+        pos = pos + nrecv
+     enddo
+
+     pos = 0
+     do p = 0, npes-1
+        nsend = nsend1(p)*nset1 + nsend2(p)*nset2 
+        if(nsend==0) cycle
+        call mpp_send( send_buffer(pos+1), plen=nsend, to_pe=pelist(p), tag=COMM_TAG_2)
+        pos = pos + nsend
+     enddo
+     call mpp_sync_self(check=EVENT_RECV)
+     !--- unpack buffer.
+     deallocate(i1, j1, i2, j2, area)
+     allocate(i1(nxgrid2), j1(nxgrid2))
+     allocate(i2(nxgrid2), j2(nxgrid2))
+     allocate(area(nxgrid2))
+     allocate(i1_side1(nxgrid1), j1_side1(nxgrid1))
+     allocate(i2_side1(nxgrid1), j2_side1(nxgrid1))
+     allocate(area_side1(nxgrid1))
+     if(use_higher_order) then
+        deallocate(di,dj) 
+        allocate(di      (nxgrid2), dj      (nxgrid2))
+        allocate(di_side1(nxgrid1), dj_side1(nxgrid1))
+     endif
+     if(scale_exist) then
+        deallocate(scale)
+        allocate(scale(nxgrid2))
+     endif
+     pos = 0
+     l1 = 0; l2 = 0
+     do p = 0,npes-1
+        do n = 1, nrecv2(p)
+           l2 = l2+1
+           i1(l2) = recv_buffer(pos+1)
+           j1(l2) = recv_buffer(pos+2)
+           i2(l2) = recv_buffer(pos+3)
+           j2(l2) = recv_buffer(pos+4)
+           area(l2) = recv_buffer(pos+5)
+           if(use_higher_order) then
+              di(l2) = recv_buffer(pos+6)
+              dj(l2) = recv_buffer(pos+7)
+           endif
+           if(scale_exist)scale(l2) = recv_buffer(pos+nset2)
+           pos = pos + nset2
+        enddo
+        do n = 1, nrecv1(p)
+           l1 = l1+1
+           i1_side1(l1) = recv_buffer(pos+1)
+           j1_side1(l1) = recv_buffer(pos+2)
+           i2_side1(l1) = recv_buffer(pos+3)
+           j2_side1(l1) = recv_buffer(pos+4)
+           area_side1(l1) = recv_buffer(pos+5)
+           if(use_higher_order) then
+              di_side1(l1) = recv_buffer(pos+6)
+              dj_side1(l1) = recv_buffer(pos+7)
+           endif
+           pos = pos + nset1
+        enddo
+     enddo
+     call mpp_sync_self()
+     deallocate(pelist)
+     deallocate(nsend1, nsend2, nrecv1, nrecv2)
+     deallocate(send_buffer)
+     if(allocated(recv_buffer)) deallocate(recv_buffer)
+     deallocate(ibuf1, ibuf2)
+  else
+     nxgrid1 = nxgrid
+     nxgrid2 = nxgrid
+     i1_side1 => i1; j1_side1 => j1
+     i2_side1 => i2; j2_side1 => j2
+     area_side1 => area
+     if(use_higher_order) then
+        di_side1 => di
+        dj_side1 => dj
+     endif
+  endif
 
   size_prev = grid%size
 
   if(grid%tile_me == tile2) then
-     do l=1,nxgrid
+     do l=1,nxgrid2
         if (in_box(i2(l), j2(l), grid%is_me, grid%ie_me, grid%js_me, grid%je_me) ) then
            grid%size = grid%size + 1
-           grid%area(i2(l),j2(l)) = grid%area(i2(l),j2(l))+area(l)
+           /* exclude the area overlapped with parent grid */
+           if( tile1 .NE. tile_parent .OR. .NOT. in_box(i1(l), j1(l), is_parent, ie_parent, js_parent, je_parent) ) then 
+              grid%area(i2(l),j2(l)) = grid%area(i2(l),j2(l))+area(l)
+           endif
            do p=0,xmap%npes-1
               if(grid1%tile(p) == tile1) then
                  if (in_box(i1(l), j1(l), grid1%is(p), grid1%ie(p), &
@@ -556,7 +897,7 @@ logical,        intent(in)             :: use_higher_order
 
   ll = size_prev
   if( grid%tile_me == tile2 ) then ! me is tile2
-     do l=1,nxgrid
+     do l=1,nxgrid2
         if (in_box(i2(l), j2(l), grid%is_me, grid%ie_me, grid%js_me, grid%je_me)) then
            ! insert in this grids cell pattern list and add area to side 2 area
            ll = ll + 1
@@ -588,7 +929,24 @@ logical,        intent(in)             :: use_higher_order
      end do
   end if
 
-  if (make_exchange_reproduce .and. grid1%tile_me == tile1 .and. size_repro > 0) then
+  size_repro = 0
+  if(grid1%tile_me == tile1) then
+     do l=1,nxgrid1
+        if (in_box(i1_side1(l), j1_side1(l), grid1%is_me, grid1%ie_me, grid1%js_me, grid1%je_me) ) then
+           grid1%area(i1_side1(l),j1_side1(l)) = grid1%area(i1_side1(l),j1_side1(l))+area_side1(l)
+           do p=0,xmap%npes-1
+              if (grid%tile(p) == tile2) then
+                 if (in_box(i2_side1(l), j2_side1(l), grid%is(p), grid%ie(p), grid%js(p), grid%je(p)))  then
+                    xmap%your2my1(p) = .true.
+                 end if
+              end if
+           end do
+           size_repro = size_repro + 1
+        end if
+     end do
+  end if
+
+  if (grid1%tile_me == tile1 .and. size_repro > 0) then
      ll_repro = grid%size_repro
      grid%size_repro = ll_repro + size_repro
      if(ll_repro > 0) then  ! extend data
@@ -602,21 +960,21 @@ logical,        intent(in)             :: use_higher_order
         allocate( grid%x_repro( grid%size_repro ) )
         grid%x_repro%di = 0; grid%x_repro%dj = 0
      end if
-     do l=1,nxgrid
-        if (in_box(i1(l),j1(l), grid1%is_me,grid1%ie_me, grid1%js_me,grid1%je_me) ) then
+     do l=1,nxgrid1
+        if (in_box(i1_side1(l),j1_side1(l), grid1%is_me,grid1%ie_me, grid1%js_me,grid1%je_me) ) then
            ll_repro = ll_repro + 1
-           grid%x_repro(ll_repro)%i1   = i1(l); grid%x_repro(ll_repro)%i2   = i2(l)
-           grid%x_repro(ll_repro)%j1   = j1(l); grid%x_repro(ll_repro)%j2   = j2(l)
+           grid%x_repro(ll_repro)%i1   = i1_side1(l); grid%x_repro(ll_repro)%i2   = i2_side1(l)
+           grid%x_repro(ll_repro)%j1   = j1_side1(l); grid%x_repro(ll_repro)%j2   = j2_side1(l)
            grid%x_repro(ll_repro)%tile = tile1
-           grid%x_repro(ll_repro)%area = area(l)
+           grid%x_repro(ll_repro)%area = area_side1(l)
            if(use_higher_order) then
-              grid%x_repro(ll_repro)%di  = di(l)
-              grid%x_repro(ll_repro)%dj  = dj(l)
+              grid%x_repro(ll_repro)%di  = di_side1(l)
+              grid%x_repro(ll_repro)%dj  = dj_side1(l)
            end if
 
            do p=0,xmap%npes-1
               if(grid%tile(p) == tile2) then
-                 if (in_box(i2(l), j2(l), grid%is(p), grid%ie(p), &
+                 if (in_box(i2_side1(l), j2_side1(l), grid%is(p), grid%ie(p), &
                       grid%js(p), grid%je(p))) then
                     grid%x_repro(ll_repro)%pe = p + xmap%root_pe
                  end if
@@ -629,6 +987,15 @@ logical,        intent(in)             :: use_higher_order
   deallocate(i1, j1, i2, j2, area)
   if(use_higher_order) deallocate(di, dj)
   if(scale_exist) deallocate(scale)
+  if(is_distribute) then
+     deallocate(i1_side1, j1_side1, i2_side1, j2_side1, area_side1)
+     if(use_higher_order) deallocate(di_side1, dj_side1)
+     call mpp_deallocate_domain(domain)
+  endif  
+
+  i1=>NULL(); j1=>NULL(); i2=>NULL(); j2=>NULL()
+
+
 
 end subroutine load_xgrid
 
@@ -651,6 +1018,7 @@ subroutine get_grid(grid, grid_id, grid_file, grid_version)
   real, allocatable        :: tmpx(:,:), tmpy(:,:)
   real                     :: d2r
   integer                  :: is, ie, js, je, nlon, nlat, siz(4), i, j
+  integer                  :: start(4), nread(4), isc2, iec2, jsc2, jec2
 
   d2r = PI/180.0
 
@@ -705,17 +1073,32 @@ subroutine get_grid(grid, grid_id, grid_file, grid_version)
      nlat = nlat/2
      if(nlon .NE. grid%im .OR. nlat .NE. grid%jm) call error_mesg('xgrid_mod', &
          'grid size in tile_file does not match the global grid size', FATAL)
-     allocate(tmpx(nlon*2+1, nlat*2+1), tmpy(nlon*2+1, nlat*2+1))
-     call read_data( grid_file, 'x', tmpx, no_domain=.true.)
-     call read_data( grid_file, 'y', tmpy, no_domain=.true.) 
+
      if( grid_id == 'LND' .or. grid_id == 'ATM') then
+        isc2 = 2*grid%is_me-1; iec2 = 2*grid%ie_me+1
+        jsc2 = 2*grid%js_me-1; jec2 = 2*grid%je_me+1
+        allocate(tmpx(isc2:iec2, jsc2:jec2) )
+        allocate(tmpy(isc2:iec2, jsc2:jec2) )   
+        start = 1; nread = 1          
+        start(1) = isc2; nread(1) = iec2 - isc2 + 1
+        start(2) = jsc2; nread(2) = jec2 - jsc2 + 1 
+        call read_data(grid_file, 'x', tmpx, start, nread, no_domain=.TRUE.)
+        call read_data(grid_file, 'y', tmpy, start, nread, no_domain=.TRUE.)      
         if(is_lat_lon(tmpx, tmpy) ) then
+           deallocate(tmpx, tmpy)
+           start = 1; nread = 1
+           start(2) = 2; nread(1) = nlon*2+1
+           allocate(tmpx(nlon*2+1, 1), tmpy(1, nlat*2+1))
+           call read_data(grid_file, "x", tmpx, start, nread, no_domain=.TRUE.)    
            allocate(grid%lon(grid%im), grid%lat(grid%jm))
            do i = 1, grid%im
-              grid%lon(i) = tmpx(2*i,2) * d2r
+              grid%lon(i) = tmpx(2*i,1) * d2r
            end do
+           start = 1; nread = 1
+           start(1) = 2; nread(2) = nlat*2+1
+           call read_data(grid_file, "y", tmpy, start, nread, no_domain=.TRUE.)    
            do j = 1, grid%jm
-              grid%lat(j) = tmpy(2, 2*j) * d2r
+              grid%lat(j) = tmpy(1, 2*j) * d2r
            end do
            grid%is_latlon = .true.
         else
@@ -734,8 +1117,8 @@ subroutine get_grid(grid, grid_id, grid_file, grid_version)
            call mpp_update_domains(grid%geolat, grid%domain)
            grid%is_latlon = .false.
         end if
-     end if
-     deallocate(tmpx, tmpy)
+        deallocate(tmpx, tmpy)
+     end if     
   end select
 
   return
@@ -845,7 +1228,12 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
   character(len=256)                  :: mosaic1, mosaic2, contact
   character(len=256)                  :: tile1_name, tile2_name
   character(len=256),     allocatable :: tile1_list(:), tile2_list(:)
+  integer                             :: npes, npes2
+  integer,                allocatable :: pelist(:)
+  type(domain2d), save                :: domain2
   logical :: use_higher_order = .false.
+
+  call mpp_clock_begin(id_setup_xmap)
 
   if(interp_method .ne. 'first_order')  use_higher_order = .true.
 
@@ -880,55 +1268,126 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
      if (g==1) grid1 => xmap%grids(g)
      grid%id     = grid_ids    (g)
      grid%domain = grid_domains(g)
-
+     grid%on_this_pe = mpp_domain_is_initialized(grid_domains(g))
      allocate ( grid%is(0:xmap%npes-1), grid%ie(0:xmap%npes-1) )
      allocate ( grid%js(0:xmap%npes-1), grid%je(0:xmap%npes-1) )
      allocate ( grid%tile(0:xmap%npes-1) )
-     call mpp_get_compute_domains(grid%domain, xbegin=grid%is, xend=grid%ie, &
-          ybegin=grid%js, yend=grid%je  )
+     grid%npes   = 0
+     grid%ni = 0
+     grid%nj = 0
+     grid%is = 0
+     grid%ie = -1
+     grid%js = 0
+     grid%je = -1
+     grid%tile = -1
+
+     select case(xmap%version)
+     case(VERSION1)
+        grid%ntile = 1
+     case(VERSION2)
+        call read_data(grid_file, lowercase(grid_ids(g))//'_mosaic_file', mosaic_file)
+        grid%ntile = get_mosaic_ntiles('INPUT/'//trim(mosaic_file))
+     end select
+
+     if( g == 1 .AND. grid_ids(1) == 'ATM' ) then 
+        if( .NOT. grid%on_this_pe ) call error_mesg('xgrid_mod', 'ATM domain is not defined on some processor' ,FATAL)
+     endif
+     grid%npes =  mpp_get_domain_npes(grid%domain)
+     if( xmap%npes > grid%npes .AND. g == 1 .AND. grid_ids(1) == 'ATM' ) then
+        call mpp_broadcast_domain(grid%domain, domain2)
+     else if(xmap%npes > grid%npes) then
+        call mpp_broadcast_domain(grid%domain)
+        grid%npes =  mpp_get_domain_npes(grid%domain)
+     endif
+
+     npes = grid%npes
+     allocate(grid%pelist(0:npes-1))
+     call mpp_get_domain_pelist(grid%domain, grid%pelist)
+     grid%root_pe = mpp_get_domain_root_pe(grid%domain)
+
+     call mpp_get_data_domain(grid%domain, grid%isd_me, grid%ied_me, grid%jsd_me, grid%jed_me, &
+                              xsize=grid%nxd_me, ysize=grid%nyd_me)
      call mpp_get_global_domain(grid%domain, xsize=grid%ni, ysize=grid%nj)
+
+     if( grid%root_pe == xmap%root_pe ) then
+        call mpp_get_compute_domains(grid%domain,  xbegin=grid%is(0:npes-1), xend=grid%ie(0:npes-1), &
+                                     ybegin=grid%js(0:npes-1), yend=grid%je(0:npes-1) )
+        call mpp_get_tile_list(grid%domain, grid%tile(0:npes-1))
+        if( xmap%npes > npes .AND. g == 1 .AND. grid_ids(1) == 'ATM' ) then
+           call mpp_get_compute_domains(domain2, xbegin=grid%is(npes:xmap%npes-1), xend=grid%ie(npes:xmap%npes-1), &
+                                        ybegin=grid%js(npes:xmap%npes-1), yend=grid%je(npes:xmap%npes-1) )
+           call mpp_get_tile_list(domain2, grid%tile(npes:xmap%npes-1))
+        endif
+     else
+        npes2 = xmap%npes-npes
+        call mpp_get_compute_domains(domain2,  xbegin=grid%is(0:npes2-1), xend=grid%ie(0:npes2-1), &
+                                     ybegin=grid%js(0:npes2-1), yend=grid%je(0:npes2-1) )
+        call mpp_get_compute_domains(grid%domain, xbegin=grid%is(npes2:xmap%npes-1), xend=grid%ie(npes2:xmap%npes-1), &
+                                     ybegin=grid%js(npes2:xmap%npes-1), yend=grid%je(npes2:xmap%npes-1) )
+        call mpp_get_tile_list(domain2, grid%tile(0:npes2-1))
+        call mpp_get_tile_list(grid%domain, grid%tile(npes2:xmap%npes-1))
+     endif
+     if( xmap%npes > grid%npes .AND. g == 1 .AND. grid_ids(1) == 'ATM' ) then
+        call mpp_deallocate_domain(domain2)
+     endif
+     npes = grid%npes
+     if(  g == 1 .AND. grid_ids(1) == 'ATM' ) npes = xmap%npes
+     do p = 0, npes-1
+        if(grid%tile(p) > grid%ntile .or. grid%tile(p) < 1) call error_mesg('xgrid_mod', &
+                 'tile id should between 1 and ntile', FATAL)
+     end do
+
+     grid%im = grid%ni
+     grid%jm = grid%nj
      call mpp_max(grid%ni)
      call mpp_max(grid%nj)
      
-     call mpp_get_tile_list(grid%domain, grid%tile)
-     grid%ntile = mpp_get_ntile_count(grid%domain)
-     ! make sure the grid%tile are between 1 and ntile 
-     do p = 0, xmap%npes-1
-        if(grid%tile(p) > grid%ntile .or. grid%tile(p) < 1) call error_mesg('xgrid_mod', &
-                 'tile id should between 1 and ntile', FATAL)
-     end do 
-
      grid%is_me => grid%is(xmap%me-xmap%root_pe); grid%ie_me => grid%ie(xmap%me-xmap%root_pe)
      grid%js_me => grid%js(xmap%me-xmap%root_pe); grid%je_me => grid%je(xmap%me-xmap%root_pe)
+     grid%nxc_me = grid%ie_me - grid%is_me + 1
+     grid%nyc_me = grid%je_me - grid%js_me + 1
      grid%tile_me => grid%tile(xmap%me-xmap%root_pe)
 
-     !--- The starting index of compute domain may not start at 1.
-     grid%im = maxval(grid%ie) - minval(grid%is) + 1
-     grid%jm = maxval(grid%je) - minval(grid%js) + 1
      grid%km = 1
 
-     allocate( grid%area    (grid%is_me:grid%ie_me, grid%js_me:grid%je_me) )
-     allocate( grid%area_inv(grid%is_me:grid%ie_me, grid%js_me:grid%je_me) )
-     grid%area       = 0.0
-     grid%size       = 0
-     grid%size_repro = 0
-
-     call mpp_get_data_domain(grid%domain, grid%isd_me, grid%ied_me, grid%jsd_me, grid%jed_me)
-
+     if( grid%on_this_pe ) then
+        allocate( grid%area    (grid%is_me:grid%ie_me, grid%js_me:grid%je_me) )
+        allocate( grid%area_inv(grid%is_me:grid%ie_me, grid%js_me:grid%je_me) )
+        grid%area       = 0.0
+        grid%size       = 0
+        grid%size_repro = 0
+     endif
+    
      ! get the center point of the grid box
      select case(xmap%version)
      case(VERSION1)
+        if( grid%npes .NE. xmap%npes ) then
+           call error_mesg('xgrid_mod', ' grid%npes .NE. xmap%npes ', FATAL)
+        endif
         call get_grid(grid, grid_ids(g), grid_file, xmap%version)
      case(VERSION2)
-        call read_data(grid_file, lowercase(grid_ids(g))//'_mosaic_file', mosaic_file)      
-        call get_mosaic_tile_grid(tile_file, 'INPUT/'//trim(mosaic_file), grid%domain)
-        call get_grid(grid, grid_ids(g), tile_file, xmap%version)
+        allocate(pelist(0:xmap%npes-1))
+        call mpp_get_current_pelist(pelist)
+        if( grid%on_this_pe ) then
+           call mpp_set_current_pelist(grid%pelist)
+           call get_mosaic_tile_grid(tile_file, 'INPUT/'//trim(mosaic_file), grid%domain)
+           call get_grid(grid, grid_ids(g), tile_file, xmap%version)
+        endif
+        call mpp_set_current_pelist(pelist)
+        deallocate(pelist) 
+        ! read the contact information from mosaic_file to check if atmosphere is nested model
+        if( g == 1 .AND. grid_ids(1) == 'ATM' ) then
+           nnest = get_nest_contact('INPUT/'//trim(mosaic_file), tile_nest, tile_parent, is_nest, &
+                ie_nest, js_nest, je_nest, is_parent, ie_parent, js_parent, je_parent)         
+        endif       
      end select
 
      if( use_higher_order .AND. grid%id == 'ATM') then
+        if( nnest > 0 ) call error_mesg('xgrid_mod', 'second_order is not supported for nested coupler', FATAL)
         if( grid%is_latlon ) then
            call mpp_modify_domain(grid%domain, grid%domain_with_halo, whalo=1, ehalo=1, shalo=1, nhalo=1)
-           call mpp_get_data_domain(grid%domain_with_halo, grid%isd_me, grid%ied_me, grid%jsd_me, grid%jed_me) 
+           call mpp_get_data_domain(grid%domain_with_halo, grid%isd_me, grid%ied_me, grid%jsd_me, grid%jed_me, &
+                              xsize=grid%nxd_me, ysize=grid%nyd_me) 
         else
            if(.NOT. present(atm_grid)) call error_mesg('xgrid_mod', 'when first grid is "ATM", atm_grid should be present', FATAL)
            if(grid%is_me-grid%isd_me .NE. 1 .or. grid%ied_me-grid%ie_me .NE. 1 .or.               &
@@ -985,8 +1444,10 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
      end if
 
      if (g>1) then
-        allocate( grid%frac_area(grid%is_me:grid%ie_me, grid%js_me:grid%je_me, grid%km) )
-        grid%frac_area = 1.0
+        if(grid%on_this_pe) then
+           allocate( grid%frac_area(grid%is_me:grid%ie_me, grid%js_me:grid%je_me, grid%km) )
+           grid%frac_area = 1.0
+        endif
 
         ! load exchange cells, sum grid cell areas, set your1my2/your2my1
         select case(xmap%version)
@@ -1065,8 +1526,10 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
            endif
            deallocate(tile1_list, tile2_list)
         end select
-        grid%area_inv = 0.0;
-        where (grid%area>0.0) grid%area_inv = 1.0/grid%area
+        if(grid%on_this_pe) then
+           grid%area_inv = 0.0;
+           where (grid%area>0.0) grid%area_inv = 1.0/grid%area
+        endif
      end if
   end do
 
@@ -1078,9 +1541,6 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
   xmap%your1my2(xmap%me-xmap%root_pe) = .false. ! this is not necessarily true but keeps
   xmap%your2my1(xmap%me-xmap%root_pe) = .false. ! a PE from communicating with itself
 
-  send_size = sum((grid1%ie-grid1%is+1)*(grid1%je-grid1%js+1))
-  send_size = max(send_size, grid1%im*grid1%jm)
-  recv_size = maxval((grid1%ie-grid1%is+1)*(grid1%je-grid1%js+1) )
   if (make_exchange_reproduce) then
      allocate( xmap%send_count_repro(0:xmap%npes-1) )
      allocate( xmap%recv_count_repro(0:xmap%npes-1) )
@@ -1096,10 +1556,12 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
                 +count(xmap%grids(g)%x_repro(:)%pe==p+xmap%root_pe)
         end do
      end do
-     send_size = max(send_size, sum(xmap%send_count_repro))
+     xmap%send_count_repro_tot = sum(xmap%send_count_repro)
+     xmap%recv_count_repro_tot = sum(xmap%recv_count_repro)
+  else
+     xmap%send_count_repro_tot = 0
+     xmap%recv_count_repro_tot = 0
   end if
-  allocate (xmap%send_buffer(send_size))
-  allocate (xmap%recv_buffer(recv_size))
 
   if (xgrid_log) then
     call mpp_open( unit, 'xgrid.out', action=MPP_OVERWR, threading=MPP_MULTI, &
@@ -1115,6 +1577,13 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
 
   allocate( xmap%x1(1:sum(xmap%grids(2:size(xmap%grids(:)))%size)) )
   allocate( xmap%x2(1:sum(xmap%grids(2:size(xmap%grids(:)))%size)) )
+  allocate( xmap%x1_put(1:sum(xmap%grids(2:size(xmap%grids(:)))%size)) )
+  allocate( xmap%x2_get(1:sum(xmap%grids(2:size(xmap%grids(:)))%size)) )
+
+  !--- The following will setup indx to be used in regen
+  allocate(xmap%get1, xmap%put1)
+  call set_comm_get1(xmap)
+  call set_comm_put1(xmap)
 
   call regen(xmap)
 
@@ -1148,53 +1617,756 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid)
      end do
   endif
 
+  call mpp_clock_end(id_setup_xmap)
+
 end subroutine setup_xmap
 ! </SUBROUTINE>
 
+!----------------------------------------------------------------------------
+! currently we are assuming there is only one nest region
+function get_nest_contact(mosaic_file, tile_nest_out, tile_parent_out, is_nest_out, &
+                          ie_nest_out, js_nest_out, je_nest_out, is_parent_out, &
+                          ie_parent_out, js_parent_out, je_parent_out)
+character(len=*), intent(in) :: mosaic_file
+integer,         intent(out) :: tile_nest_out, tile_parent_out
+integer,         intent(out) :: is_nest_out, ie_nest_out
+integer,         intent(out) :: js_nest_out, je_nest_out
+integer,         intent(out) :: is_parent_out, ie_parent_out
+integer,         intent(out) :: js_parent_out, je_parent_out
+integer                      :: get_nest_contact
+!--- local variables
+integer                            :: ntiles, ncontacts, n, t1, t2
+integer                            :: nx1_contact, ny1_contact
+integer                            :: nx2_contact, ny2_contact
+integer, allocatable, dimension(:) :: nx, ny
+integer, allocatable, dimension(:) :: tile1, tile2
+integer, allocatable, dimension(:) :: istart1, iend1, jstart1, jend1
+integer, allocatable, dimension(:) :: istart2, iend2, jstart2, jend2
+
+  tile_nest_out = 0; tile_parent_out = 0
+  is_nest_out   = 0; ie_nest_out     = 0
+  js_nest_out   = 0; je_nest_out     = 0
+  is_parent_out = 0; ie_parent_out   = 0
+  js_parent_out = 0; je_parent_out   = 0
+  get_nest_contact = 0
+
+  ! first read the contact information
+  ntiles = get_mosaic_ntiles(mosaic_file)
+  if( ntiles == 1 ) return
+  allocate(nx(ntiles), ny(ntiles))  
+  call get_mosaic_grid_sizes(mosaic_file, nx, ny)
+
+  ncontacts = get_mosaic_ncontacts(mosaic_file)
+  if(ncontacts == 0) return
+  allocate(tile1(ncontacts), tile2(ncontacts))
+  allocate(istart1(ncontacts), iend1(ncontacts))
+  allocate(jstart1(ncontacts), jend1(ncontacts))
+  allocate(istart2(ncontacts), iend2(ncontacts))
+  allocate(jstart2(ncontacts), jend2(ncontacts))
+
+  call get_mosaic_contact( mosaic_file, tile1, tile2, istart1, iend1, jstart1, jend1, &
+                           istart2, iend2, jstart2, jend2)
+
+  do n = 1, ncontacts
+    if( tile1(n) == tile2(n) ) cycle ! same tile could not be nested 
+
+    nx1_contact = iend1(n)-istart1(n)+1
+    ny1_contact = jend1(n)-jstart1(n)+1
+    nx2_contact = iend2(n)-istart2(n)+1
+    ny2_contact = jend2(n)-jstart2(n)+1
+    t1 = tile1(n);
+    t2 = tile2(n);
+    ! For nesting, the contact index of one tile must match its global domain 
+    if( (nx(t1) .NE. nx1_contact .OR. ny(t1) .NE. ny1_contact ) .AND. &
+	(nx(t2) .NE. nx2_contact .OR. ny(t2) .NE. ny2_contact ) ) cycle
+    if(nx1_contact == nx2_contact .AND. ny1_contact == ny2_contact) then
+      call error_mesg('xgrid_mod', 'There is no refinement for the overlapping region', FATAL)
+    endif
+
+    get_nest_contact = get_nest_contact + 1
+    if(get_nest_contact>1) then
+       call error_mesg('xgrid_mod', 'only support one nest region, contact developer' ,FATAL)
+    endif
+    if(nx2_contact*ny2_contact > nx1_contact*ny1_contact) then
+      is_nest_out     = istart2(n);
+      ie_nest_out     = iend2  (n);
+      js_nest_out     = jstart2(n);
+      je_nest_out     = jend2  (n);
+      tile_nest_out   = tile2  (n);
+      is_parent_out   = istart1(n);
+      ie_parent_out   = iend1  (n);
+      js_parent_out   = jstart1(n);
+      je_parent_out   = jend1  (n);
+      tile_parent_out = tile1  (n);
+    else 
+      is_nest_out     = istart1(n);
+      ie_nest_out     = iend1  (n);
+      js_nest_out     = jstart1(n);
+      je_nest_out     = jend1  (n);
+      tile_nest_out   = tile1  (n);
+      is_parent_out   = istart2(n);
+      ie_parent_out   = iend2  (n);
+      js_parent_out   = jstart2(n);
+      je_parent_out   = jend2  (n);
+      tile_parent_out = tile2  (n);
+    endif
+  enddo
+
+  deallocate(nx, ny, tile1, tile2)
+  deallocate(istart1, iend1, jstart1, jend1)
+  deallocate(istart2, iend2, jstart2, jend2)
+
+
+  return
+  
+end function get_nest_contact
+
+
+
 !#######################################################################
+subroutine set_comm_get1(xmap)
+  type (xmap_type), intent(inout) :: xmap
+  type (grid_type), pointer, save :: grid1 =>NULL()
+  integer, allocatable :: send_size(:)
+  integer, allocatable :: recv_size(:)
+  integer              :: max_size, g, npes, l, ll, nset
+  integer              :: i1, j1, tile1, p, n, pos, buffer_pos
+  integer              :: nsend, nrecv, rbuf_size, sbuf_size, msgsize
+  logical              :: found
+  real,    allocatable :: recv_buf(:), send_buf(:)
+  real,    allocatable :: diarray(:), djarray(:)
+  integer, allocatable :: iarray(:), jarray(:), tarray(:)
+  integer, allocatable :: pos_x(:), pelist(:), size_pe(:), pe_side1(:)
+  type(comm_type), pointer, save :: comm => NULL()
+
+  max_size = 0
+  do g=2,size(xmap%grids(:))
+    max_size = max_size + xmap%grids(g)%size
+  enddo
+  comm => xmap%get1
+  grid1 => xmap%grids(1)
+  comm%nsend = 0
+  comm%nrecv = 0
+  npes = xmap%npes
+
+  allocate(pelist(0:npes-1))
+  call mpp_get_current_pelist(pelist)
+  allocate(send_size(0:npes-1))
+  allocate(recv_size(0:npes-1))
+  allocate(size_pe(0:npes-1))
+  allocate(pos_x(0:npes-1))
+  size_pe = 0
+  send_size = 0
+  recv_size = 0
+
+  if(max_size > 0) then
+     allocate(pe_side1(max_size))
+     allocate(xmap%ind_get1(max_size))
+
+     !--- find the recv_indx
+     ll = 0 
+     do g=2,size(xmap%grids(:))
+        do l=1,xmap%grids(g)%size
+           i1 = xmap%grids(g)%x(l)%i1
+           j1 = xmap%grids(g)%x(l)%j1
+           tile1 = xmap%grids(g)%x(l)%tile
+           do p=0,npes-1
+              if(grid1%tile(p) == tile1) then
+                 if(in_box(i1, j1, grid1%is(p), grid1%ie(p), grid1%js(p), grid1%je(p))) then
+                    size_pe(p) = size_pe(p) + 1     
+                    exit
+                 endif
+              endif
+           enddo
+           if( p == npes ) then
+              call error_mesg('xgrid_mod', 'tile is not in grid1%tile(:)', FATAL)
+           endif
+           ll = ll + 1
+           pe_side1(ll) = p
+        enddo
+     enddo
+
+     pos_x = 0
+     do p = 1, npes-1
+        pos_x(p) = pos_x(p-1) + size_pe(p-1)
+     enddo
+
+     !---find the send size for get_1_from_xgrid
+     allocate(iarray(max_size))
+     allocate(jarray(max_size))
+     allocate(tarray(max_size))
+     if(monotonic_exchange) then
+        allocate(diarray(max_size))
+        allocate(djarray(max_size))        
+     endif
+
+     ll = 0
+
+     do g=2,size(xmap%grids(:))
+        do l=1,xmap%grids(g)%size
+           i1 = xmap%grids(g)%x(l)%i1
+           j1 = xmap%grids(g)%x(l)%j1
+           tile1 = xmap%grids(g)%x(l)%tile
+           ll = ll + 1
+           p = pe_side1(ll)
+
+           found = .false.
+           if(send_size(p) > 0) then
+              if( i1 == iarray(pos_x(p)+send_size(p)) .AND. j1 == jarray(pos_x(p)+send_size(p)) &
+                   .AND. tile1 == tarray(pos_x(p)+send_size(p))) then
+                 found = .true.
+                 n = send_size(p)
+              else
+                 !---may need to replace with a fast search algorithm
+                 do n = 1, send_size(p)
+                    if(i1 == iarray(pos_x(p)+n) .AND. j1 == jarray(pos_x(p)+n) .AND. tile1 == tarray(pos_x(p)+n)) then
+                       found = .true.
+                       exit
+                    endif
+                 enddo
+              endif
+           endif
+           if( (.NOT. found) .OR. monotonic_exchange ) then
+              send_size(p) = send_size(p)+1
+              pos = pos_x(p)+send_size(p)
+              iarray(pos) = i1
+              jarray(pos) = j1
+              tarray(pos) = tile1
+              if(monotonic_exchange) then
+                 diarray(pos) = xmap%grids(g)%x(l)%di
+                 djarray(pos) = xmap%grids(g)%x(l)%dj
+              endif
+              n = send_size(p)
+           endif
+           xmap%ind_get1(ll) = n
+        enddo
+     enddo
+
+     pos_x = 0
+     do p = 1, npes-1
+        pos_x(p) = pos_x(p-1) + send_size(p-1)
+     enddo
+
+     ll = 0
+     do g=2,size(xmap%grids(:))
+        do l=1,xmap%grids(g)%size
+           ll = ll + 1
+           p = pe_side1(ll)  
+           xmap%ind_get1(ll) = pos_x(p) + xmap%ind_get1(ll)
+        enddo
+     enddo
+  endif
+
+  do p = 0, npes-1
+     call mpp_recv(recv_size(p), glen=1, from_pe=pelist(p), block=.false., tag=COMM_TAG_3)
+  enddo
+
+  !--- send data
+  do p = 0, npes-1
+     call mpp_send(send_size(p), plen=1, to_pe=pelist(p), tag=COMM_TAG_3)
+  enddo
+
+  call mpp_sync_self(check=EVENT_RECV)
+  call mpp_sync_self()
+
+  !--- set up for send for get_1_from_xgrid, also is recv for put_1_to_xgrid
+  nsend = count( send_size> 0)  
+  comm%nsend = nsend
+  if(nsend>0) then
+     allocate(comm%send(nsend))
+     comm%send(:)%count = 0
+  endif
+  pos = 0
+  comm%sendsize = 0
+  do p = 0, npes-1
+     if(send_size(p)>0) then
+        pos = pos + 1
+        allocate(comm%send(pos)%i(send_size(p)))
+        comm%send(pos)%count = send_size(p)
+        comm%send(pos)%pe = pelist(p)
+        comm%sendsize = comm%sendsize + send_size(p)
+     endif
+  enddo
+
+  nset = 3
+  if(monotonic_exchange) nset = 5
+  rbuf_size = sum(recv_size)*nset
+  sbuf_size = sum(send_size)*nset
+  if(rbuf_size>0) allocate(recv_buf(rbuf_size))
+  if(sbuf_size>0) allocate(send_buf(sbuf_size))
+
+  pos = 0
+  do p = 0, npes-1
+     if(recv_size(p) ==0) cycle
+     msgsize = recv_size(p)*nset
+     call mpp_recv(recv_buf(pos+1), glen=msgsize, from_pe=pelist(p), block=.false., tag=COMM_TAG_4)
+     pos = pos + msgsize
+  enddo
+
+  pos_x = 0
+  do p = 1, npes-1
+     pos_x(p) = pos_x(p-1) + size_pe(p-1)
+  enddo
+  ll = 0
+  pos = 0
+  do p = 0, npes-1
+     do l = 1, send_size(p)
+        send_buf(pos+1) = iarray(pos_x(p)+l)
+        send_buf(pos+2) = jarray(pos_x(p)+l)
+        send_buf(pos+3) = tarray(pos_x(p)+l)
+        if(monotonic_exchange) then
+           send_buf(pos+4) = diarray(pos_x(p)+l)
+           send_buf(pos+5) = djarray(pos_x(p)+l)
+        endif
+        pos = pos + nset
+     enddo
+  enddo
+
+  pos = 0
+  do p = 0, npes-1
+     if(send_size(p) ==0) cycle
+     msgsize = send_size(p)*nset
+     call mpp_send(send_buf(pos+1), plen=msgsize, to_pe=pelist(p), tag=COMM_TAG_4 )
+     pos = pos + msgsize
+  enddo
+
+  call mpp_sync_self(check=EVENT_RECV)
+  nrecv = count(recv_size>0)
+  comm%nrecv = nrecv
+  comm%recvsize = 0
+
+  if(nrecv >0) then
+     allocate(comm%recv(nrecv))
+     comm%recv(:)%count = 0
+     pos = 0
+     buffer_pos = 0
+     do p=0,npes-1
+        if(recv_size(p)>0) then
+           pos = pos + 1
+           allocate(comm%recv(pos)%i(recv_size(p)))
+           allocate(comm%recv(pos)%j(recv_size(p)))
+           allocate(comm%recv(pos)%tile(recv_size(p)))
+           comm%recv(pos)%pe = pelist(p)
+           comm%recv(pos)%count = recv_size(p)
+           comm%recvsize = comm%recvsize + recv_size(p)
+           if(monotonic_exchange) then
+              allocate(comm%recv(pos)%di(recv_size(p)))
+              allocate(comm%recv(pos)%dj(recv_size(p)))
+           endif
+           do n = 1, recv_size(p)
+              comm%recv(pos)%i(n) = recv_buf(buffer_pos+1) - grid1%is_me + 1
+              comm%recv(pos)%j(n) = recv_buf(buffer_pos+2) - grid1%js_me + 1
+              comm%recv(pos)%tile(n) = recv_buf(buffer_pos+3) 
+              if(monotonic_exchange) then
+                 comm%recv(pos)%di(n) = recv_buf(buffer_pos+4) 
+                 comm%recv(pos)%dj(n) = recv_buf(buffer_pos+5) 
+              endif
+              buffer_pos = buffer_pos + nset
+           enddo
+        endif
+     enddo
+  endif
+
+  call mpp_sync_self()
+  if(allocated(send_buf) ) deallocate(send_buf)
+  if(allocated(recv_buf) ) deallocate(recv_buf)
+  if(allocated(pelist)   ) deallocate(pelist)
+  if(allocated(pos_x)    ) deallocate(pos_x)
+  if(allocated(pelist)   ) deallocate(pelist)
+  if(allocated(iarray)   ) deallocate(iarray)
+  if(allocated(jarray)   ) deallocate(jarray)
+  if(allocated(tarray)   ) deallocate(tarray)
+  if(allocated(size_pe)  ) deallocate(size_pe)
+
+end subroutine set_comm_get1
+
+!###############################################################################
+subroutine set_comm_put1(xmap)
+  type (xmap_type), intent(inout) :: xmap
+  type (grid_type), pointer, save :: grid1 =>NULL()
+  integer, allocatable :: send_size(:)
+  integer, allocatable :: recv_size(:)
+  integer              :: max_size, g, npes, l, ll
+  integer              :: i1, j1, tile1, p, n, pos, buffer_pos
+  integer              :: nsend, nrecv, msgsize, nset, rbuf_size, sbuf_size
+  logical              :: found
+  real,    allocatable :: recv_buf(:), send_buf(:)
+  real,    allocatable :: diarray(:), djarray(:)
+  integer, allocatable :: iarray(:), jarray(:), tarray(:)
+  integer, allocatable :: pos_x(:), pelist(:), size_pe(:), pe_put1(:)
+  integer              :: root_pe, recvsize, sendsize
+  type(comm_type), pointer, save :: comm => NULL()
 
 
+  comm => xmap%put1
+  if(nnest == 0 .OR. xmap%grids(1)%id .NE. 'ATM' ) then
+     comm%nsend    = xmap%get1%nrecv
+     comm%nrecv    = xmap%get1%nsend   
+     comm%sendsize = xmap%get1%recvsize
+     comm%recvsize = xmap%get1%sendsize    
+     comm%send     => xmap%get1%recv
+     comm%recv     => xmap%get1%send
+     xmap%ind_put1 => xmap%ind_get1 
+    return
+  endif
+
+  max_size = 0
+  do g=2,size(xmap%grids(:))
+     max_size = max_size + xmap%grids(g)%size
+  enddo
+  grid1 => xmap%grids(1)
+  comm%nsend = 0
+  comm%nrecv = 0
+  npes = xmap%npes
+  allocate(pelist(0:npes-1))
+  call mpp_get_current_pelist(pelist)
+  allocate(send_size(0:npes-1))
+  allocate(recv_size(0:npes-1))
+  allocate(size_pe(0:npes-1))
+  allocate(pos_x(0:npes-1))
+  size_pe = 0
+  send_size = 0
+  recv_size = 0
+
+  if(max_size > 0) then
+     allocate(pe_put1(max_size))
+     allocate(xmap%ind_put1(max_size))
+
+     !--- find the recv_indx
+     ll = 0 
+     do g=2,size(xmap%grids(:))
+        do l=1,xmap%grids(g)%size
+           i1 = xmap%grids(g)%x(l)%i1
+           j1 = xmap%grids(g)%x(l)%j1
+           tile1 = xmap%grids(g)%x(l)%tile
+           do p=0,npes-1
+              if(grid1%tile(p) == tile1) then
+                 if(in_box(i1, j1, grid1%is(p), grid1%ie(p), grid1%js(p), grid1%je(p))) then
+                    size_pe(p) = size_pe(p) + 1     
+                    exit
+                 endif
+              endif
+           enddo
+           ll = ll + 1
+           pe_put1(ll) = p
+        enddo
+     enddo
+
+     pos_x = 0
+     do p = 1, npes-1
+        pos_x(p) = pos_x(p-1) + size_pe(p-1)
+     enddo
+
+     !---find the send size for get_1_from_xgrid
+     allocate(iarray(max_size))
+     allocate(jarray(max_size))
+     allocate(tarray(max_size))
+     if(monotonic_exchange) then
+        allocate(diarray(max_size))
+        allocate(djarray(max_size))        
+     endif
+
+     ll = 0
+
+     do g=2,size(xmap%grids(:))
+        do l=1,xmap%grids(g)%size
+           i1 = xmap%grids(g)%x(l)%i1
+           j1 = xmap%grids(g)%x(l)%j1
+           tile1 = xmap%grids(g)%x(l)%tile
+           ll = ll + 1
+           p = pe_put1(ll)
+
+           found = .false.
+           if(send_size(p) > 0) then
+              if( i1 == iarray(pos_x(p)+send_size(p)) .AND. j1 == jarray(pos_x(p)+send_size(p)) &
+                   .AND. tile1 == tarray(pos_x(p)+send_size(p))) then
+                 found = .true.
+                 n = send_size(p)
+              else
+                 !---may need to replace with a fast search algorithm
+                 do n = 1, send_size(p)
+                    if(i1 == iarray(pos_x(p)+n) .AND. j1 == jarray(pos_x(p)+n) .AND. tile1 == tarray(pos_x(p)+n)) then
+                       found = .true.
+                       exit
+                    endif
+                 enddo
+              endif
+           endif
+           if( (.NOT. found) .OR. monotonic_exchange ) then
+              send_size(p) = send_size(p)+1
+              pos = pos_x(p)+send_size(p)
+              iarray(pos) = i1
+              jarray(pos) = j1
+              tarray(pos) = tile1
+              if(monotonic_exchange) then
+                 diarray(pos) = xmap%grids(g)%x(l)%di
+                 djarray(pos) = xmap%grids(g)%x(l)%dj
+              endif
+              n = send_size(p)
+           endif
+           xmap%ind_put1(ll) = n
+        enddo
+     enddo
+
+     pos_x = 0
+     do p = 1, npes-1
+        pos_x(p) = pos_x(p-1) + send_size(p-1)
+     enddo
+
+     ll = 0
+     do g=2,size(xmap%grids(:))
+        do l=1,xmap%grids(g)%size
+           i1 = xmap%grids(g)%x(l)%i1
+           j1 = xmap%grids(g)%x(l)%j1
+           tile1 = xmap%grids(g)%x(l)%tile
+           ll = ll + 1
+           p = pe_put1(ll)  
+           xmap%ind_put1(ll) = pos_x(p) + xmap%ind_put1(ll)
+        enddo
+     enddo
+  endif
+
+  do p = 0, npes-1
+     call mpp_recv(recv_size(p), glen=1, from_pe=pelist(p), block=.false., tag=COMM_TAG_5)
+  enddo
+
+  !--- send data
+  do p = 0, npes-1
+     call mpp_send(send_size(p), plen=1, to_pe=pelist(p), tag=COMM_TAG_5)
+  enddo
+
+  call mpp_sync_self(check=EVENT_RECV)
+  call mpp_sync_self()
+
+  !--- recv for put_1_to_xgrid
+  nrecv = count( send_size> 0)  
+  comm%nrecv = nrecv
+  if(nrecv>0) then
+     allocate(comm%recv(nrecv))
+     comm%recv(:)%count = 0
+  endif
+  pos = 0
+  comm%recvsize = 0
+  do p = 0, npes-1
+     if(send_size(p)>0) then
+        pos = pos + 1
+        allocate(comm%recv(pos)%i(send_size(p)))
+        comm%recv(pos)%count = send_size(p)
+        comm%recv(pos)%pe = pelist(p)
+        comm%recvsize = comm%recvsize + send_size(p)
+     endif
+  enddo
+
+  nset = 3
+  if(monotonic_exchange) nset = 5
+  rbuf_size = sum(recv_size)*nset
+  sbuf_size = sum(send_size)*nset
+  if(rbuf_size>0) allocate(recv_buf(rbuf_size))
+  if(sbuf_size>0) allocate(send_buf(sbuf_size))
+
+  pos = 0
+  do p = 0, npes-1
+     if(recv_size(p) ==0) cycle
+     msgsize = recv_size(p)*nset
+     call mpp_recv(recv_buf(pos+1), glen=msgsize, from_pe=pelist(p), block=.false., tag=COMM_TAG_6)
+     pos = pos + msgsize
+  enddo
+
+  pos_x = 0
+  do p = 1, npes-1
+     pos_x(p) = pos_x(p-1) + size_pe(p-1)
+  enddo
+  ll = 0
+  pos = 0
+  do p = 0, npes-1
+     do l = 1, send_size(p)
+        send_buf(pos+1) = iarray(pos_x(p)+l)
+        send_buf(pos+2) = jarray(pos_x(p)+l)
+        send_buf(pos+3) = tarray(pos_x(p)+l)
+        if(monotonic_exchange) then
+           send_buf(pos+4) = diarray(pos_x(p)+l)
+           send_buf(pos+5) = djarray(pos_x(p)+l)
+        endif
+        pos = pos + nset
+     enddo
+  enddo
+
+  pos = 0
+  do p = 0, npes-1
+     if(send_size(p) ==0) cycle
+     msgsize = send_size(p)*nset
+     call mpp_send(send_buf(pos+1), plen=msgsize, to_pe=pelist(p), tag=COMM_TAG_6 )
+     pos = pos + msgsize
+  enddo
+
+  call mpp_sync_self(check=EVENT_RECV)
+  nsend = count(recv_size>0)
+  comm%nsend = nsend
+  comm%sendsize = 0
+
+  if(nsend >0) then
+     allocate(comm%send(nsend))
+     comm%send(:)%count = 0
+     pos = 0
+     buffer_pos = 0
+     do p=0,npes-1
+        if(recv_size(p)>0) then
+           pos = pos + 1
+           allocate(comm%send(pos)%i(recv_size(p)))
+           allocate(comm%send(pos)%j(recv_size(p)))
+           allocate(comm%send(pos)%tile(recv_size(p)))
+           comm%send(pos)%pe = pelist(p)
+           comm%send(pos)%count = recv_size(p)
+           comm%sendsize = comm%sendsize + recv_size(p)
+           if(monotonic_exchange) then
+              allocate(comm%send(pos)%di(recv_size(p)))
+              allocate(comm%send(pos)%dj(recv_size(p)))
+           endif
+           do n = 1, recv_size(p)
+              comm%send(pos)%i(n) = recv_buf(buffer_pos+1) - grid1%is_me + 1
+              comm%send(pos)%j(n) = recv_buf(buffer_pos+2) - grid1%js_me + 1
+              comm%send(pos)%tile(n) = recv_buf(buffer_pos+3) 
+              if(monotonic_exchange) then
+                 comm%send(pos)%di(n) = recv_buf(buffer_pos+4) 
+                 comm%send(pos)%dj(n) = recv_buf(buffer_pos+5) 
+              endif
+              buffer_pos = buffer_pos + nset
+           enddo
+        endif
+     enddo
+  endif
+
+  call mpp_sync_self()
+  if(allocated(send_buf) ) deallocate(send_buf)
+  if(allocated(recv_buf) ) deallocate(recv_buf)
+  if(allocated(pelist)   ) deallocate(pelist)
+  if(allocated(pos_x)    ) deallocate(pos_x)
+  if(allocated(pelist)   ) deallocate(pelist)
+  if(allocated(iarray)   ) deallocate(iarray)
+  if(allocated(jarray)   ) deallocate(jarray)
+  if(allocated(tarray)   ) deallocate(tarray)
+  if(allocated(size_pe)  ) deallocate(size_pe)
+
+end subroutine set_comm_put1
+
+
+!###############################################################################
 subroutine regen(xmap)
 type (xmap_type), intent(inout) :: xmap
 
-  integer :: g, l, i, j, k, max_size
+  integer              :: g, l, k, max_size
+  integer              :: i1, j1, i2, j2, p
+  integer              :: tile1
+  integer              :: ll
+  logical              :: overlap_with_nest
 
-  max_size = 0;
+  max_size = 0
+
   do g=2,size(xmap%grids(:))
     max_size = max_size + xmap%grids(g)%size * xmap%grids(g)%km
   end do
+
   if (max_size>size(xmap%x1(:))) then
     deallocate(xmap%x1)
     deallocate(xmap%x2)
     allocate( xmap%x1(1:max_size) )
     allocate( xmap%x2(1:max_size) )
-  end if
+  endif
+
+
+  do g=2,size(xmap%grids(:))
+    xmap%grids(g)%first = 1
+    xmap%grids(g)%last  = 0
+  end do  
 
   xmap%size = 0
+  ll = 0
   do g=2,size(xmap%grids(:))
-    xmap%grids(g)%first = xmap%size + 1;
-    do l=1,xmap%grids(g)%size
-      i = xmap%grids(g)%x(l)%i2
-      j = xmap%grids(g)%x(l)%j2
-      do k=1,xmap%grids(g)%km
-        if (xmap%grids(g)%frac_area(i,j,k)/=0.0) then
-          xmap%size = xmap%size+1
-          xmap%x1(xmap%size)%i    = xmap%grids(g)%x(l)%i1
-          xmap%x1(xmap%size)%j    = xmap%grids(g)%x(l)%j1
-          xmap%x1(xmap%size)%tile = xmap%grids(g)%x(l)%tile
-          xmap%x1(xmap%size)%area = xmap%grids(g)%x(l)%area &
-                                   *xmap%grids(g)%frac_area(i,j,k)
-          xmap%x1(xmap%size)%di   = xmap%grids(g)%x(l)%di 
-          xmap%x1(xmap%size)%dj   = xmap%grids(g)%x(l)%dj 
-          xmap%x2(xmap%size)%i    = xmap%grids(g)%x(l)%i2
-          xmap%x2(xmap%size)%j    = xmap%grids(g)%x(l)%j2
-          xmap%x2(xmap%size)%k    = k
-          xmap%x2(xmap%size)%area = xmap%grids(g)%x(l)%area * xmap%grids(g)%x(l)%scale 
-        end if
-      end do
-    end do
-    xmap%grids(g)%last = xmap%size
+     xmap%grids(g)%first = xmap%size + 1;
+     
+     do l=1,xmap%grids(g)%size
+        i1 = xmap%grids(g)%x(l)%i1
+        j1 = xmap%grids(g)%x(l)%j1
+        i2 = xmap%grids(g)%x(l)%i2
+        j2 = xmap%grids(g)%x(l)%j2
+        tile1 = xmap%grids(g)%x(l)%tile
+        ll = ll + 1
+        do k=1,xmap%grids(g)%km
+           if (xmap%grids(g)%frac_area(i2,j2,k)/=0.0) then
+              xmap%size = xmap%size+1
+              xmap%x1(xmap%size)%pos  = xmap%ind_get1(ll)
+              xmap%x1(xmap%size)%i    = xmap%grids(g)%x(l)%i1
+              xmap%x1(xmap%size)%j    = xmap%grids(g)%x(l)%j1
+              xmap%x1(xmap%size)%tile = xmap%grids(g)%x(l)%tile
+              xmap%x1(xmap%size)%area = xmap%grids(g)%x(l)%area &
+                   *xmap%grids(g)%frac_area(i2,j2,k)
+              xmap%x1(xmap%size)%di   = xmap%grids(g)%x(l)%di 
+              xmap%x1(xmap%size)%dj   = xmap%grids(g)%x(l)%dj 
+              xmap%x2(xmap%size)%i    = xmap%grids(g)%x(l)%i2
+              xmap%x2(xmap%size)%j    = xmap%grids(g)%x(l)%j2
+              xmap%x2(xmap%size)%k    = k
+              xmap%x2(xmap%size)%area = xmap%grids(g)%x(l)%area * xmap%grids(g)%x(l)%scale 
+           end if
+        end do
+     end do
+     xmap%grids(g)%last = xmap%size
   end do
+
+
+  if (max_size>size(xmap%x1_put(:))) then
+    deallocate(xmap%x1_put)
+    allocate( xmap%x1_put(1:max_size) )
+  endif
+  if (max_size>size(xmap%x2_get(:))) then
+    deallocate(xmap%x2_get)
+    allocate( xmap%x2_get(1:max_size) )
+  endif
+
+  do g=2,size(xmap%grids(:))
+    xmap%grids(g)%first_get = 1
+    xmap%grids(g)%last_get  = 0
+  end do  
+
+  xmap%size_put1 = 0
+  xmap%size_get2 = 0
+  ll = 0
+  do g=2,size(xmap%grids(:))
+     xmap%grids(g)%first_get = xmap%size_get2 + 1;
+     
+     do l=1,xmap%grids(g)%size
+        i1 = xmap%grids(g)%x(l)%i1
+        j1 = xmap%grids(g)%x(l)%j1
+        i2 = xmap%grids(g)%x(l)%i2
+        j2 = xmap%grids(g)%x(l)%j2
+        tile1 = xmap%grids(g)%x(l)%tile
+        ll = ll + 1
+        overlap_with_nest = .false.
+        if( tile1 == tile_parent .AND. in_box(i1, j1, is_parent, ie_parent, js_parent, je_parent) ) overlap_with_nest = .true.
+        do k=1,xmap%grids(g)%km
+           if (xmap%grids(g)%frac_area(i2,j2,k)/=0.0) then
+              xmap%size_put1 = xmap%size_put1+1
+              xmap%x1_put(xmap%size_put1)%pos  = xmap%ind_put1(ll)
+              xmap%x1_put(xmap%size_put1)%i    = xmap%grids(g)%x(l)%i1
+              xmap%x1_put(xmap%size_put1)%j    = xmap%grids(g)%x(l)%j1
+              xmap%x1_put(xmap%size_put1)%tile = xmap%grids(g)%x(l)%tile
+              xmap%x1_put(xmap%size_put1)%area = xmap%grids(g)%x(l)%area &
+                   *xmap%grids(g)%frac_area(i2,j2,k)
+              xmap%x1_put(xmap%size_put1)%di   = xmap%grids(g)%x(l)%di 
+              xmap%x1_put(xmap%size_put1)%dj   = xmap%grids(g)%x(l)%dj 
+              if( .not. overlap_with_nest) then
+                 xmap%size_get2 = xmap%size_get2+1
+                 xmap%x2_get(xmap%size_get2)%i    = xmap%grids(g)%x(l)%i2
+                 xmap%x2_get(xmap%size_get2)%j    = xmap%grids(g)%x(l)%j2
+                 xmap%x2_get(xmap%size_get2)%k    = k
+                 xmap%x2_get(xmap%size_get2)%area = xmap%grids(g)%x(l)%area * xmap%grids(g)%x(l)%scale 
+                 xmap%x2_get(xmap%size_get2)%pos  = xmap%size_put1
+              endif
+           end if
+        end do
+     end do
+     xmap%grids(g)%last_get = xmap%size_get2
+  end do
+
 end subroutine regen
 
 !#######################################################################
@@ -1280,28 +2452,81 @@ end function xgrid_count
 !   <INOUT NAME="xmap"  TYPE="xmap_type"  > </INOUT>
 !   <IN NAME="remap_method" TYPE="integer,optional"></IN>
 
-subroutine put_side1_to_xgrid(d, grid_id, x, xmap, remap_method)
-real, dimension(:,:), intent(in   )    :: d
-character(len=3),     intent(in   )    :: grid_id
-real, dimension(:),   intent(inout)    :: x
-type (xmap_type),     intent(inout)    :: xmap
-integer, intent(in), optional          :: remap_method
+subroutine put_side1_to_xgrid(d, grid_id, x, xmap, remap_method, complete)
+  real, dimension(:,:), intent(in   )    :: d
+  character(len=3),     intent(in   )    :: grid_id
+  real, dimension(:),   intent(inout)    :: x
+  type (xmap_type),     intent(inout)    :: xmap
+  integer, intent(in), optional          :: remap_method
+  logical, intent(in), optional          :: complete
 
-  integer :: g, method
-
-  method = FIRST_ORDER      ! default
-  if(present(remap_method)) method = remap_method
-
+  logical                                         :: is_complete, set_mismatch
+  integer                                         :: g, method
+  character(len=2)                                :: text
+  integer,                                   save :: isize=0
+  integer,                                   save :: jsize=0
+  integer,                                   save :: lsize=0
+  integer,                                   save :: xsize=0
+  integer,                                   save :: method_saved=0
+  character(len=3),                          save :: grid_id_saved=""
+  integer(LONG_KIND), dimension(MAX_FIELDS), save :: d_addrs=-9999
+  integer(LONG_KIND), dimension(MAX_FIELDS), save :: x_addrs=-9999
+  
   if (grid_id==xmap%grids(1)%id) then
-       if(method == FIRST_ORDER) then
-          call put_1_to_xgrid_order_1(d, x, xmap)
-       else 
-          if(grid_id .NE. 'ATM') call error_mesg ('xgrid_mod',  &
-                       "second order put_to_xgrid should only be applied to 'ATM' model, "//&
-                       "contact developer", FATAL)
-          call put_1_to_xgrid_order_2(d, x, xmap)
-       endif
-    return;
+     method = FIRST_ORDER      ! default
+     if(present(remap_method)) method = remap_method
+     is_complete = .true.
+     if(present(complete)) is_complete=complete
+     lsize = lsize + 1
+     if( lsize > MAX_FIELDS ) then
+        write( text,'(i2)' ) MAX_FIELDS
+        call error_mesg ('xgrid_mod',  'MAX_FIELDS='//trim(text)//' exceeded for group put_side1_to_xgrid', FATAL)
+     endif
+     d_addrs(lsize) = LOC(d)
+     x_addrs(lsize) = LOC(x)  
+   
+     if(lsize == 1) then
+        isize = size(d,1)
+        jsize = size(d,2)
+        xsize = size(x(:))
+        method_saved = method
+        grid_id_saved = grid_id
+     else
+        set_mismatch = .false.
+        set_mismatch = set_mismatch .OR. (isize /= size(d,1))
+        set_mismatch = set_mismatch .OR. (jsize /= size(d,2))
+        set_mismatch = set_mismatch .OR. (xsize /= size(x(:)))
+        set_mismatch = set_mismatch .OR. (method_saved /= method)
+        set_mismatch = set_mismatch .OR. (grid_id_saved /= grid_id)
+        if(set_mismatch)then
+           write( text,'(i2)' ) lsize
+           call error_mesg ('xgrid_mod', 'Incompatible field at count '//text//' for group put_side1_to_xgrid', FATAL )
+        endif
+     endif
+
+     if(is_complete) then
+        !--- when exchange_monotonic is true and the side 1 ia atm, will always use monotonic second order conservative.
+        if(monotonic_exchange .AND. grid_id == 'ATM') then
+           call put_1_to_xgrid_order_2(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+        else if(method == FIRST_ORDER) then
+           call put_1_to_xgrid_order_1(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+        else 
+           if(grid_id .NE. 'ATM') call error_mesg ('xgrid_mod',  &
+                "second order put_to_xgrid should only be applied to 'ATM' model, "//&
+                "contact developer", FATAL)
+           call put_1_to_xgrid_order_2(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+        endif
+
+        d_addrs = -9999
+        x_addrs = -9999
+        isize   = 0
+        jsize   = 0
+        xsize   = 0
+        lsize   = 0
+        method_saved = 0
+        grid_id_saved = ""
+     endif
+     return
   end if
 
   do g=2,size(xmap%grids(:))
@@ -1355,21 +2580,67 @@ end subroutine put_side2_to_xgrid
 !   <OUT NAME="d"  TYPE="real" DIM="(:,:)" > </OUT>
 !   <INOUT NAME="xmap"  TYPE="xmap_type"  > </INOUT>
 
-subroutine get_side1_from_xgrid(d, grid_id, x, xmap)
-real, dimension(:,:), intent(  out) :: d
-character(len=3),     intent(in   ) :: grid_id
-real, dimension(:),   intent(in   ) :: x
-type (xmap_type),     intent(inout) :: xmap
+subroutine get_side1_from_xgrid(d, grid_id, x, xmap, complete)
+  real, dimension(:,:), intent(  out) :: d
+  character(len=3),     intent(in   ) :: grid_id
+  real, dimension(:),   intent(in   ) :: x
+  type (xmap_type),     intent(inout) :: xmap
+  logical, intent(in), optional     :: complete
 
-  integer :: g
+  logical                                         :: is_complete, set_mismatch
+  integer                                         :: g
+  character(len=2)                                :: text
+  integer,                                   save :: isize=0
+  integer,                                   save :: jsize=0
+  integer,                                   save :: lsize=0
+  integer,                                   save :: xsize=0
+  character(len=3),                          save :: grid_id_saved=""
+  integer(LONG_KIND), dimension(MAX_FIELDS), save :: d_addrs=-9999
+  integer(LONG_KIND), dimension(MAX_FIELDS), save :: x_addrs=-9999
 
   if (grid_id==xmap%grids(1)%id) then
-    if (make_exchange_reproduce) then
-      call get_1_from_xgrid_repro(d, x, xmap)
-    else
-      call get_1_from_xgrid(d, x, xmap)
-    end if
-    return;
+     is_complete = .true.
+     if(present(complete)) is_complete=complete
+     lsize = lsize + 1
+     if( lsize > MAX_FIELDS ) then
+        write( text,'(i2)' ) MAX_FIELDS
+        call error_mesg ('xgrid_mod',  'MAX_FIELDS='//trim(text)//' exceeded for group get_side1_from_xgrid', FATAL)
+     endif
+     d_addrs(lsize) = LOC(d)
+     x_addrs(lsize) = LOC(x)  
+
+     if(lsize == 1) then
+        isize = size(d,1)
+        jsize = size(d,2)
+        xsize = size(x(:))
+        grid_id_saved = grid_id
+     else
+        set_mismatch = .false.
+        set_mismatch = set_mismatch .OR. (isize /= size(d,1))
+        set_mismatch = set_mismatch .OR. (jsize /= size(d,2))
+        set_mismatch = set_mismatch .OR. (xsize /= size(x(:)))
+        set_mismatch = set_mismatch .OR. (grid_id_saved /= grid_id)
+        if(set_mismatch)then
+           write( text,'(i2)' ) lsize
+           call error_mesg ('xgrid_mod', 'Incompatible field at count '//text//' for group get_side1_from_xgrid', FATAL )
+        endif
+     endif
+
+     if(is_complete) then
+        if (make_exchange_reproduce) then
+           call get_1_from_xgrid_repro(d_addrs, x_addrs, xmap, xsize, lsize)
+        else
+           call get_1_from_xgrid(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+        end if
+        d_addrs = -9999
+        x_addrs = -9999
+        isize   = 0
+        jsize   = 0
+        xsize   = 0
+        lsize   = 0
+        grid_id_saved = ""
+     endif
+     return;
   end if
   
   do g=2,size(xmap%grids(:))
@@ -1478,10 +2749,13 @@ real, dimension(:    ), intent(inout) :: x
 type (xmap_type),       intent(in   ) :: xmap
 
   integer                 ::   l
+  call mpp_clock_begin(id_put_2_to_xgrid)
 
   do l=grid%first,grid%last
     x(l) = d(xmap%x2(l)%i,xmap%x2(l)%j,xmap%x2(l)%k)
   end do
+
+  call mpp_clock_end(id_put_2_to_xgrid)
 end subroutine put_2_to_xgrid
 
 !#######################################################################
@@ -1495,10 +2769,12 @@ type (xmap_type),       intent(in   ) :: xmap
 
   integer                 :: l, k
 
+  call mpp_clock_begin(id_get_2_from_xgrid)
+
   d = 0.0
-  do l=grid%first,grid%last
-    d(xmap%x2(l)%i,xmap%x2(l)%j,xmap%x2(l)%k) = &
-            d(xmap%x2(l)%i,xmap%x2(l)%j,xmap%x2(l)%k) + xmap%x2(l)%area*x(l)
+  do l=grid%first_get,grid%last_get
+    d(xmap%x2_get(l)%i,xmap%x2_get(l)%j,xmap%x2_get(l)%k) = &
+            d(xmap%x2_get(l)%i,xmap%x2_get(l)%j,xmap%x2_get(l)%k) + xmap%x2_get(l)%area*x(xmap%x2_get(l)%pos)
   end do
   !
   !  normalize with side 2 grid cell areas
@@ -1506,305 +2782,539 @@ type (xmap_type),       intent(in   ) :: xmap
   do k=1,size(d,3)
     d(:,:,k) = d(:,:,k) * grid%area_inv
   end do
+
+  call mpp_clock_end(id_get_2_from_xgrid)
+
 end subroutine get_2_from_xgrid
 
 !#######################################################################
 
-function get_side_1(pe, im, jm)
-integer, intent(in)    :: pe, im, jm
-real, dimension(im,jm) :: get_side_1
+subroutine put_1_to_xgrid_order_1(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+  integer(LONG_KIND), dimension(:), intent(in) :: d_addrs
+  integer(LONG_KIND), dimension(:), intent(in) :: x_addrs
+  type (xmap_type),              intent(inout) :: xmap
+  integer,                          intent(in) :: isize, jsize, xsize, lsize
 
-!  call mpp_recv(buf, im*jm, pe)
-!  l = 0
-!  do j=1,jm; do i=1,im;
-!    l = l + 1
-!    get_side_1(i,j) = buf(l)
-!  end do; end do
-  ! Force use of "scalar", integer pointer mpp interface.
-  call mpp_recv( get_side_1(1,1), glen=im*jm, from_pe=pe )
-end function get_side_1
+  integer                         :: i, j, p, buffer_pos, msgsize
+  integer                         :: from_pe, to_pe, pos, n, l, count
+  integer                         :: ibegin, istart, iend
+  type (comm_type), pointer, save :: comm =>NULL()
+  real                            :: recv_buffer(xmap%put1%recvsize*lsize)
+  real                            :: send_buffer(xmap%put1%sendsize*lsize)
+  real                            :: unpack_buffer(xmap%put1%recvsize)
 
-!#######################################################################
+  real, dimension(isize, jsize)   :: d
+  real, dimension(xsize)          :: x
+  pointer(ptr_d, d)
+  pointer(ptr_x, x)
 
-subroutine put_1_to_xgrid_order_1(d, x, xmap)
-real, dimension(:,:), intent(in   ) :: d
-real, dimension(:  ), intent(inout) :: x
-type (xmap_type),     intent(inout) :: xmap
+  call mpp_clock_begin(id_put_1_to_xgrid_order_1)
 
-  integer :: i, is, ie, im, j, js, je, jm, p, l, tile
-  real, dimension(xmap%grids(1)%ni,xmap%grids(1)%nj,xmap%grids(1)%ntile) :: dg
-  type (grid_type), pointer, save :: grid1 =>NULL()
+  !--- pre-post receiving
+  buffer_pos = 0
+  comm => xmap%put1
+  do p = 1, comm%nrecv
+     msgsize = comm%recv(p)%count*lsize
+     from_pe = comm%recv(p)%pe
+     call mpp_recv(recv_buffer(buffer_pos+1), glen=msgsize, from_pe = from_pe, block=.false., tag=COMM_TAG_7)
+     buffer_pos = buffer_pos + msgsize
+  enddo
 
-  grid1 => xmap%grids(1)
-  is = grid1%is_me; ie = grid1%ie_me;
-  js = grid1%js_me; je = grid1%je_me;
-  tile = grid1%tile_me
-  dg(is:ie,js:je,tile) = d;
+  !--- send the data
+  buffer_pos = 0
+  do p = 1, comm%nsend
+     msgsize = comm%send(p)%count*lsize
+     to_pe = comm%send(p)%pe
+     pos = buffer_pos
+     do l = 1, lsize
+        ptr_d = d_addrs(l)
+        do n = 1, comm%send(p)%count
+           pos = pos + 1
+           i = comm%send(p)%i(n)
+           j = comm%send(p)%j(n)
+           send_buffer(pos) = d(i,j)
+        enddo
+     enddo
+     call mpp_send(send_buffer(buffer_pos+1), plen=msgsize, to_pe = to_pe, tag=COMM_TAG_7 )
+     buffer_pos = buffer_pos + msgsize
+  enddo
 
-  im = ie-is+1; jm = je-js+1;
-  l = 0
-  call mpp_sync_self()          !Balaji
-  do j=1,jm; do i=1,im;
-    l = l + 1;
-    xmap%send_buffer(l) =  d(i,j)
-  end do; end do;
-  do p=0,xmap%npes-1
-    if (xmap%your2my1(p)) then
-      ! Force use of "scalar", integer pointer mpp interface.
-      call mpp_send(xmap%send_buffer(1), plen=im*jm, to_pe=p+xmap%root_pe);
-    end if
-  end do
-  do p=0,xmap%npes-1
-    if (xmap%your1my2(p)) then
-      is = grid1%is(p); ie = grid1%ie(p);
-      js = grid1%js(p); je = grid1%je(p);
-      tile = grid1%tile(p)
-      dg(is:ie,js:je,tile) = get_side_1(p+xmap%root_pe,ie-is+1,je-js+1);
-    end if
-  end do
-  do l=1,xmap%size
-    x(l) =  dg(xmap%x1(l)%i,xmap%x1(l)%j,xmap%x1(l)%tile)
-  end do
+  call mpp_sync_self(check=EVENT_RECV)
 
-!  call mpp_sync_self
+  !--- unpack the buffer
+  if( lsize == 1) then
+     ptr_x = x_addrs(1)
+     do l=1,xmap%size_put1
+        x(l) =  recv_buffer(xmap%x1_put(l)%pos)
+     end do
+  else
+     do l = 1, lsize
+        ptr_x = x_addrs(l)
+        pos = 0
+        ibegin = 1
+        do p = 1, comm%nrecv
+           count = comm%recv(p)%count
+           istart = ibegin + (l-1)*count
+           iend = istart + count - 1
+           do n = istart, iend
+              pos = pos + 1
+              unpack_buffer(pos) = recv_buffer(n)
+           enddo
+           ibegin = ibegin + lsize*count 
+        enddo
+        do i=1,xmap%size_put1
+           x(i) =  unpack_buffer(xmap%x1_put(i)%pos)
+        end do        
+     enddo
+  endif
+
+  call mpp_sync_self()
+
+  call mpp_clock_end(id_put_1_to_xgrid_order_1)
+
 end subroutine put_1_to_xgrid_order_1
 
 !#######################################################################
 
 
-subroutine put_1_to_xgrid_order_2(d, x, xmap)
-  real, dimension(:,:), intent(in   ) :: d
-  real, dimension(:  ), intent(inout) :: x
-  type (xmap_type),     intent(inout) :: xmap
+subroutine put_1_to_xgrid_order_2(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+  integer(LONG_KIND), dimension(:), intent(in) :: d_addrs
+  integer(LONG_KIND), dimension(:), intent(in) :: x_addrs
+  type (xmap_type),              intent(inout) :: xmap
+  integer,                          intent(in) :: isize, jsize, xsize, lsize
 
-  integer :: i, is, ie, im, j, js, je, jm, p, l, isd, jsd, tile
-  real, dimension(xmap%grids(1)%im,xmap%grids(1)%jm,xmap%grids(1)%ntile) :: dg
-  real, dimension(xmap%grids(1)%im,xmap%grids(1)%jm,xmap%grids(1)%ntile) :: grad_x, grad_y
-  real, dimension(xmap%grids(1)%isd_me:xmap%grids(1)%ied_me,xmap%grids(1)%jsd_me:xmap%grids(1)%jed_me) :: tmp
-  real, dimension(xmap%grids(1)%is_me:xmap%grids(1)%ie_me,xmap%grids(1)%js_me:xmap%grids(1)%je_me) :: tmpx, tmpy
+  !: NOTE: halo size is assumed to be 1 in setup_xmap
+  real, dimension(0:isize+1, 0:jsize+1, lsize) :: tmp
+  real, dimension(isize,     jsize,     lsize) :: tmpx, tmpy
+  real, dimension(isize,     jsize,     lsize) :: d_bar_max, d_bar_min
+  real, dimension(isize,     jsize,     lsize) :: d_max, d_min
+  real                            :: d_bar
+  integer                         :: i, is, ie, im, j, js, je, jm, ii, jj
+  integer                         :: p, l, ioff, joff, isd, jsd
   type (grid_type), pointer, save :: grid1 =>NULL()
-  integer                         :: send_size, recv_size
+  type (comm_type), pointer, save :: comm  =>NULL()
+  integer                         :: buffer_pos, msgsize, from_pe, to_pe, pos, n
+  integer                         :: ibegin, count, istart, iend
+  real                            :: recv_buffer(xmap%put1%recvsize*lsize*3)
+  real                            :: send_buffer(xmap%put1%sendsize*lsize*3)
+  real                            :: unpack_buffer(xmap%put1%recvsize*3)
 
+  real, dimension(isize, jsize)   :: d
+  real, dimension(xsize)          :: x
+  pointer(ptr_d, d)
+  pointer(ptr_x, x)
+
+  call mpp_clock_begin(id_put_1_to_xgrid_order_1)
   grid1 => xmap%grids(1)
+
   is = grid1%is_me;   ie = grid1%ie_me
   js = grid1%js_me;   je = grid1%je_me
   isd = grid1%isd_me
   jsd = grid1%jsd_me
-  im = ie-is+1;       jm = je-js+1
-  tile = grid1%tile_me
-  dg(is:ie,js:je,tile) = d
 
-  ! first get the halo of data
-  tmp = 0
-  tmp(is:ie,js:je) = d(:,:)
+  tmp = LARGE_NUMBER
+  do l = 1, lsize
+     ptr_d = d_addrs(l)
+     tmp(1:isize,1:jsize,l) = d(:,:)
+  enddo
 
   if(grid1%is_latlon) then
      call mpp_update_domains(tmp,grid1%domain_with_halo)
-     grad_y(is:ie,js:je,tile) = grad_merid_latlon(tmp, grid1%lat, is, ie, js, je, isd, jsd)
-     grad_x(is:ie,js:je,tile) = grad_zonal_latlon(tmp, grid1%lon, grid1%lat, is, ie, js, je, isd, jsd)
+     do l = 1, lsize
+        tmpy(:,:,l) = grad_merid_latlon(tmp(:,:,l), grid1%lat, is, ie, js, je, isd, jsd)
+        tmpx(:,:,l) = grad_zonal_latlon(tmp(:,:,l), grid1%lon, grid1%lat, is, ie, js, je, isd, jsd)
+     enddo
   else
      call mpp_update_domains(tmp,grid1%domain)
-     call gradient_cubic(tmp, xmap%grids(1)%box%dx, xmap%grids(1)%box%dy, xmap%grids(1)%box%area,      &
-                         xmap%grids(1)%box%edge_w, xmap%grids(1)%box%edge_e, xmap%grids(1)%box%edge_s, &
-                         xmap%grids(1)%box%edge_n, xmap%grids(1)%box%en1, xmap%grids(1)%box%en2,       &
-                         xmap%grids(1)%box%vlon, xmap%grids(1)%box%vlat, tmpx, tmpy,                   &
-                         is==1, ie==grid1%im, js==1, je==grid1%jm)
-     grad_x(is:ie,js:je,tile) = tmpx
-     grad_y(is:ie,js:je,tile) = tmpy    
+     do l = 1, lsize
+        call gradient_cubic(tmp(:,:,l), xmap%grids(1)%box%dx, xmap%grids(1)%box%dy, xmap%grids(1)%box%area, &
+                            xmap%grids(1)%box%edge_w, xmap%grids(1)%box%edge_e, xmap%grids(1)%box%edge_s,   &
+                            xmap%grids(1)%box%edge_n, xmap%grids(1)%box%en1, xmap%grids(1)%box%en2,         &
+                            xmap%grids(1)%box%vlon, xmap%grids(1)%box%vlat, tmpx(:,:,l), tmpy(:,:,l),       &
+                            is==1, ie==grid1%im, js==1, je==grid1%jm)
+     enddo
   end if     
 
-  send_size = 3*im*jm
-  ! if size of send_buffer is not enough, need to reallocate send_buffer
-  if(size(xmap%send_buffer(:)) .lt. send_size) then
-     deallocate(xmap%send_buffer)
-     allocate(xmap%send_buffer(send_size))
+  !--- pre-post receiving
+  buffer_pos = 0
+  comm => xmap%put1
+  do p = 1, comm%nrecv
+     msgsize = comm%recv(p)%count*lsize
+     if(.NOT. monotonic_exchange) msgsize = msgsize*3
+     from_pe = comm%recv(p)%pe
+     call mpp_recv(recv_buffer(buffer_pos+1), glen=msgsize, from_pe = from_pe, block=.false., tag=COMM_TAG_8)
+     buffer_pos = buffer_pos + msgsize
+  enddo
+
+  !--- compute d_bar_max and d_bar_min.
+  if(monotonic_exchange) then
+     do l = 1, lsize
+        do j = 1, jsize
+           do i = 1, isize
+              d_bar_max(i,j,l) = -LARGE_NUMBER
+              d_bar_min(i,j,l) =  LARGE_NUMBER
+              d_max    (i,j,l) = -LARGE_NUMBER
+              d_min    (i,j,l) =  LARGE_NUMBER          
+              do jj = j-1, j+1
+                 do ii = i-1, i+1
+                    if(tmp(i,j,l) .NE. LARGE_NUMBER) then
+                       if(tmp(i,j,l) > d_bar_max(i,j,l)) d_bar_max(i,j,l) = tmp(i,j,l)
+                       if(tmp(i,j,l) < d_bar_min(i,j,l)) d_bar_min(i,j,l) = tmp(i,j,l)
+                    endif
+                 enddo
+              enddo
+           enddo
+        enddo
+     enddo
   endif
 
-  l = 0
-  do j=js,je; do i=is,ie
-     l = l + 1
-     xmap%send_buffer(l) =  tmp(i,j)
-  end do; end do
+  !--- send the data
+  buffer_pos = 0
+  if(monotonic_exchange) then
+     pos = 0
+     do p = 1, comm%nsend
+        msgsize = comm%send(p)%count*lsize
+        to_pe = comm%send(p)%pe
+        do l = 1, lsize
+           ptr_d = d_addrs(l)
+           do n = 1, comm%send(p)%count
+              pos = pos + 1
+              i = comm%send(p)%i(n)
+              j = comm%send(p)%j(n)
+              send_buffer(pos) = d(i,j) + tmpy(i,j,l)*comm%send(p)%dj(n) + tmpx(i,j,l)*comm%send(p)%di(n)
+              if(send_buffer(pos) > d_max(i,j,l)) d_max(i,j,l) = send_buffer(pos)
+              if(send_buffer(pos) < d_min(i,j,l)) d_min(i,j,l) = send_buffer(pos)              
+           enddo
+        enddo
+     enddo
 
-  do j=js,je; do i=is,ie
-     l = l + 1
-     xmap%send_buffer(l) = grad_y(i,j,tile)
-  end do; end do
+     do p = 1, comm%nsend
+        msgsize = comm%send(p)%count*lsize
+        to_pe = comm%send(p)%pe
+        pos = buffer_pos
+        do l = 1, lsize
+           ptr_d = d_addrs(l)
+           do n = 1, comm%send(p)%count
+              pos = pos + 1
+              i = comm%send(p)%i(n)
+              j = comm%send(p)%j(n)           
+              d_bar = d(i,j)
+              if( d_max(i,j,l) > d_bar_max(i,j,l) ) then
+                 send_buffer(pos) = d_bar + ((send_buffer(pos)-d_bar)/(d_max(i,j,l)-d_bar)) * (d_bar_max(i,j,l)-d_bar)
+              else if( d_min(i,j,l) < d_bar_min(i,j,l) ) then
+                 send_buffer(pos) = d_bar + ((send_buffer(pos)-d_bar)/(d_min(i,j,l)-d_bar)) * (d_bar_min(i,j,l)-d_bar)
+              endif
+           enddo
+        enddo        
+        call mpp_send(send_buffer(buffer_pos+1), plen=msgsize, to_pe = to_pe, tag=COMM_TAG_8 )
+        buffer_pos = buffer_pos + msgsize
+     enddo
+  else
+     do p = 1, comm%nsend
+        msgsize = comm%send(p)%count*lsize*3
+        to_pe = comm%send(p)%pe
+        pos = buffer_pos
+        do l = 1, lsize
+           ptr_d = d_addrs(l)
+           do n = 1, comm%send(p)%count
+              pos = pos + 3
+              i = comm%send(p)%i(n)
+              j = comm%send(p)%j(n)
+              send_buffer(pos-2) = d(i,j)
+              send_buffer(pos-1) = tmpy(i,j,l)
+              send_buffer(pos  ) = tmpx(i,j,l)
+           enddo
+        enddo
+        call mpp_send(send_buffer(buffer_pos+1), plen=msgsize, to_pe = to_pe, tag=COMM_TAG_8 )
+        buffer_pos = buffer_pos + msgsize
+     enddo
+  endif
 
-  do j=js,je; do i=is,ie
-     l = l + 1
-     xmap%send_buffer(l) = grad_x(i,j,tile)
-  end do; end do
+  call mpp_sync_self(check=EVENT_RECV)
 
-  do p=0,xmap%npes-1
-     if (xmap%your2my1(p)) then
-        ! Force use of "scalar", integer pointer mpp interface.
-        call mpp_send(xmap%send_buffer(1), plen=send_size, to_pe=p+xmap%root_pe);
-     end if
-  end do
+  !--- unpack the buffer
+  if(monotonic_exchange) then
+     if( lsize == 1) then
+        ptr_x = x_addrs(1)
+        do l=1,xmap%size_put1
+           pos = xmap%x1_put(l)%pos
+           x(l) =  recv_buffer(pos)
+        end do
+     else
+        do l = 1, lsize
+           ptr_x = x_addrs(l)
+           pos = 0
+           ibegin = 1
+           do p = 1, comm%nsend
+              count = comm%send(p)%count
+              istart = ibegin + (l-1)*count
+              iend = istart + count - 1
+              do n = istart, iend
+                 pos = pos + 1
+                 unpack_buffer(pos) = recv_buffer(n)
+              enddo
+              ibegin = ibegin + lsize*count 
+           enddo
+           do i=1,xmap%size_put1
+              pos = xmap%x1_put(i)%pos
+              x(i) =  unpack_buffer(pos)
+           end do
+        enddo
+     endif
+  else
+     if( lsize == 1) then
+        ptr_x = x_addrs(1)
+        do l=1,xmap%size_put1
+           pos = xmap%x1_put(l)%pos
+           x(l) = recv_buffer(3*pos-2) + recv_buffer(3*pos-1)*xmap%x1_put(l)%dj + recv_buffer(3*pos)*xmap%x1_put(l)%di
+        end do
+     else
+        do l = 1, lsize
+           ptr_x = x_addrs(l)
+           pos = 0
+           ibegin = 1
+           do p = 1, comm%nrecv
+              count = comm%recv(p)%count*3
+              istart = ibegin + (l-1)*count
+              iend = istart + count - 1
+              do n = istart, iend
+                 pos = pos + 1
+                 unpack_buffer(pos) = recv_buffer(n)
+              enddo
+              ibegin = ibegin + lsize*count 
+           enddo
+           do i=1,xmap%size_put1
+              pos = xmap%x1_put(i)%pos
+              x(i) = unpack_buffer(3*pos-2) + unpack_buffer(3*pos-1)*xmap%x1_put(i)%dj + unpack_buffer(3*pos)*xmap%x1_put(i)%di
+           end do
+        enddo
+     endif
+  endif
 
-  do p=0,xmap%npes-1
-     if (xmap%your1my2(p)) then
-        is = grid1%is(p);  ie = grid1%ie(p)
-        js = grid1%js(p);  je = grid1%je(p)
-        tile = grid1%tile(p)
-        recv_size = 3*(ie-is+1)*(je-js+1)
-        if(size(xmap%recv_buffer(:)) .lt. recv_size) then
-           deallocate(xmap%recv_buffer)
-           allocate(xmap%recv_buffer(recv_size))
-        endif
-        call mpp_recv(xmap%recv_buffer(1), glen = recv_size, from_pe = p+xmap%root_pe)
-        l = 0
-        do j = js,je; do i=is,ie
-           l = l + 1
-           dg(i,j,tile) = xmap%recv_buffer(l)
-        enddo; enddo
-        do j = js,je; do i=is,ie
-           l = l + 1
-           grad_y(i,j,tile) = xmap%recv_buffer(l)
-        enddo; enddo
-
-        do j = js,je; do i=is,ie
-           l = l + 1
-           grad_x(i,j,tile) = xmap%recv_buffer(l)
-        enddo; enddo
-     end if
-  end do
-
-  do l=1,xmap%size
-     tile = xmap%x1(l)%tile
-     x(l) =  dg(xmap%x1(l)%i,xmap%x1(l)%j,tile)
-     x(l) = x(l) + grad_y(xmap%x1(l)%i,xmap%x1(l)%j,tile ) *xmap%x1(l)%dj
-     x(l) = x(l) + grad_x(xmap%x1(l)%i,xmap%x1(l)%j,tile ) *xmap%x1(l)%di
-  end do
-
-  call mpp_sync_self() ! originally called before calling mpp_send
+  call mpp_sync_self()
+  call mpp_clock_end(id_put_1_to_xgrid_order_2)
 
 end subroutine put_1_to_xgrid_order_2
 
 !#######################################################################
 
-subroutine get_1_from_xgrid(d, x, xmap)
-real, dimension(:,:), intent(out)   :: d
-real, dimension(:  ), intent(in )   :: x
-type (xmap_type),     intent(inout) :: xmap
+subroutine get_1_from_xgrid(d_addrs, x_addrs, xmap, isize, jsize, xsize, lsize)
+  integer(LONG_KIND), dimension(:), intent(in) :: d_addrs
+  integer(LONG_KIND), dimension(:), intent(in) :: x_addrs
+  type (xmap_type),              intent(inout) :: xmap
+  integer,                          intent(in) :: isize, jsize, xsize, lsize
 
-  real, dimension(xmap%grids(1)%ni,xmap%grids(1)%nj,xmap%grids(1)%ntile), target :: dg
-  integer :: i, is, ie, im, j, js, je, jm, l, le, p, tile
-  real             , pointer, save :: dgp =>NULL()
-  type (grid_type) , pointer, save :: grid1 =>NULL()
+  real, dimension(xmap%size), target :: dg(xmap%size, lsize)
+  integer                            :: i, j, l, p, n
+  integer                            :: msgsize, buffer_pos, pos
+  integer                            :: istart, iend, count
+  real              , pointer, save  :: dgp =>NULL()
+  type  (grid_type) , pointer, save  :: grid1 =>NULL()
+  type  (comm_type) , pointer, save  :: comm  =>NULL()
+  type(overlap_type), pointer, save  :: send => NULL()
+  type(overlap_type), pointer, save  :: recv => NULL()
+  real                               :: recv_buffer(xmap%get1%recvsize*lsize*3)
+  real                               :: send_buffer(xmap%get1%sendsize*lsize*3)
+  real                               :: unpack_buffer(xmap%get1%recvsize*3)
+  real                               :: d(isize,jsize)
+  real, dimension(xsize)             :: x
+  pointer(ptr_d, d)
+  pointer(ptr_x, x)
 
+  call mpp_clock_begin(id_get_1_from_xgrid)
+
+  comm => xmap%get1
   grid1 => xmap%grids(1)
 
-  dg = 0.0;
-  do l=1,xmap%size
-    dgp => dg(xmap%x1(l)%i,xmap%x1(l)%j,xmap%x1(l)%tile)
-    dgp =  dgp + xmap%x1(l)%area*x(l)
-  end do
+  buffer_pos = 0
+  do p = 1, comm%nrecv
+     recv => comm%recv(p)
+     msgsize = recv%count*lsize
+     call mpp_recv(recv_buffer(buffer_pos+1), glen=msgsize, from_pe = recv%pe, block=.false., tag=COMM_TAG_9)
+     buffer_pos = buffer_pos + msgsize
+  enddo
 
-  le = 0;
-  call mpp_sync_self()          !Balaji
-  do p=0,xmap%npes-1
-    if (xmap%your1my2(p)) then
-      l = le + 1;
-      is = grid1%is(p); ie = grid1%ie(p);
-      js = grid1%js(p); je = grid1%je(p);
-      tile = grid1%tile(p)
-      do j=js,je; do i=is,ie;
-        le = le + 1
-        xmap%send_buffer(le) = dg(i,j,tile)
-      end do; end do;
-      ! Force use of "scalar", integer pointer mpp interface.
-      call mpp_send(xmap%send_buffer(l), plen=le-l+1, to_pe=p+xmap%root_pe);
-    end if
-  end do
-  d = dg(grid1%is_me:grid1%ie_me,grid1%js_me:grid1%je_me,grid1%tile_me);
-  im = grid1%ie_me-grid1%is_me+1;
-  jm = grid1%je_me-grid1%js_me+1;
-  do p=0,xmap%npes-1
-    if (xmap%your2my1(p)) d = d + get_side_1(p+xmap%root_pe,im,jm)
-  end do
+  dg = 0.0;
+  do l = 1, lsize
+     ptr_x = x_addrs(l)
+     do i=1,xmap%size
+        dgp => dg(xmap%x1(i)%pos,l)
+        dgp =  dgp + xmap%x1(i)%area*x(i)
+     enddo
+  enddo
+
+  !--- send the data
+  buffer_pos = 0
+  istart = 1
+  do p = 1, comm%nsend
+     send => comm%send(p)
+     msgsize = send%count*lsize
+     pos = buffer_pos
+     iend = istart + send%count - 1
+     do l = 1, lsize
+        do n = istart, iend
+           pos = pos + 1
+           send_buffer(pos) = dg(n,l)
+        enddo
+     enddo
+     call mpp_send(send_buffer(buffer_pos+1), plen=msgsize, to_pe = send%pe, tag=COMM_TAG_9 )
+     buffer_pos = buffer_pos + msgsize
+     istart = iend + 1
+  enddo
+
+  call mpp_sync_self(check=EVENT_RECV)
+
+  !--- unpack the buffer
+  do l = 1, lsize
+     ptr_d = d_addrs(l)
+     d = 0
+  enddo
+  !--- To bitwise reproduce old results, first copy the data onto its own pe.
+  pos = 0
+
+  do p = 1, comm%nrecv
+     recv => comm%recv(p)
+     count = recv%count
+     if( recv%pe == xmap%me ) then
+        do l = 1, lsize
+           ptr_d = d_addrs(l)
+           do n = 1,count
+              i = recv%i(n)
+              j = recv%j(n)
+              pos = pos + 1
+              d(i,j) = recv_buffer(pos) 
+           enddo
+        enddo
+        exit
+     endif
+     pos = pos + count*lsize
+  enddo
+
+  pos = 0
+  do p = 1, comm%nrecv
+     recv => comm%recv(p)
+     if( recv%pe == xmap%me ) then
+        pos = pos + recv%count*lsize
+        cycle
+     endif
+     do l = 1, lsize
+        ptr_d = d_addrs(l)
+        do n = 1, recv%count
+           i = recv%i(n)
+           j = recv%j(n)
+           pos = pos + 1
+           d(i,j) = d(i,j) + recv_buffer(pos) 
+        enddo
+     enddo
+  enddo
+
   !
   ! normalize with side 1 grid cell areas
   !
-  d = d * grid1%area_inv
+  do l = 1, lsize
+     ptr_d = d_addrs(l)
+     d = d * grid1%area_inv
+  enddo
+  call mpp_sync_self()
+  call mpp_clock_end(id_get_1_from_xgrid)
 
-!  call mpp_sync_self
 end subroutine get_1_from_xgrid
 
 !#######################################################################
 
-subroutine get_1_from_xgrid_repro(d, x, xmap)
-type (xmap_type), intent(inout)                  :: xmap
-real, dimension(xmap%grids(1)%is_me:xmap%grids(1)%ie_me, &
-                xmap%grids(1)%js_me:xmap%grids(1)%je_me), intent(out) :: d
-real, dimension(:  ), intent(in ) :: x
+subroutine get_1_from_xgrid_repro(d_addrs, x_addrs, xmap, xsize, lsize)
+  integer(LONG_KIND), dimension(:), intent(in) :: d_addrs
+  integer(LONG_KIND), dimension(:), intent(in) :: x_addrs
+  type (xmap_type),              intent(inout) :: xmap
+  integer,                          intent(in) :: xsize, lsize
 
   real,    dimension(:), allocatable :: x_psum
   integer, dimension(:), allocatable :: pe_psum
-  integer :: l1, l2, l3, g, i, j, k, p
-  integer, dimension(0:xmap%npes-1) :: pl
-  type (grid_type), pointer, save :: grid =>NULL()
+  integer                            :: l1, l2, l3, g, i, j, k, p, l
+  integer,  dimension(0:xmap%npes-1) :: pl
+  type (grid_type),    pointer, save :: grid =>NULL()
+  real                               :: recv_buffer(xmap%recv_count_repro_tot*lsize)
+  real                               :: send_buffer(xmap%send_count_repro_tot*lsize)
+  real                               :: unpack_buffer(xmap%get1%recvsize)
+  real                               :: d(xmap%grids(1)%is_me:xmap%grids(1)%ie_me, &
+                                          xmap%grids(1)%js_me:xmap%grids(1)%je_me)
+  real, dimension(xsize)             :: x
+  pointer(ptr_d, d)
+  pointer(ptr_x, x)
 
-  allocate ( x_psum  (sum(xmap%send_count_repro)) )
-  allocate ( pe_psum (sum(xmap%send_count_repro)) )
-  x_psum = 0.0
-  l1 = 0 ! index into partition summed exchange grid variable
-  l2 = 0 ! index into exchange grid variable
-  do g=2,size(xmap%grids(:))
-    do l3=1,xmap%grids(g)%size ! index into this side 2 grid's patterns
-      l1 = l1 + 1
-      do k=1,xmap%grids(g)%km
-        i = xmap%grids(g)%x(l3)%i2
-        j = xmap%grids(g)%x(l3)%j2
-        if (xmap%grids(g)%frac_area(i,j,k)/=0.0) then
-          l2 = l2 + 1
-          x_psum (l1) = x_psum(l1) + xmap%x1(l2)%area * x(l2)
-          pe_psum(l1) = xmap%grids(g)%x(l3)%pe
-        end if
-      end do
-    end do
-  end do
-  l2 = 0;
-  call mpp_sync_self()          !Balaji
-  do p=0,xmap%npes-1
-    l1 = l2 + 1
-    l2 = l2 + xmap%send_count_repro(p)
-    if (xmap%send_count_repro(p)>0) then ! can send to myself
-      xmap%send_buffer(l1:l2) = pack(x_psum, pe_psum==p+xmap%root_pe)
-      ! Force use of "scalar", integer pointer mpp interface.
-      call mpp_send(xmap%send_buffer(l1), plen=l2-l1+1, to_pe=p+xmap%root_pe);
-    end if
-  end do
-  deallocate ( x_psum, pe_psum)
-  allocate ( x_psum (sum(xmap%recv_count_repro)) )
+  !--- pre-post receiving
   l2 = 0;
   do p=0,xmap%npes-1
     l1 = l2 + 1
-    l2 = l2 + xmap%recv_count_repro(p)
+    l2 = l2 + xmap%recv_count_repro(p)*lsize
     if (xmap%recv_count_repro(p)>0) then ! can receive from myself
       ! Force use of "scalar", integer pointer mpp interface.
-      call mpp_recv(x_psum(l1), glen=l2-l1+1, from_pe=p+xmap%root_pe);
+      call mpp_recv(recv_buffer(l1), glen=l2-l1+1, from_pe=p+xmap%root_pe, block=.false., tag=COMM_TAG_10);
       pl(p) = l1
     end if
   end do
-  d = 0.0
-  do g=2,size(xmap%grids(:))
-    grid => xmap%grids(g)
-    do l3=1,grid%size_repro ! index into side1 grid's patterns
-      i = grid%x_repro(l3)%i1
-      j = grid%x_repro(l3)%j1
-      d(i,j) = d(i,j) + x_psum(pl(grid%x_repro(l3)%pe-xmap%root_pe))
-      pl(grid%x_repro(l3)%pe-xmap%root_pe) = pl(grid%x_repro(l3)%pe-xmap%root_pe) + 1
-    end do
-  end do
-  deallocate ( x_psum )
-  !
-  ! normalize with side 1 grid cell areas
-  !
-  d = d * xmap%grids(1)%area_inv
 
-!  call mpp_sync_self
+  allocate ( x_psum  (xmap%send_count_repro_tot*lsize) )
+  allocate ( pe_psum (xmap%send_count_repro_tot*lsize) )
+  x_psum = 0.0
+  l1 = 0 ! index into partition summed exchange grid variable
+  do l = 1, lsize
+     l2 = 0 ! index into exchange grid variable
+     ptr_x = x_addrs(l)
+     do g=2,size(xmap%grids(:))
+        do l3=1,xmap%grids(g)%size ! index into this side 2 grid's patterns
+           l1 = l1 + 1
+           do k=1,xmap%grids(g)%km
+              i = xmap%grids(g)%x(l3)%i2
+              j = xmap%grids(g)%x(l3)%j2
+              if (xmap%grids(g)%frac_area(i,j,k)/=0.0) then
+                 l2 = l2 + 1
+                 x_psum (l1) = x_psum(l1) + xmap%x1(l2)%area * x(l2)
+                 pe_psum(l1) = xmap%grids(g)%x(l3)%pe
+              end if
+           end do
+        end do
+     end do
+  enddo
+  l2 = 0;
+
+  do p=0,xmap%npes-1
+    l1 = l2 + 1
+    l2 = l2 + xmap%send_count_repro(p)*lsize
+    if (xmap%send_count_repro(p)>0) then ! can send to myself
+      send_buffer(l1:l2) = pack(x_psum, pe_psum==p+xmap%root_pe)
+      ! Force use of "scalar", integer pointer mpp interface.
+      call mpp_send(send_buffer(l1), plen=l2-l1+1, to_pe=p+xmap%root_pe, tag=COMM_TAG_10);
+    end if
+  end do
+  deallocate ( x_psum, pe_psum)
+
+  do l = 1, lsize
+     ptr_d = d_addrs(l)
+     d = 0
+  enddo
+
+  call mpp_sync_self(check=EVENT_RECV)
+
+
+  do l = 1, lsize  
+     ptr_d = d_addrs(l)
+     do g=2,size(xmap%grids(:))
+        grid => xmap%grids(g)
+        do l3=1,grid%size_repro ! index into side1 grid's patterns
+           i = grid%x_repro(l3)%i1
+           j = grid%x_repro(l3)%j1
+           p = grid%x_repro(l3)%pe-xmap%root_pe
+           d(i,j) = d(i,j) + recv_buffer(pl(p))
+           pl(p) = pl(p) + 1
+        end do
+     end do
+     ! normalize with side 1 grid cell areas
+     d = d * xmap%grids(1)%area_inv
+  enddo
+
+  call mpp_sync_self()       
+
 end subroutine get_1_from_xgrid_repro
 
 !#######################################################################
@@ -1834,20 +3344,26 @@ integer, intent(in), optional :: remap_method
   type (grid_type), pointer, save      :: grid1 =>NULL(), grid2 =>NULL()
 
   grid1 => xmap%grids(1)
-  conservation_check_side1(1) = mpp_global_sum(grid1%domain, grid1%area*d)
-  conservation_check_side1(2) = 0.0
+  conservation_check_side1 = 0.0
+  if(grid1%tile_me .NE. tile_nest) conservation_check_side1(1) = sum(grid1%area*d)
+
   call put_to_xgrid (d, grid1%id, x_over, xmap, remap_method)    ! put from side 1
   do g=2,size(xmap%grids(:))
     grid2 => xmap%grids(g)
-    allocate (d2 (grid2%is_me:grid2%ie_me, grid2%js_me:grid2%je_me,  grid2%km) )
+    if(grid2%on_this_pe) then
+      allocate (d2 (grid2%is_me:grid2%ie_me, grid2%js_me:grid2%je_me,  grid2%km) )
+    endif
     call get_from_xgrid (d2, grid2%id, x_over, xmap) ! get onto side 2's
-    conservation_check_side1(2) = conservation_check_side1(2) + &
-      mpp_global_sum( grid2%domain, grid2%area * sum(grid2%frac_area*d2,DIM=3) )
+    if(grid2%on_this_pe) then
+       conservation_check_side1(2) = conservation_check_side1(2) + sum( grid2%area * sum(grid2%frac_area*d2,DIM=3) )
+    endif
     call put_to_xgrid (d2, grid2%id, x_back, xmap) ! put from side 2's
-    deallocate (d2)
+    if(allocated(d2))deallocate (d2)
   end do
   call get_from_xgrid(d1, grid1%id, x_back, xmap)  ! get onto side 1
-  conservation_check_side1(3) = mpp_global_sum(grid1%domain, grid1%area*d1)
+  if(grid1%tile_me .NE. tile_nest) conservation_check_side1(3) = sum(grid1%area*d1)
+  call mpp_sum(conservation_check_side1,3)
+
 end function conservation_check_side1
 ! </FUNCTION>
 
@@ -1878,11 +3394,13 @@ integer, intent(in), optional :: remap_method
   type (grid_type), pointer, save     :: grid1 =>NULL(), grid2 =>NULL()
 
   grid1 => xmap%grids(1)
+  conservation_check_side2 = 0.0
   do g = 2,size(xmap%grids(:))
     grid2 => xmap%grids(g)
     if (grid_id==grid2%id) then
-      conservation_check_side2(1) = mpp_global_sum( grid2%domain, &
-                                     grid2%area * sum(grid2%frac_area*d,DIM=3) )
+      if(grid2%on_this_pe) then
+         conservation_check_side2(1) = sum( grid2%area * sum(grid2%frac_area*d,DIM=3) )
+      endif
       call put_to_xgrid(d, grid_id, x_over, xmap)  ! put from this side 2
     else
       call put_to_xgrid(0 * grid2%frac_area, grid2%id, x_over, xmap) ! zero rest
@@ -1891,22 +3409,23 @@ integer, intent(in), optional :: remap_method
 
   allocate ( d1(size(grid1%area,1),size(grid1%area,2)) )
   call get_from_xgrid(d1, grid1%id, x_over, xmap)  ! get onto side 1
-  conservation_check_side2(2) = mpp_global_sum(grid1%domain, grid1%area*d1)
+  if(grid1%tile_me .NE. tile_nest)conservation_check_side2(2) = sum(grid1%area*d1)
   call put_to_xgrid(d1,  grid1%id, x_back, xmap,remap_method)   ! put from side 1
   deallocate ( d1 )
 
   conservation_check_side2(3) = 0.0;
   do g = 2,size(xmap%grids(:))
     grid2 => xmap%grids(g)
-    allocate ( d2 ( size(grid2%frac_area, 1), size(grid2%frac_area, 2),  &
-                                              size(grid2%frac_area, 3) ) )
+    if(grid2%on_this_pe) then
+       allocate ( d2 ( size(grid2%frac_area, 1), size(grid2%frac_area, 2),  &
+                                                 size(grid2%frac_area, 3) ) )
+    endif
     call get_from_xgrid(d2,  grid2%id, x_back, xmap) ! get onto side 2's
-    conservation_check_side2(3) = conservation_check_side2(3)                  &
-                                 +mpp_global_sum( grid2%domain,                &
-                                    grid2%area * sum(grid2%frac_area*d2,DIM=3) )
-    deallocate ( d2 )
+    conservation_check_side2(3) = conservation_check_side2(3) + sum( grid2%area * sum(grid2%frac_area*d2,DIM=3) )
+    if(allocated(d2) )deallocate ( d2 )
   end do
-  
+  call mpp_sum(conservation_check_side2, 3)  
+
 end function conservation_check_side2
 ! </FUNCTION>
 
@@ -2271,34 +3790,46 @@ end subroutine stock_print
 
 
 !###############################################################################
-function is_lat_lon(lon, lat)
-  real, dimension(:,:), intent(in) :: lon, lat
-  logical                          :: is_lat_lon
-  integer                          :: i, j, nlon, nlat
+ function is_lat_lon(lon, lat)
+    real, dimension(:,:), intent(in) :: lon, lat
+    logical                          :: is_lat_lon
+    integer                          :: i, j, nlon, nlat, num
 
-  is_lat_lon = .true.
-  nlon = size(lon,1)
-  nlat = size(lon,2)
-  do j = 1, nlat
-     do i = 2, nlon
-        if(lat(i,j) .NE. lat(1,j)) then
-           is_lat_lon = .false.
-           return
-        end if
-     end do
-  end do
+    is_lat_lon = .true.
+    nlon = size(lon,1)
+    nlat = size(lon,2)
+    LOOP_LAT: do j = 1, nlat
+       do i = 2, nlon
+          if(lat(i,j) .NE. lat(1,j)) then
+             is_lat_lon = .false.
+             exit LOOP_LAT
+          end if
+       end do
+    end do LOOP_LAT
 
-  do i = 1, nlon
-     do j = 2, nlat
-        if(lon(i,j) .NE. lon(i,1)) then
-           is_lat_lon = .false.
-           return
-        end if
-     end do
-  end do
+    if(is_lat_lon) then
+       LOOP_LON: do i = 1, nlon
+          do j = 2, nlat
+             if(lon(i,j) .NE. lon(i,1)) then
+                is_lat_lon = .false.
+                exit LOOP_LON
+             end if
+          end do
+       end do LOOP_LON
+    end if
 
-  return
-end function is_lat_lon
+    num = 0
+    if(is_lat_lon) num = 1
+    call mpp_min(num)
+    if(num == 1) then
+       is_lat_lon = .true.
+    else
+       is_lat_lon = .false.
+    end if
+
+    return
+ end function is_lat_lon
+
 
 end module xgrid_mod
 
@@ -2306,7 +3837,6 @@ end module xgrid_mod
 ! <INFO>
 
 !   <REFERENCE>   
-!      A <LINK SRC="http://www.gfdl.noaa.gov/~mw/docs/grid_coupling.html"> guide </LINK>to grid coupling in FMS.
 !   </REFERENCE>
 !   <REFERENCE>
 !      A simple xgrid <LINK SRC="http://www.gfdl.gov/~mw/docs/xgrid_example.f90.txt"> example. </LINK>
@@ -2317,363 +3847,6 @@ end module xgrid_mod
 
 !======================================================================================
 ! standalone unit test
-
-#ifdef TEST_XGRID
-! Now only test some simple test, will test cubic grid mosaic in the future.
-
-program xgrid_test
-
-  use mpp_mod,         only : mpp_pe, mpp_npes, mpp_error, FATAL
-  use mpp_domains_mod, only : mpp_define_domains, mpp_define_layout, mpp_domains_exit
-  use mpp_domains_mod, only : mpp_get_compute_domain, domain2d, mpp_domains_init
-  use mpp_domains_mod, only : mpp_define_mosaic_pelist, mpp_define_mosaic, mpp_global_sum
-  use mpp_domains_mod, only : mpp_get_data_domain, mpp_get_global_domain, mpp_update_domains
-  use mpp_io_mod,      only : mpp_open, MPP_RDONLY,MPP_NETCDF, MPP_MULTI, MPP_SINGLE, mpp_close
-  use mpp_io_mod,      only : mpp_get_att_value
-  use fms_mod,         only : fms_init, file_exist, field_exist, field_size, open_namelist_file
-  use fms_mod,         only : check_nml_error, close_file, read_data, stdout, fms_end
-  use fms_mod,         only : get_mosaic_tile_grid, write_data, set_domain
-  use fms_io_mod,      only : fms_io_exit
-  use constants_mod,   only : DEG_TO_RAD
-  use xgrid_mod,       only : xgrid_init, setup_xmap, put_to_xgrid, get_from_xgrid
-  use xgrid_mod,       only : xmap_type, xgrid_count, grid_box_type, SECOND_ORDER
-  use xgrid_mod,       only : get_xmap_grid_area
-  use mosaic_mod,      only : get_mosaic_ntiles, get_mosaic_grid_sizes
-  use mosaic_mod,      only : get_mosaic_ncontacts, get_mosaic_contact
-  use gradient_mod,    only : calc_cubic_grid_info
-
-implicit none
-
-  real, parameter :: EPSLN = 1.0e-10
-  character(len=256) :: atm_input_file  = "INPUT/atmos_input.nc"
-  character(len=256) :: atm_output_file = "atmos_output.nc"
-  character(len=256) :: lnd_output_file = "land_output.nc"
-  character(len=256) :: ocn_output_file = "ocean_output.nc"
-  character(len=256) :: atm_field_name  = "none"
-
-  character(len=256) :: runoff_input_file  = "INPUT/land_runoff.nc"
-  character(len=256) :: runoff_output_file  = "land_runoff.nc"
-  character(len=256) :: runoff_field_name  = "none"
-
-
-  namelist /xgrid_test_nml/ atm_input_file, atm_field_name, runoff_input_file, runoff_field_name
-
-  integer              :: remap_method
-  integer              :: pe, npes, ierr, nml_unit, io, n
-  integer              :: siz(4), ntile_lnd, ntile_atm, ntile_ocn, ncontact
-  integer, allocatable :: layout(:,:), global_indices(:,:)
-  integer, allocatable :: atm_nx(:), atm_ny(:), ocn_nx(:), ocn_ny(:), lnd_nx(:), lnd_ny(:)
-  integer, allocatable :: pe_start(:), pe_end(:), dummy(:)
-  integer, allocatable :: istart1(:), iend1(:), jstart1(:), jend1(:), tile1(:)
-  integer, allocatable :: istart2(:), iend2(:), jstart2(:), jend2(:), tile2(:)
-  character(len=256)   :: grid_file = "INPUT/grid_spec.nc"
-  character(len=256)   :: atm_mosaic, ocn_mosaic, lnd_mosaic
-  character(len=256)   :: atm_mosaic_file, ocn_mosaic_file, lnd_mosaic_file
-  character(len=256)   :: grid_descriptor, tile_file
-  integer              :: isc_atm, iec_atm, jsc_atm, jec_atm, nxc_atm, nyc_atm
-  integer              :: isc_lnd, iec_lnd, jsc_lnd, jec_lnd
-  integer              :: isc_ocn, iec_ocn, jsc_ocn, jec_ocn
-  integer              :: isd_atm, ied_atm, jsd_atm, jed_atm
-  integer              :: unit, i, j, nxa, nya, nxgrid, nxl, nyl, out_unit
-  type(domain2d)       :: Atm_domain, Ocn_domain, Lnd_domain
-  type(xmap_type)      :: Xmap, Xmap_runoff
-  type(grid_box_type)  :: atm_grid
-  real, allocatable    :: xt(:,:), yt(:,:)  ! on T-cell data domain
-  real, allocatable    :: xc(:,:), yc(:,:)  ! on C-cell compute domain
-  real, allocatable    :: tmpx(:,:), tmpy(:,:)
-  real, allocatable    :: atm_data_in(:,:), atm_data_out(:,:)
-  real, allocatable    :: lnd_data_out(:,:,:), ocn_data_out(:,:,:)
-  real, allocatable    :: runoff_data_in(:,:), runoff_data_out(:,:,:)
-  real, allocatable    :: atm_area(:,:), lnd_area(:,:), ocn_area(:,:)
-  real, allocatable    :: x_1(:), x_2(:)
-  real                 :: sum_atm_in, sum_ocn_out, sum_lnd_out, sum_atm_out
-  real                 :: sum_runoff_in, sum_runoff_out
-  logical              :: atm_input_file_exist, runoff_input_file_exist
-
-
-  call fms_init
-  call mpp_domains_init
-  call xgrid_init(remap_method)
-
-  npes     = mpp_npes()
-  pe       = mpp_pe()
-  out_unit = stdout()
-
- if (file_exist('input.nml')) then
-   ierr=1
-   nml_unit = open_namelist_file()
-   do while (ierr /= 0)
-     read(nml_unit, nml=xgrid_test_nml, iostat=io, end=10)
-          ierr = check_nml_error(io, 'xgrid_test_nml')
-   enddo
-10 call close_file(nml_unit)
- endif
-
-  if(field_exist(grid_file, "AREA_ATM" ) ) then
-     allocate(atm_nx(1), atm_ny(1))
-     allocate(lnd_nx(1), lnd_ny(1))
-     allocate(ocn_nx(1), ocn_ny(1))
-     allocate(layout(1,2))
-     call field_size(grid_file, "AREA_ATM", siz )
-     atm_nx = siz(1); atm_ny = siz(2)
-     call field_size(grid_file, "AREA_OCN", siz )
-     ocn_nx = siz(1); ocn_ny = siz(2)
-     call field_size(grid_file, "AREA_LND", siz )
-     lnd_nx = siz(1); lnd_ny = siz(2)
-     call mpp_define_layout( (/1,atm_nx,1,atm_ny/), npes, layout(1,:)) 
-     call mpp_define_domains( (/1,atm_nx,1,atm_ny/), layout(1,:), Atm_domain)
-     call mpp_define_layout( (/1,lnd_nx,1,lnd_ny/), npes, layout(1,:)) 
-     call mpp_define_domains( (/1,lnd_nx,1,lnd_ny/), layout(1,:), Lnd_domain) 
-     call mpp_define_layout( (/1,ocn_nx,1,ocn_ny/), npes, layout(1,:))
-     call mpp_define_domains( (/1,ocn_nx,1,ocn_ny/), layout(1,:), Ocn_domain)
-     deallocate(layout)
-  else if (field_exist(grid_file, "atm_mosaic" ) ) then
-     !--- Get the mosaic data of each component model 
-     call read_data(grid_file, 'atm_mosaic', atm_mosaic)
-     call read_data(grid_file, 'lnd_mosaic', lnd_mosaic)
-     call read_data(grid_file, 'ocn_mosaic', ocn_mosaic)
-     atm_mosaic_file = 'INPUT/'//trim(atm_mosaic)//'.nc'
-     lnd_mosaic_file = 'INPUT/'//trim(lnd_mosaic)//'.nc'
-     ocn_mosaic_file = 'INPUT/'//trim(ocn_mosaic)//'.nc'
-
-     ntile_lnd = get_mosaic_ntiles(lnd_mosaic_file);
-     ntile_ocn = get_mosaic_ntiles(ocn_mosaic_file);
-     ntile_atm = get_mosaic_ntiles(atm_mosaic_file);
-     if(ntile_lnd > 1) call mpp_error(FATAL,  &
-         'xgrid_test: there is more than one tile in lnd_mosaic, which is not implemented yet')
-     if(ntile_ocn > 1) call mpp_error(FATAL,  &
-           'xgrid_test: there is more than one tile in ocn_mosaic, which is not implemented yet')
-
-     write(out_unit,*)" There is ", ntile_atm, " tiles in atmos mosaic"
-     write(out_unit,*)" There is ", ntile_lnd, " tiles in land  mosaic"
-     write(out_unit,*)" There is ", ntile_ocn, " tiles in ocean mosaic"
-     allocate(atm_nx(ntile_atm), atm_ny(ntile_atm))
-     allocate(lnd_nx(ntile_ocn), lnd_ny(ntile_lnd))
-     allocate(ocn_nx(ntile_ocn), ocn_ny(ntile_ocn))
-
-     call get_mosaic_grid_sizes(atm_mosaic_file, atm_nx, atm_ny)
-     call get_mosaic_grid_sizes(lnd_mosaic_file, lnd_nx, lnd_ny)
-     call get_mosaic_grid_sizes(ocn_mosaic_file, ocn_nx, ocn_ny)
-
-     ncontact = get_mosaic_ncontacts(atm_mosaic_file)
-     if(ncontact > 0) then
-        allocate(tile1(ncontact),   tile2(ncontact) )
-        allocate(istart1(ncontact), iend1(ncontact) )
-        allocate(jstart1(ncontact), jend1(ncontact) )
-        allocate(istart2(ncontact), iend2(ncontact) )
-        allocate(jstart2(ncontact), jend2(ncontact) )
-        call get_mosaic_contact( atm_mosaic_file, tile1, tile2, istart1, iend1, jstart1, jend1, &
-                                 istart2, iend2, jstart2, jend2)
-     endif
-
-     if(mod(npes, ntile_atm) .NE. 0 ) call mpp_error(FATAL,"npes should be divided by ntile_atm")
-
-     allocate(pe_start(ntile_atm), pe_end(ntile_atm) )
-     allocate(global_indices(4, ntile_atm), layout(2,ntile_atm))
-     call mpp_define_mosaic_pelist( atm_nx*atm_ny, pe_start, pe_end)
-     do n = 1, ntile_atm
-        global_indices(:,n) = (/1, atm_nx(n), 1, atm_ny(n)/)
-        call mpp_define_layout( global_indices(:,n), pe_end(n)-pe_start(n)+1, layout(:,n))
-     end do
- 
-     call mpp_define_mosaic(global_indices, layout, Atm_domain, ntile_atm, ncontact, tile1, tile2, &
-                            istart1, iend1, jstart1, jend1, istart2, iend2, jstart2, jend2,        &
-                            pe_start, pe_end, whalo=1, ehalo=1, shalo=1, nhalo=1)
-     deallocate( pe_start, pe_end, global_indices, layout )
-
-     allocate(pe_start(ntile_lnd), pe_end(ntile_lnd) )
-     allocate(global_indices(4,ntile_lnd), layout(2,ntile_lnd))
-     call mpp_define_mosaic_pelist( lnd_nx*lnd_ny, pe_start, pe_end)
-     do n = 1, ntile_lnd
-        global_indices(:,n) = (/1, lnd_nx(n), 1, lnd_ny(n)/)
-        call mpp_define_layout( global_indices(:,n), pe_end(n)-pe_start(n)+1, layout(:,n))
-     end do
-
-     ncontact = 0 ! no update is needed for land and ocean model.
- 
-     call mpp_define_mosaic(global_indices, layout, Lnd_domain, ntile_lnd, ncontact, dummy, dummy, &
-                            dummy, dummy, dummy, dummy, dummy, dummy, dummy, dummy, pe_start, pe_end)
-     deallocate( pe_start, pe_end, global_indices, layout )
-
-     allocate(pe_start(ntile_ocn), pe_end(ntile_ocn) )
-     allocate(global_indices(4, ntile_ocn), layout(2, ntile_ocn))
-     call mpp_define_mosaic_pelist( ocn_nx*ocn_ny, pe_start, pe_end)
-     do n = 1, ntile_ocn
-        global_indices(:,n) = (/1, ocn_nx(n), 1, ocn_ny(n)/)
-        call mpp_define_layout( global_indices(:,n), pe_end(n)-pe_start(n)+1, layout(:,n))
-     end do
- 
-     call mpp_define_mosaic(global_indices, layout, Ocn_domain, ntile_ocn, ncontact, dummy, dummy, &
-                            dummy, dummy, dummy, dummy, dummy, dummy, dummy, dummy, pe_start, pe_end)
-     deallocate( pe_start, pe_end, global_indices, layout )
-  else
-     call mpp_error(FATAL, 'test_xgrid:both AREA_ATM and atm_mosaic does not exist in '//trim(grid_file))
-  end if
-
-  deallocate(atm_nx, atm_ny, lnd_nx, lnd_ny, ocn_nx, ocn_ny)
-
-  call mpp_get_compute_domain(atm_domain, isc_atm, iec_atm, jsc_atm, jec_atm)
-  call mpp_get_compute_domain(lnd_domain, isc_lnd, iec_lnd, jsc_lnd, jec_lnd)
-  call mpp_get_compute_domain(ocn_domain, isc_ocn, iec_ocn, jsc_ocn, jec_ocn)
-  call mpp_get_data_domain(atm_domain, isd_atm, ied_atm, jsd_atm, jed_atm)
-  call mpp_get_global_domain(atm_domain, xsize = nxa, ysize = nya)
-  call mpp_get_global_domain(lnd_domain, xsize = nxl, ysize = nyl)
-  nxc_atm = iec_atm - isc_atm + 1
-  nyc_atm = jec_atm - jsc_atm + 1
-
-  ! set up atm_grid for second order conservative interpolation and atm grid is cubic grid.
-  if(remap_method == SECOND_ORDER ) then  
-     ! check if atmos mosaic is cubic grid or not */
-     call mpp_open(unit,trim(atm_mosaic_file),MPP_RDONLY,MPP_NETCDF,threading=MPP_MULTI,fileset=MPP_SINGLE)
-     call mpp_get_att_value(unit, "mosaic", "grid_descriptor", grid_descriptor)
-     call mpp_close(unit)
-
-     if(trim(grid_descriptor) == "cubic_grid") then
-        allocate(xt         (isd_atm:ied_atm,jsd_atm:jed_atm),     yt         (isd_atm:ied_atm,jsd_atm:jed_atm)   )
-        allocate(xc         (isc_atm:ied_atm,jsc_atm:jed_atm),     yc         (isc_atm:ied_atm,jsc_atm:jed_atm)   )
-        allocate(atm_grid%dx(isc_atm:iec_atm,jsc_atm:jed_atm),     atm_grid%dy(isc_atm:iec_atm+1,jsc_atm:jec_atm) )
-        allocate(atm_grid%edge_w(jsc_atm:jed_atm),               atm_grid%edge_e(jsc_atm:jed_atm))
-        allocate(atm_grid%edge_s(isc_atm:ied_atm),               atm_grid%edge_n(isc_atm:ied_atm))
-        allocate(atm_grid%en1 (3,isc_atm:iec_atm,jsc_atm:jed_atm), atm_grid%en2 (3,isc_atm:ied_atm,jsc_atm:jec_atm) )
-        allocate(atm_grid%vlon(3,isc_atm:iec_atm,jsc_atm:jec_atm), atm_grid%vlat(3,isc_atm:iec_atm,jsc_atm:jec_atm) )
-        allocate(atm_grid%area(isc_atm:iec_atm,jsc_atm:jec_atm) )
-
-        ! first get grid from grid file 
-        call get_mosaic_tile_grid(tile_file, atm_mosaic_file, atm_domain)
-        allocate(tmpx(nxa*2+1, nya*2+1), tmpy(nxa*2+1, nya*2+1))
-        call read_data( tile_file, 'x', tmpx, no_domain=.true.)
-        call read_data( tile_file, 'y', tmpy, no_domain=.true.) 
-        xt = 0; yt = 0;
-        do j = jsc_atm, jec_atm
-           do i = isc_atm, iec_atm
-              xt(i,j) = tmpx(2*i, 2*j)*DEG_TO_RAD
-              yt(i,j) = tmpy(2*i, 2*j)*DEG_TO_RAD
-           end do
-        end do
-        do j = jsc_atm, jed_atm
-           do i = isc_atm, ied_atm
-              xc(i,j) = tmpx(2*i-1, 2*j-1)*DEG_TO_RAD
-              yc(i,j) = tmpy(2*i-1, 2*j-1)*DEG_TO_RAD
-           end do
-        end do        
-        call mpp_update_domains(xt, atm_domain)
-        call mpp_update_domains(yt, atm_domain)
-
-        call calc_cubic_grid_info(xt, yt, xc, yc, atm_grid%dx, atm_grid%dy, atm_grid%area, atm_grid%edge_w, &
-                                  atm_grid%edge_e, atm_grid%edge_s, atm_grid%edge_n, atm_grid%en1,          &
-                                  atm_grid%en2, atm_grid%vlon, atm_grid%vlat, isc_atm==1, iec_atm==nxa,     &
-                                  jsc_atm==1, jec_atm==nya                               )
-     end if
-  end if
-  !--- conservation check is done in setup_xmap. 
-  call setup_xmap(Xmap, (/ 'ATM', 'OCN', 'LND' /), (/ Atm_domain, Ocn_domain, Lnd_domain /), grid_file, atm_grid)
-  call setup_xmap(Xmap_runoff, (/ 'LND', 'OCN'/), (/ Lnd_domain, Ocn_domain/), grid_file )
-  call set_domain(atm_domain)
-  !--- remap realistic data and write the output file when atmos_input_file does exist
-  atm_input_file_exist = file_exist(atm_input_file)
-  if( atm_input_file_exist ) then
-     if(trim(atm_input_file) == trim(atm_output_file) ) call mpp_error(FATAL, &
-          "test_xgrid: atm_input_file should have a different name from atm_output_file")
-     call field_size(atm_input_file, atm_field_name, siz )
-     if(siz(1) .NE. nxa .OR. siz(2) .NE. nya ) call mpp_error(FATAL,"test_xgrid: x- and y-size of field "//trim(atm_field_name) &
-            //" in file "//trim(atm_input_file) //" does not compabile with the grid size" )
-     if(siz(3) > 1) call mpp_error(FATAL,"test_xgrid: number of vertical level of field "//trim(atm_field_name) &
-            //" in file "//trim(atm_input_file) //" should be no larger than 1")
-
-     allocate(atm_data_in (isc_atm:iec_atm, jsc_atm:jec_atm   ) )
-     allocate(atm_data_out(isc_atm:iec_atm, jsc_atm:jec_atm   ) )
-     allocate(lnd_data_out(isc_lnd:iec_lnd, jsc_lnd:jec_lnd, 1) )
-     allocate(ocn_data_out(isc_ocn:iec_ocn, jsc_ocn:jec_ocn, 1) )
-     nxgrid = max(xgrid_count(Xmap), 1)
-     allocate(x_1(nxgrid), x_2(nxgrid))
-
-     atm_data_in  = 0
-     atm_data_out = 0
-     lnd_data_out = 0
-     ocn_data_out = 0
-     ! test one time level should be sufficient
-     call read_data(atm_input_file, atm_field_name, atm_data_in, atm_domain)
-     call put_to_xgrid(atm_data_in, 'ATM', x_1, Xmap, remap_method=remap_method)
-     call get_from_xgrid(lnd_data_out, 'LND', x_1, xmap)
-     call get_from_xgrid(ocn_data_out, 'OCN', x_1, xmap)
-     call put_to_xgrid(lnd_data_out, 'LND', x_2, xmap)
-     call put_to_xgrid(ocn_data_out, 'OCN', x_2, xmap)
-     call get_from_xgrid(atm_data_out, 'ATM', x_2, xmap)
-     call write_data( atm_output_file, atm_field_name, atm_data_out, atm_domain)
-     call write_data( lnd_output_file, atm_field_name, lnd_data_out, lnd_domain)
-     call write_data( ocn_output_file, atm_field_name, ocn_data_out, ocn_domain)
-     ! conservation check 
-     allocate(atm_area(isc_atm:iec_atm, jsc_atm:jec_atm ) )
-     allocate(lnd_area(isc_lnd:iec_lnd, jsc_lnd:jec_lnd ) )
-     allocate(ocn_area(isc_ocn:iec_ocn, jsc_ocn:jec_ocn ) )
-     call get_xmap_grid_area("ATM", Xmap, atm_area)
-     call get_xmap_grid_area("LND", Xmap, lnd_area)
-     call get_xmap_grid_area("OCN", Xmap, ocn_area)
-
-
-     sum_atm_in  = mpp_global_sum(atm_domain, atm_area * atm_data_in)
-     sum_lnd_out = mpp_global_sum(lnd_domain, lnd_area * lnd_data_out(:,:,1))
-     sum_ocn_out = mpp_global_sum(ocn_domain, ocn_area * ocn_data_out(:,:,1))
-     sum_atm_out = mpp_global_sum(atm_domain, atm_area * atm_data_out)
-     write(out_unit,*) "********************** check conservation *********************** "
-     write(out_unit,*) "the global area sum of atmos input data is                    : ", sum_atm_in 
-     write(out_unit,*) "the global area sum of atmos output data is                   : ", sum_atm_out
-     write(out_unit,*) "the global area sum of land output data + ocean output data is: ", sum_lnd_out+sum_ocn_out
-     deallocate(atm_area, lnd_area, ocn_area, atm_data_in, atm_data_out, lnd_data_out, ocn_data_out)
-     deallocate(x_1, x_2)
-  else
-     write(out_unit,*) "NOTE from test_xgrid ==> file "//trim(atm_input_file)//" does not exist, no check is done for real data sets."
-  end if           
-
-  runoff_input_file_exist = file_exist(runoff_input_file)     
-  if( runoff_input_file_exist ) then
-     if(trim(runoff_input_file) == trim(runoff_output_file) ) call mpp_error(FATAL, &
-          "test_xgrid: runoff_input_file should have a different name from runoff_output_file")
-     call field_size(runoff_input_file, runoff_field_name, siz )
-     if(siz(1) .NE. nxl .OR. siz(2) .NE. nyl ) call mpp_error(FATAL,"test_xgrid: x- and y-size of field "//trim(runoff_field_name) &
-            //" in file "//trim(runoff_input_file) //" does not compabile with the grid size" )
-     if(siz(3) > 1) call mpp_error(FATAL,"test_xgrid: number of vertical level of field "//trim(runoff_field_name) &
-            //" in file "//trim(runoff_input_file) //" should be no larger than 1")
-
-     allocate(runoff_data_in (isc_lnd:iec_lnd, jsc_lnd:jec_lnd   ) ) 
-     allocate(runoff_data_out(isc_ocn:iec_ocn, jsc_ocn:jec_ocn, 1) )
-     nxgrid = max(xgrid_count(Xmap_runoff), 1)
-     allocate(x_1(nxgrid), x_2(nxgrid))
-
-     runoff_data_in  = 0
-     runoff_data_out = 0
-     ! test one time level should be sufficient
-     call read_data(runoff_input_file, runoff_field_name, runoff_data_in, lnd_domain)
-     call put_to_xgrid(runoff_data_in, 'LND', x_1, Xmap_runoff)
-     call get_from_xgrid(runoff_data_out, 'OCN', x_1, xmap_runoff)
-     call write_data( runoff_output_file, runoff_field_name, runoff_data_out, ocn_domain)
-     ! conservation check 
-     allocate(lnd_area(isc_lnd:iec_lnd, jsc_lnd:jec_lnd ) )
-     allocate(ocn_area(isc_ocn:iec_ocn, jsc_ocn:jec_ocn ) )
-     call get_xmap_grid_area("LND", Xmap_runoff, lnd_area)
-     call get_xmap_grid_area("OCN", Xmap_runoff, ocn_area)
-
-     sum_runoff_in  = mpp_global_sum(lnd_domain, lnd_area * runoff_data_in)
-     sum_runoff_out = mpp_global_sum(ocn_domain, ocn_area * runoff_data_out(:,:,1))
-     write(out_unit,*) "********************** check conservation *********************** "
-     write(out_unit,*) "the global area sum of runoff input data is                    : ", sum_runoff_in 
-     write(out_unit,*) "the global area sum of runoff output data is                   : ", sum_runoff_out
-  else
-     write(out_unit,*) "NOTE from test_xgrid ==> file "//trim(runoff_input_file)//" does not exist, no check is done for real data sets."
-  end if           
-
-  write(out_unit,*) "************************************************************************"
-  write(out_unit,*) "***********      Finish running program test_xgrid         *************"
-  write(out_unit,*) "************************************************************************"
-
-  call mpp_domains_exit
-  call fms_io_exit
-  call fms_end
-
-end program xgrid_test
-
-! end of TEST_XGRID
-#endif
 
 
 #ifdef _XGRID_MAIN

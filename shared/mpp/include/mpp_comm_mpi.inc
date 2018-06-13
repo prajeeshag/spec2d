@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_comm_mpi.inc,v 17.0.2.1 2009/09/08 14:20:55 nnz Exp $
+! $Id: mpp_comm_mpi.inc,v 19.0.2.1 2012/05/08 17:45:39 Zhi.Liang Exp $
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -10,129 +10,53 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !    subroutine mpp_init( flags, in, out, err, log )
   !      integer, optional, intent(in) :: flags, in, out, err, log
-  !subroutine mpp_init( flags, localcomm )
-  subroutine mpp_init( flags, localcomm,myid, cpl_id, cpl_rank,ocean_comm,ocean_npes_out,pelist ) !<-- esm insertion
+  subroutine mpp_init( flags, localcomm )
   integer, optional, intent(in) :: flags
   integer, optional, intent(in) :: localcomm
-  !-->esm deletion integer                       :: my_pe, num_pes, len, i, iunit
+  integer                       :: my_pe, num_pes, len, i, iunit
   logical                       :: opened, existed
-! --> esm insertion
-  integer, optional, intent(in) :: myid,cpl_id
-  integer, optional, intent(out) :: cpl_rank,ocean_comm,ocean_npes_out
-  integer, dimension(256), optional, intent(out) :: pelist
-  integer                       :: my_pe, num_pes, len, i, ocean_id=2,coupler_id=0,coupler_rank=0,ierr, iunit
-  integer                       :: ibuf(2),dummy(2),istatus(MPI_STATUS_SIZE)
-  integer                       :: color,key,ocean_npes
-! <-- esm insertion
-
+  integer                       :: unit_begin, unit_end, unit_nml, io_status
   character(len=5) :: this_pe
 
   if( module_is_initialized )return
-
 
   call MPI_INITIALIZED( opened, error ) !in case called from another MPI package
   if(opened .and. .NOT. PRESENT(localcomm)) call mpp_error( FATAL, 'MPP_INIT: communicator is required' )
   if( .NOT.opened ) then
     call MPI_INIT(error)
     mpp_comm_private = MPI_COMM_WORLD
-!--> esm insertion
-    if(present(myid)) ocean_id=myid
-    color=Ocean_id
-    key=1
-    call MPI_COMM_SPLIT( MPI_COMM_WORLD, color,key, ocean_comm_private, error )
-!<-- esm insertion
-
   else
     mpp_comm_private  = localcomm
   endif
-
-  if(present(ocean_comm))ocean_comm=ocean_comm_private
-
+  call MPI_COMM_RANK( mpp_comm_private, pe,   error )
   call MPI_COMM_SIZE( mpp_comm_private, npes, error )
-  call MPI_COMM_SIZE( ocean_comm_private, ocean_npes, error ) ! <-- esm insertion
-  call MPI_COMM_RANK( ocean_comm_private, pe, error )
-  if(present(ocean_npes_out))ocean_npes_out=ocean_npes
-
-!--> esm insertion
-  if( .NOT.opened ) then
-   if(ocean_npes .ne. npes) then
-    if(present(cpl_id)) coupler_id=cpl_id
-    if ( tag .ne.1) call mpp_error(FATAL,'in mpp_init, tag is not 1')
-    call MPI_RECV(ibuf,2,MPI_INTEGER,MPI_ANY_SOURCE,tag, &
-       MPI_COMM_WORLD,istatus,ierr)
-    coupler_rank=ibuf(2)
-    if (present(cpl_rank)) cpl_rank=coupler_rank
-    if ( coupler_id .ne. ibuf(1)) call mpp_error(FATAL,'in mpp_init, coupler id is not right')
-
-    ibuf(1)=Ocean_id ! Ocean_id
-    call MPI_COMM_RANK( mpp_comm_private, ibuf(2), error )
-    call MPI_GATHER(ibuf,2,MPI_INTEGER,dummy,2,MPI_INTEGER, &
-       coupler_rank,MPI_COMM_WORLD,ierr)
-   endif
-  endif
-!<-- esm insertion
-
 #ifdef use_MPI_SMA
   call SHMEM_BARRIER_ALL()
   call SHPALLOC( p_pSync, SHMEM_BARRIER_SYNC_SIZE, error, -1 )
   call SHMEM_BARRIER_ALL()
 #endif
-  
-	allocate( request_global(0:0) )
-  allocate( request_recv_global(0:0) )
-  request_global(:) = MPI_REQUEST_NULL
-  request_recv_global(:) = MPI_REQUEST_NULL
-
-  allocate( request(0:ocean_npes-1) )
-  allocate( request_recv(0:ocean_npes-1) )
-  request(:) = MPI_REQUEST_NULL
-  request_recv(:) = MPI_REQUEST_NULL
 
   module_is_initialized = .TRUE.
 
+
   !PEsets: make defaults illegal
+  allocate(peset(0:current_peset_max))
   peset(:)%count = -1
   peset(:)%id = -1
   peset(:)%group = -1
+  peset(:)%start = -1
+  peset(:)%log2stride = -1
+  peset(:)%name  = " "
   !0=single-PE, initialized so that count returns 1
-!<-- esm insertion
-  if( npes.eq.1) then
-    peset(0)%count = 1
-    allocate( peset(0)%list(1) )
-    peset(0)%list = pe
-    current_peset_num = 0
-    peset(0)%id = mpp_comm_private
-  else if(npes.gt.1) then
-    peset_num=0
-    peset(0)%count = npes
-    allocate( peset(0)%list(npes) )
-    do i=0,npes-1
-      peset(0)%list(i+1) = i
-    enddo
-    current_peset_num = 0
-    peset(0)%id = mpp_comm_private
-  endif
-!<-- esm insertion
-  
-call MPI_COMM_GROUP( mpp_comm_private, peset(0)%group, error )
+  peset(0)%count = 1
+  allocate( peset(0)%list(1) )
+  peset(0)%list = pe
+  current_peset_num = 0
+  peset(0)%id = mpp_comm_private
+  call MPI_COMM_GROUP( mpp_comm_private, peset(0)%group, error )
   world_peset_num = get_peset( (/(i,i=0,npes-1)/) )
   current_peset_num = world_peset_num !initialize current PEset to world
 
-!<-- esm insertion
-!set peset 1
-  if ( npes.ne.ocean_npes) then      !not stand alone
-    peset_num=1
-    peset(1)%id=ocean_comm_private
-    peset(1)%count=ocean_npes
-    allocate(peset(1)%list(peset(1)%count))
-    peset(1)%list=(/(i,i=0,ocean_npes-1)/)
-    call MPI_COMM_GROUP( ocean_comm_private, peset(1)%group, error )
-    if(present(pelist))pelist(1:peset(1)%count)=peset(1)%list(1:peset(1)%count)
-    ocean_peset_num=1
-    current_peset_num=ocean_peset_num
-  endif
-!<-- always set peset num to ocean
-!<-- esm insertion
   !initialize clocks
   call SYSTEM_CLOCK( count=tick0, count_rate=ticks_per_sec, count_max=max_ticks )
   tick_rate = 1./ticks_per_sec
@@ -143,20 +67,57 @@ call MPI_COMM_GROUP( mpp_comm_private, peset(0)%group, error )
      verbose = flags.EQ.MPP_VERBOSE .OR. debug
   end if
 
+  call mpp_init_logfile()
+  call read_input_nml
+
+  !--- read namelist
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, mpp_nml, iostat=io_status)
+#else
+  unit_begin = 103
+  unit_end   = 512
+  do unit_nml = unit_begin, unit_end
+     inquire( unit_nml,OPENED=opened )
+     if( .NOT.opened )exit
+  end do
+
+  open(unit_nml,file='input.nml', iostat=io_status)
+  read(unit_nml,mpp_nml,iostat=io_status)
+  close(unit_nml)  
+#endif
+
 ! non-root pe messages written to other location than stdout()
-! 9 is reserved for etc_unit
-  etc_unit=9
-  inquire(unit=etc_unit,opened=opened)
-  if(opened) call mpp_error(FATAL,'Unit 9 is already in use (etc_unit) in mpp_comm_mpi')
-  if (trim(etcfile) /= '/dev/null') then
-    write( etcfile,'(a,i6.6)' )trim(etcfile)//'.', pe
-  endif
-  inquire(file=etcfile, exist=existed)
-  if(existed) then
-     open( unit=etc_unit, file=trim(etcfile), status='UNKNOWN' )
+
+  if(etc_unit_is_stderr) then
+     etc_unit = stderr()
   else
-     open( unit=etc_unit, file=trim(etcfile) )
+! 9 is reserved for etc_unit
+     etc_unit=9
+     inquire(unit=etc_unit,opened=opened)
+     if(opened) call mpp_error(FATAL,'Unit 9 is already in use (etc_unit) in mpp_comm_mpi')
+     if (trim(etcfile) /= '/dev/null') then
+        write( etcfile,'(a,i6.6)' )trim(etcfile)//'.', pe
+     endif
+     inquire(file=etcfile, exist=existed)
+     if(existed) then
+        open( unit=etc_unit, file=trim(etcfile), status='REPLACE' )
+     else
+        open( unit=etc_unit, file=trim(etcfile) )
+     endif
   endif
+
+! max_request is set to maximum of npes * REQUEST_MULTIPLY ( default is 20) and MAX_REQUEST_MIN ( default 10000)
+  max_request = max(MAX_REQUEST_MIN, mpp_npes()*REQUEST_MULTIPLY)
+
+  allocate( request_send(max_request) )
+  allocate( request_recv(max_request) )
+  allocate( size_recv(max_request) )
+  allocate( type_recv(max_request) )
+  request_send(:) = MPI_REQUEST_NULL
+  request_recv(:) = MPI_REQUEST_NULL
+  size_recv(:)    = 0
+  type_recv(:)    = 0
+
   !if optional argument logunit=stdout, write messages to stdout instead.
   !if specifying non-defaults, you must specify units not yet in use.
   !      if( PRESENT(in) )then
@@ -189,7 +150,6 @@ call MPI_COMM_GROUP( mpp_comm_private, peset(0)%group, error )
   !          if( pe.NE.root_pe )open( unit=log_unit, file=trim(configfile), status='OLD' )
   !      end if
 
-  call mpp_init_logfile()
 
   !messages
   iunit = stdlog()  ! workaround for lf95.
@@ -205,6 +165,7 @@ call MPI_COMM_GROUP( mpp_comm_private, peset(0)%group, error )
      write( iunit,'(/a)' )'MPP module '//trim(mpp_parameter_version)//trim(mpp_parameter_tagname)
      write( iunit,'(/a)' )'MPP module '//trim(mpp_data_version)//trim(mpp_data_tagname)
   end if
+
   call mpp_clock_begin(clock0)
 
   return
@@ -216,11 +177,6 @@ subroutine mpp_exit()
   integer :: i, j, k, n, nmax, istat, out_unit, log_unit
   real    :: t, tmin, tmax, tavg, tstd
   real    :: m, mmin, mmax, mavg, mstd, t_total
-!-->esm insertion swapna
-  integer :: worldpeset,penumm1,minpe,minpe1
-  logical :: no_sync=.true.
-!<--esm insertion swapna
-
   logical :: opened
 
   if( .NOT.module_is_initialized )return
@@ -233,6 +189,10 @@ subroutine mpp_exit()
      if( ANY(clocks(1:clock_num)%detailed) )then
         call sum_clock_data; call dump_clock_summary
      end if
+
+     call mpp_sync()
+     call FLUSH( out_unit )
+
      if( pe.EQ.root_pe )then
         write( out_unit,'(/a,i6,a)' ) 'Tabulating mpp_clock statistics across ', npes, ' PEs...'
         if( ANY(clocks(1:clock_num)%detailed) ) &
@@ -244,23 +204,7 @@ subroutine mpp_exit()
      call FLUSH( out_unit )
      call mpp_sync()
      do i = 1,clock_num
-!!<--esm insertion swapna
-!     if(i.eq.1) then
-!         penumm1=1
-!         minpe=peset(1)%list(1)    ! this pelist has been sorted
-!       else
-!         penumm1=clocks(i-1)%peset_num
-!         minpe=clocks(i-1)%peset_num
-!         minpe1=clocks(i)%peset_num
-!     endif
-!     if (clocks(i)%peset_num.eq.2 .and. penumm1.eq.1) then
-!     		if( .NOT.ANY(peset(clocks(i)%peset_num)%list(:).EQ.pe-minpe) )cycle
-!     else if (  clocks(i)%peset_num.eq.1 .and. penumm1.eq.2) then
-!        if( .NOT.ANY(peset(clocks(i)%peset_num)%list(:).EQ.pe+minpe1) )cycle
-!     else
-!        if( .NOT.ANY(peset(clocks(i)%peset_num)%list(:).EQ.pe) )cycle
-!     endif
-!!<--esm insertion added swapna 29/07/12
+        if( .NOT.ANY(peset(clocks(i)%peset_num)%list(:).EQ.pe) )cycle
         call mpp_set_current_pelist( peset(clocks(i)%peset_num)%list )
         out_unit = stdout()
         log_unit = stdlog()
@@ -285,6 +229,7 @@ subroutine mpp_exit()
         if( .NOT.clocks(i)%detailed )cycle
         if( .NOT.ANY(peset(clocks(i)%peset_num)%list(:).EQ.pe) )cycle
         call mpp_set_current_pelist( peset(clocks(i)%peset_num)%list )
+        out_unit = stdout()
         do j = 1,MAX_EVENT_TYPES
            n = clocks(i)%events(j)%calls; nmax = n
            call mpp_max(nmax)
@@ -308,7 +253,10 @@ subroutine mpp_exit()
            end if
         end do
      end do
+
   end if
+
+  call FLUSH( out_unit )
 
 ! close down etc_unit: 9
   inquire(unit=etc_unit, opened=opened)
@@ -413,6 +361,43 @@ end subroutine mpp_gsm_free
 !                BASIC MESSAGE PASSING ROUTINE: mpp_transmit                  !
 !                                                                             !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    subroutine mpp_broadcast_char(data, length, from_pe, pelist )
+      character(len=*), intent(inout) :: data(:)
+      integer, intent(in) :: length, from_pe
+      integer, intent(in), optional :: pelist(:)
+      integer :: n, i, from_rank, out_unit
+      character    :: str1D(length*size(data(:)))
+      pointer(lptr, str1D)
+
+      if( .NOT.module_is_initialized )call mpp_error( FATAL, 'mpp_broadcast_text: You must first call mpp_init.' )
+      n = get_peset(pelist); if( peset(n)%count.EQ.1 )return
+
+
+      if( debug )then
+          call SYSTEM_CLOCK(tick)
+          if(mpp_pe() == mpp_root_pe()) then
+            out_unit = stdout()
+            write( out_unit,'(a,i18,a,i5,a,2i5,2i8)' )&
+               'T=',tick, ' PE=',pe, 'mpp_broadcast_text begin: from_pe, length=', from_pe, length
+          endif
+      end if
+
+      if( .NOT.ANY(from_pe.EQ.peset(current_peset_num)%list) ) &
+           call mpp_error( FATAL, 'mpp_broadcast_text: broadcasting from invalid PE.' )
+
+      if( current_clock.NE.0 )call SYSTEM_CLOCK(start_tick)
+ ! find the rank of from_pe in the pelist.     
+      do i = 1, mpp_npes()
+         if(peset(n)%list(i) == from_pe) then
+             from_rank = i - 1
+             exit
+         endif
+      enddo
+      lptr = LOC (data)
+      if( mpp_npes().GT.1 ) call MPI_BCAST( data, length*size(data(:)), MPI_CHARACTER, from_rank, peset(n)%id, error )
+      if( current_clock.NE.0 )call increment_current_clock( EVENT_BROADCAST, length )
+      return
+    end subroutine mpp_broadcast_char
 
 #undef MPP_TRANSMIT_
 #define MPP_TRANSMIT_ mpp_transmit_real8
@@ -528,7 +513,6 @@ end subroutine mpp_gsm_free
 #include <mpp_transmit_mpi.h>
 #endif
 
-#ifdef OVERLOAD_R4
 #undef MPP_TRANSMIT_
 #define MPP_TRANSMIT_ mpp_transmit_real4
 #undef MPP_TRANSMIT_SCALAR_
@@ -584,7 +568,6 @@ end subroutine mpp_gsm_free
 #undef MPI_TYPE_
 #define MPI_TYPE_ MPI_REAL4
 #include <mpp_transmit_mpi.h>
-#endif
 
 #ifdef OVERLOAD_C4
 #undef MPP_TRANSMIT_

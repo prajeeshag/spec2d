@@ -1,42 +1,17 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !FDOC_TAG_GFDL fdoc.pl generated xml skeleton
-! $Id: drifters.F90,v 17.0 2009/07/21 03:19:00 fms Exp $
+! $Id: drifters.F90,v 17.0.10.1 2012/03/20 13:03:22 z1l Exp $
 
 #include <fms_platform.h>
 #include "fms_switches.h"
 #define _FLATTEN(A) reshape((A), (/size((A))/) )
 
 module drifters_mod
-! <CONTACT EMAIL="Alexander.Pletzer@noaa.gov">
+! <CONTACT EMAIL="GFDL.Climate.Model.Info@noaa.gov">
 !   Alexander Pletzer
 ! </CONTACT>
 ! <REVIEWER EMAIL="">
 !   
 ! </REVIEWER>
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 ! <OVERVIEW>
 !   
 ! </OVERVIEW>
@@ -134,7 +109,7 @@ module drifters_mod
   public :: drifters_print_checksums, drifters_save, drifters_write_restart, drifters_distribute
 
   integer, parameter, private :: MAX_STR_LEN = 128
-  character(len=MAX_STR_LEN), parameter, private :: version = '$Id: drifters.F90,v 17.0 2009/07/21 03:19:00 fms Exp $'
+  character(len=MAX_STR_LEN), parameter, private :: version = '$Id: drifters.F90,v 17.0.10.1 2012/03/20 13:03:22 z1l Exp $'
   real :: DRFT_EMPTY_ARRAY(0)
 
   type drifters_type
@@ -256,7 +231,7 @@ contains
     pe_str = '    '
     write(pe_str, '(i6)') _MPP_PE
     pe_str = adjustr(pe_str)
-    do i = 1, 4
+    do i = 1, 5
        if(pe_str(i:i)==' ') pe_str(i:i)='0'
     enddo
     call drifters_io_new(self%io, output_file//'.'//pe_str, nd, nf, ermesg)

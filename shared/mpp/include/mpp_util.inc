@@ -1,6 +1,6 @@
 
 ! -*-f90-*-
-! $Id: mpp_util.inc,v 17.0.2.1.2.2 2009/10/08 23:34:41 wfc Exp $
+! $Id: mpp_util.inc,v 19.0.2.1 2012/04/13 16:25:53 sdu Exp $
 
 
 #ifdef use_libSMA
@@ -399,7 +399,7 @@ end function rarray_to_char
 
   !#####################################################################
   function mpp_node()
-	!calls mld_id from threadloc.c on sgi, which returns the hardware node ID from /hw/nodenum/...
+!calls mld_id from threadloc.c on sgi, which returns the hardware node ID from /hw/nodenum/...
     integer :: mpp_node
     integer :: mld_id
 
@@ -530,8 +530,7 @@ end function rarray_to_char
   !  <IN NAME="pliest" TYPE="integer"></IN>
   ! </SUBROUTINE>
 
-!  subroutine mpp_set_current_pelist( pelist, no_sync )
-  subroutine mpp_set_current_pelist( pelist, no_sync,pesetnum ) !<-- esm insertion
+  subroutine mpp_set_current_pelist( pelist, no_sync )
     !Once we branch off into a PE subset, we want subsequent "global" calls to
     !sync only across this subset. This is declared as the current pelist (peset(current_peset_num)%list)
     !when current_peset all pelist ops with no pelist should apply the current pelist.
@@ -541,24 +540,18 @@ end function rarray_to_char
     !if pelist is omitted, we reset pelist to the world pelist.
     integer, intent(in), optional :: pelist(:)
     logical, intent(in), optional :: no_sync
-!-->esm insertion
-    integer, intent(in), optional :: pesetnum
-!<-- esm insertion 
+    integer                       :: i
 
     if( .NOT.module_is_initialized )call mpp_error( FATAL, 'MPP_SET_CURRENT_PELIST: You must first call mpp_init.' )
     if( PRESENT(pelist) )then
-    if( .NOT.ANY(pe.EQ.pelist) )call mpp_error( FATAL, 'MPP_SET_CURRENT_PELIST: pe must be in pelist.' )
+       if( .NOT.ANY(pe.EQ.pelist) )call mpp_error( FATAL, 'MPP_SET_CURRENT_PELIST: pe must be in pelist.' )
        current_peset_num = get_peset(pelist)
     else
-       current_peset_num=ocean_peset_num
-!--> esm insertion never set pelist for comm_WORLD,set them to ocean_comm
-       if( present(pesetnum)) current_peset_num = world_peset_num
-!<-- esm insertion
+       current_peset_num = world_peset_num
     end if
-    
-    if(current_peset_num.ne.world_peset_num) &
-    		call mpp_set_root_pe( MINVAL(peset(current_peset_num)%list(:)) )
+    call mpp_set_root_pe( MINVAL(peset(current_peset_num)%list(:)) )
     if(.not.PRESENT(no_sync))call mpp_sync()  !this is called to make sure everyone in the current pelist is here.
+    !      npes = mpp_npes()
     return
   end subroutine mpp_set_current_pelist
 
@@ -829,6 +822,7 @@ end function rarray_to_char
   subroutine mpp_clock_end(id)
     integer, intent(in) :: id
     integer(LONG_KIND)  :: delta
+    integer             :: errunit
 
     if( .NOT.module_is_initialized )call mpp_error( FATAL, 'MPP_CLOCK_END: You must first call mpp_init.' )
     if( .not. mpp_record_timing_data)return
@@ -843,7 +837,8 @@ end function rarray_to_char
          call mpp_error( FATAL, 'MPP_CLOCK_END: cannot change pelist context of a clock.' )
     delta = end_tick - clocks(id)%tick
     if( delta.LT.0 )then
-       write( stderr(),* )'pe, id, start_tick, end_tick, delta, max_ticks=', pe, id, clocks(id)%tick, end_tick, delta, max_ticks
+       errunit = stderr()
+       write( errunit,* )'pe, id, start_tick, end_tick, delta, max_ticks=', pe, id, clocks(id)%tick, end_tick, delta, max_ticks
        delta = delta + max_ticks + 1
        call mpp_error( WARNING, 'MPP_CLOCK_END: Clock rollover, assumed single roll.' )
     end if
@@ -864,6 +859,7 @@ end function rarray_to_char
     integer, intent(in), optional :: bytes
     integer                       :: n
     integer(LONG_KIND)            :: delta
+    integer                       :: errunit
 
     if( .not. mpp_record_timing_data )return
     if( current_clock.EQ.0 )return
@@ -879,7 +875,8 @@ end function rarray_to_char
     clocks(current_clock)%events(event_id)%calls = n
     delta = end_tick - start_tick
     if( delta.LT.0 )then
-       write( stderr(),* )'pe, event_id, start_tick, end_tick, delta, max_ticks=', &
+       errunit = stderr()
+       write( errunit,* )'pe, event_id, start_tick, end_tick, delta, max_ticks=', &
                            pe, event_id, start_tick, end_tick, delta, max_ticks
        delta = delta + max_ticks + 1
        call mpp_error( WARNING, 'MPP_CLOCK_END: Clock rollover, assumed single roll.' )
@@ -1122,6 +1119,63 @@ end function rarray_to_char
   end subroutine sum_clock_data
 
   !#####################################################################
+  ! This routine will double the size of peset and copy the original peset data
+  ! into the expanded one. The maximum allowed to expand is PESET_MAX.
+  subroutine expand_peset()
+     integer :: old_peset_max,n
+     type(communicator), allocatable :: peset_old(:)
+
+     old_peset_max = current_peset_max
+     if(old_peset_max .GE. PESET_MAX) call mpp_error(FATAL, &
+         "mpp_mod(expand_peset): the number of peset reached PESET_MAX, increase PESET_MAX or contact developer")
+
+     ! copy data to a tempoary data
+     allocate(peset_old(0:old_peset_max))
+     do n = 0, old_peset_max
+        peset_old(n)%count      = peset(n)%count
+        peset_old(n)%id         = peset(n)%id
+        peset_old(n)%group      = peset(n)%group
+        peset_old(n)%name       = peset(n)%name
+        peset_old(n)%start      = peset(n)%start
+        peset_old(n)%log2stride = peset(n)%log2stride
+
+        if( ASSOCIATED(peset(n)%list) ) then
+           allocate(peset_old(n)%list(size(peset(n)%list(:))) )
+           peset_old(n)%list(:) = peset(n)%list(:)
+           deallocate(peset(n)%list)
+        endif
+     enddo  
+     deallocate(peset)
+
+     ! create the new peset
+     current_peset_max = min(PESET_MAX, 2*old_peset_max)
+     allocate(peset(0:current_peset_max))
+     peset(:)%count = -1
+     peset(:)%id = -1
+     peset(:)%group = -1
+     peset(:)%start = -1
+     peset(:)%log2stride = -1
+     peset(:)%name  = " "
+     do n = 0, old_peset_max
+        peset(n)%count      = peset_old(n)%count
+        peset(n)%id         = peset_old(n)%id
+        peset(n)%group      = peset_old(n)%group
+        peset(n)%name       = peset_old(n)%name
+        peset(n)%start      = peset_old(n)%start
+        peset(n)%log2stride = peset_old(n)%log2stride
+
+        if( ASSOCIATED(peset_old(n)%list) ) then
+           allocate(peset(n)%list(size(peset_old(n)%list(:))) )
+           peset(n)%list(:) = peset_old(n)%list(:)
+           deallocate(peset_old(n)%list)
+        endif
+     enddo
+     deallocate(peset_old)
+     
+     call mpp_error(NOTE, "mpp_mod(expand_peset): size of peset is expanded to ", current_peset_max)
+
+  end subroutine expand_peset
+  !#####################################################################
 
   function uppercase (cs) 
     character(len=*), intent(in) :: cs
@@ -1180,3 +1234,200 @@ end function rarray_to_char
 
   !#######################################################################
 
+!-----------------------------------------------------------------------
+!
+! AUTHOR: Rusty Benson (rusty.benson)
+!
+!
+! THESE LINES MUST BE PRESENT IN MPP.F90
+!
+! ! parameter defining length of character variables 
+!   integer, parameter :: INPUT_STR_LENGTH = 256
+! ! public variable needed for reading input.nml from an internal file
+!   character(len=INPUT_STR_LENGTH), dimension(:), allocatable, public :: input_nml_file
+!
+
+!-----------------------------------------------------------------------
+! subroutine READ_INPUT_NML
+!
+!
+! Reads an existing input.nml into a character array and broadcasts
+! it to the non-root mpi-tasks. This allows the use of reads from an
+! internal file for namelist settings (requires 2003 compliant compiler)  
+!
+! read(input_nml_file, nml=<name_nml>, iostat=status)
+!
+! 
+  subroutine read_input_nml
+
+! version and tagging information
+    character(len=128) :: version = '$Id: mpp_util.inc,v 19.0.2.1 2012/04/13 16:25:53 sdu Exp $'
+    character(len=128) :: tagname = '$Name: siena_201207 $' 
+
+!private variables
+    integer :: log_unit
+    integer :: num_lines, i
+
+    call read_ascii_file('input.nml', INPUT_STR_LENGTH, input_nml_file, num_lines=num_lines)
+
+! write info logfile
+    if (pe == root_pe) then
+       log_unit = stdlog()
+       write(log_unit,'(a)')  '========================================================================'
+       write(log_unit,'(a)')  'READ_INPUT_NML: '//trim(version)//':'//trim(tagname)
+       do i = 1, num_lines
+          write(log_unit,*) trim(input_nml_file(i))
+       enddo
+    end if
+  end subroutine read_input_nml
+
+  !-----------------------------------------------------------------------
+  !
+  ! AUTHOR: Rusty Benson <rusty.benson>, 
+  !         Seth Underwood <Seth.Underwood>
+  !
+  !-----------------------------------------------------------------------
+  ! subroutine READ_ASCII_FILE
+  !
+  !
+  ! Reads any ascii file into a character array and broadcasts
+  ! it to the non-root mpi-tasks.  Based off READ_INPUT_NML.
+  !
+  ! Passed in 'Content' array, must be of the form:
+  ! character(len=LENGTH), dimension(:), allocatable :: array_name
+  !
+  ! Reads from this array must be done in a do loop over the number of
+  ! lines, i.e.:
+  !
+  ! do i=1, num_lines
+  !    read (UNIT=array_name(i), FMT=*) var1, var2, ...
+  ! end do
+  ! 
+  subroutine read_ascii_file(FILENAME, LENGTH, Content, num_lines, PELIST)
+    character(len=*), intent(in) ::FILENAME
+    integer, intent(in) :: LENGTH
+    character(len=LENGTH), intent(inout), dimension(:), allocatable :: Content
+    integer, intent(out), optional, target :: num_lines
+    integer, intent(in), optional, dimension(:) :: PELIST
+
+    ! version and tagging information
+    character(len=*), parameter :: VERSION = '$Id: mpp_util.inc,v 19.0.2.1 2012/04/13 16:25:53 sdu Exp $'
+    character(len=*), parameter :: TAGNAME = '$Name: siena_201207 $' 
+
+    character(len=LENGTH) :: str_tmp
+    character(len=5) :: text
+    logical :: file_exist
+    integer :: status, i, f_unit, log_unit
+    integer :: from_pe
+    integer, pointer :: pnum_lines
+    integer, target :: mynum_lines
+
+    from_pe = root_pe
+
+    ! Use pnum_lines to point to num_lines if present, else use a local variable
+    if ( present(num_lines) ) then
+       pnum_lines => num_lines
+    else
+       pnum_lines => mynum_lines
+    end if
+
+    if ( pe == root_pe ) then
+       ! write info logfile
+       log_unit = stdlog()
+       write(log_unit,'(a)')  '========================================================================'
+       write(log_unit,'(a)')  'READ_ASCII_FILE: '//trim(VERSION)//':'//trim(TAGNAME)
+       write(log_unit,'(a)')  'READ_ASCII_FILE: File: '//trim(FILENAME)
+
+       inquire(FILE=FILENAME, EXIST=file_exist)
+
+       if ( file_exist ) then
+          f_unit = get_unit()
+          open(UNIT=f_unit, FILE=FILENAME, ACTION='READ', STATUS='OLD', IOSTAT=status)
+
+          if ( status .ne. 0 ) then
+             write (UNIT=text, FMT='(I5)') status
+             call mpp_error(FATAL, 'READ_ASCII_FILE: Error opening file: '//trim(FILENAME)//'.  (IOSTAT = '//trim(text)//')')
+             pnum_lines = -1
+          else
+             pnum_lines = 1
+             do 
+                read (UNIT=f_unit, FMT='(A)', IOSTAT=status) str_tmp
+                if ( status .lt. 0 ) exit
+                if ( status .gt. 0 ) then
+                   write (UNIT=text, FMT='(I5)') pnum_lines
+                   call mpp_error(FATAL, 'READ_ASCII_FILE: Error reading line '//trim(text)//' in file '//trim(FILENAME)//'.')
+                   pnum_lines = -1
+                   exit
+                end if
+                if ( len_trim(str_tmp) == LENGTH ) then
+                   write(UNIT=text, FMT='(I5)') length
+                   call mpp_error(FATAL, 'READ_ASCII_FILE: Length of output string ('//trim(text)//' is too small.&
+                        & Increase the LENGTH value.')
+                   pnum_lines = -1
+                   exit
+                end if
+                pnum_lines = pnum_lines + 1
+             end do
+
+             if ( pnum_lines .gt. 0 ) then
+                allocate(Content(pnum_lines), STAT=status)
+                if ( status .ne. 0 ) then
+                   write (UNIT=text, FMT='(I5)') pe
+                   call mpp_error(FATAL, 'READ_ASCII_FILE: PE '//trim(text)//'. Unable to allocate space for array&
+                        & of character strings.')
+                   pnum_lines = -1
+                else
+                   Content(:) = ' '
+
+                   rewind(UNIT=f_unit, IOSTAT=status)
+                   if ( status .ne. 0 ) then
+                      write (UNIT=text, FMT='(I5)') status
+                      call mpp_error(FATAL, 'READ_ASCII_FILE: Unable to re-read file '//trim(FILENAME)//'. (IOSTAT = '&
+                           &//trim(text)//')')
+                      deallocate(Content) ! No content.
+                      pnum_lines = -1
+                   else
+                      ! A second 'sanity' check on the file
+                      pnum_lines = 1
+
+                      do 
+                         read (UNIT=f_unit, FMT='(A)', IOSTAT=status) Content(pnum_lines)
+                         if ( status .lt. 0 ) exit
+                         if ( status .gt. 0 ) then
+                            write (UNIT=text, FMT='(I5)') pnum_lines
+                            call mpp_error(FATAL, 'READ_ASCII_FILE: Error reading line '//trim(text)//' in file '//trim(FILENAME)//'.')
+                            pnum_lines = -1
+                            exit
+                         end if
+                         pnum_lines = pnum_lines + 1
+                      end do
+                   end if
+                end if
+             end if
+
+             close(UNIT=f_unit)
+          end if
+       else
+          call mpp_error(FATAL, 'READ_ASCII_FILE: File '//trim(FILENAME)//' does not exist.')
+          pnum_lines = -1
+       end if
+    end if
+
+    ! Broadcast number of lines
+    call mpp_broadcast(pnum_lines, from_pe, PELIST=PELIST)
+    
+    if ( (pe .ne. root_pe).and.(pnum_lines > 0) ) then
+       allocate (Content(pnum_lines), STAT=status)
+       if ( status .ne. 0 ) then
+          write (UNIT=text, FMT='(I5)') pe
+          call mpp_error(FATAL, 'READ_ASCII_FILE: PE '//trim(text)//'. Unable to allocate space for array&
+               & of character strings.')
+       else
+          Content(:) = ' '
+       end if
+    endif
+
+    ! Broadcast character array
+    call mpp_broadcast(Content, LENGTH, from_pe, PELIST=PELIST)
+  end subroutine read_ascii_file
+  

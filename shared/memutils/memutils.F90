@@ -1,29 +1,5 @@
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                   !!
-!!                   GNU General Public License                      !!
-!!                                                                   !!
-!! This file is part of the Flexible Modeling System (FMS).          !!
-!!                                                                   !!
-!! FMS is free software; you can redistribute it and/or modify       !!
-!! it and are expected to follow the terms of the GNU General Public !!
-!! License as published by the Free Software Foundation.             !!
-!!                                                                   !!
-!! FMS is distributed in the hope that it will be useful,            !!
-!! but WITHOUT ANY WARRANTY; without even the implied warranty of    !!
-!! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     !!
-!! GNU General Public License for more details.                      !!
-!!                                                                   !!
-!! You should have received a copy of the GNU General Public License !!
-!! along with FMS; if not, write to:                                 !!
-!!          Free Software Foundation, Inc.                           !!
-!!          59 Temple Place, Suite 330                               !!
-!!          Boston, MA  02111-1307  USA                              !!
-!! or see:                                                           !!
-!!          http://www.gnu.org/licenses/gpl.txt                      !!
-!!                                                                   !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module memutils_mod
-!Author: Balaji (V.Balaji@noaa.gov)
+!Author: Balaji (V.Balaji)
 !Various operations for memory management
 !these currently include efficient methods for memory-to-memory copy
 !including strided data and arbitrary gather-scatter vectors
@@ -294,6 +270,10 @@ module memutils_mod
 !memuse is an external function: works on SGI
 !use #ifdef to generate equivalent on other platforms.
     integer :: memuse !default integer OK?
+    character(len=8)  :: walldate
+    character(len=10) :: walltime
+    character(len=5)  :: wallzone
+    integer           :: wallvalues(8)
 
     if( PRESENT(always) )then
         if( .NOT.always )return
@@ -310,9 +290,11 @@ module memutils_mod
     mmax = m; call mpp_max(mmax)
     mavg = m; call mpp_sum(mavg); mavg = mavg/mpp_npes()
     mstd = (m-mavg)**2; call mpp_sum(mstd); mstd = sqrt( mstd/mpp_npes() )
-    if( mpp_pe().EQ.mpp_root_pe() )write( mu,'(a64,4es11.3)' ) &
-         'Memuse(MB) at '//trim(text)//'=', mmin, mmax, mstd, mavg
-
+    if( mpp_pe().EQ.mpp_root_pe() ) then
+      call DATE_AND_TIME(walldate, walltime, wallzone, wallvalues)
+      write( mu,'(a84,4es11.3)' ) trim(walldate)//' '//trim(walltime)//&
+         ': Memuse(MB) at '//trim(text)//'=', mmin, mmax, mstd, mavg
+    endif
     return
   end subroutine print_memuse_stats
 
