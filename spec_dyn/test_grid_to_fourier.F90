@@ -1,0 +1,162 @@
+
+#ifdef test_grid_to_fourier
+
+program main
+
+    use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
+    use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
+    use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
+    use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
+    use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
+    use fms_mod, only : read_data, write_data, open_namelist_file, close_file
+    use fms_io_mod, only : fms_io_exit 
+
+    use grid_to_fourier_mod, only : init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial, end_grid_to_fourier, grid_to_fourier
+
+    implicit none
+
+    type(domain2d) :: domainl
+    type(domain2d) :: domainf
+ 
+    integer :: nlon, nlat, nlev
+      
+    integer :: ilen, istart, olen, ostart, nlonb2
+        
+    integer, allocatable :: pelist(:), extent(:)
+ 
+    character(len=32) :: routine='test_grid_to_fourier'
+
+    integer :: comm, idfft3d, n, nt=1
+    logical :: check=.false.
+    real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:)
+    complex, allocatable :: fldc1d(:,:), fldct(:,:,:)
+    integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
+    integer :: isf, ief, flen, jsc, jec
+    real :: scl, x, y, imgf=0.3, phi=0.15
+    integer :: clck_fftw3, init, unit, cl, ck, num_fourier
+    complex(kind=4) :: cpout(3)
+    logical :: ideal_data=.false.
+    real, parameter :: PI=4.D0*DATAN(1.D0)
+    complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
+    integer :: pe
+
+    namelist/test_grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, check, num_fourier, nt, nlon, nlat, nlev
+
+    call mpp_init() 
+
+    pe = mpp_pe()
+
+    unit = open_namelist_file()
+    read(unit,nml=test_grid_to_fourier_nml)
+    call close_file(unit)
+
+    clck_fftw3 = mpp_clock_id('fftw3')
+
+    allocate(pelist(mpp_npes()))
+    allocate(extent(mpp_npes()))
+
+    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, xhalo=0, yhalo=0)
+    call mpp_get_compute_domain(domainl, jsc, jec, isc, iec)
+    ilen = iec-isc+1
+
+    call mpp_get_current_pelist(pelist,commid=comm)
+
+    call init_grid_to_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat)
+
+    call mpp_gather([flen], extent)
+
+    call mpp_broadcast(extent,size(extent), mpp_root_pe())
+
+    call mpp_define_domains( [0,num_fourier-1,1,nlat], [mpp_npes(),1], domainf, xhalo=0, xextent=extent)
+    call mpp_get_compute_domain(domainf, isf, ief, jsc, jec)
+
+    if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
+
+    print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
+
+    allocate(fld(nlev,nlat,isc:iec))
+    allocate(fldct(isf:ief,nlat,nlev))
+
+    allocate(fld1d(1:nlon))
+    allocate(fld1dout(1:nlon))
+    allocate(fldc1d(1:nlon,2))
+    
+    if(.not.ideal_data) call read_data('test_data.nc', 'tas', fld1d)
+
+    scl=1./nlon
+
+    if (ideal_data) fld1d=0.
+    do i = 0, nlon-1
+        if (ideal_data) then
+            do k = kstart, kend, kstep
+                fld1d(i+1) = fld1d(i+1) + 2*k*cos(2.*PI*(i-phi)*real(k)/nlon)
+            enddo
+        endif
+     enddo
+
+     k = 0
+     do l = 1, nlev
+        do m = 1, nlat/2
+            k = k + 1
+           do i = isc, iec
+               fld(l,m,i) = k + k*fld1d(i)
+               fld(l,nlat/2+m,i) = k - k*fld1d(i)
+               !fld(l,m,i) = (m+(l-1)*nlat)
+           enddo
+        enddo
+    enddo
+   
+    call write_data('test_grid2four', 'fld', fld(1,:,:), domain=domainl)
+
+    !idrestart = register_restart_field_r2d(fileObj, filename, fieldname, data, domain)
+ 
+    call mpp_sync()
+
+    call mpp_clock_begin(clck_fftw3)
+    do t = 1, nt
+        call grid_to_fourier(fld, fldct)
+    enddo
+    call mpp_clock_end(clck_fftw3)
+
+    if(cl>nlat/2) cl = nlat/2
+    if(cl<1) cl = 1
+    if(ck>nlev) ck = nlev
+    if(ck<1) ck = 1
+
+    if (ideal_data) then
+        k = 0
+        if (mpp_pe()==mpp_root_pe()) then
+            print *, ''
+            print *, ''
+            print *, 'with 1dr2c'
+            print *, ''
+            print *, 'printing for lev and lat index :',ck, cl
+        endif
+        do l = 1, nlev
+        do m = 1, nlat/2
+            k = k+1
+                fld1dout(:) = k + k*fld1d(:)
+            call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
+    
+            call mpp_sync()  
+            do i = isf, ief
+                cpout(1) = fldc1d(i+1,1)
+                cpout(2) = fldct(i,m,l)
+                cpout(3) = fldct(i,nlat/2+m,l)
+                print *,'trans:', k, cpout(1:3)
+            enddo
+        enddo
+        enddo
+    endif
+
+
+    call fms_io_exit()
+    call end_grid_to_fourier()
+    call mpp_exit()
+            
+end program main
+
+
+#endif
+
+
