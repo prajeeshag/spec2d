@@ -314,6 +314,7 @@ module mpp_domains_mod
      integer                     :: tile_root_pe            ! root pe of current tile.
      integer                     :: io_layout(2)            ! io_layout, will be set through mpp_define_io_domain
                                                             ! default = domain layout
+     integer, public             :: kxy=3                   ! whether domain is decomposed on the slowest changing dimensions (AMFI changes)
      integer,            pointer :: pearray(:,:)  => NULL() ! pe of each layout position 
      integer,            pointer :: tile_id(:)    => NULL() ! tile id of each tile
      type(domain1D),     pointer :: x(:)          => NULL() ! x-direction domain decomposition

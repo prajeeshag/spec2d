@@ -8,7 +8,7 @@ program main
     use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
     use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
     use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
-    use fms_mod, only : read_data, write_data, open_namelist_file, close_file
+    use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
     use fms_io_mod, only : fms_io_exit 
 
     use grid_to_fourier_mod, only : init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial
@@ -45,6 +45,7 @@ program main
                                       check, num_fourier, nt, nlon, nlat, nlev
 
     call mpp_init() 
+    call fms_init()
 
     pe = mpp_pe()
 
@@ -58,7 +59,7 @@ program main
     allocate(pelist(mpp_npes()))
     allocate(extent(mpp_npes()))
 
-    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, xhalo=0, yhalo=0)
+    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, xhalo=0, yhalo=0, kxy=1)
     call mpp_get_compute_domain(domainl, jsc, jec, isc, iec)
     ilen = iec-isc+1
 
@@ -110,7 +111,8 @@ program main
         enddo
     enddo
    
-    call write_data('test_grid2four', 'fld', fld(1,:,:), domain=domainl)
+    call write_data('test_grid2four', 'fld', fld(:,:,:), domain=domainl)
+    call write_data('test_grid2four', 'fld1', fld(1,:,:), domain=domainl)
 
     !idrestart = register_restart_field_r2d(fileObj, filename, fieldname, data, domain)
  

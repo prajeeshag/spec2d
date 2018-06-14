@@ -7,12 +7,12 @@
   imgf = 0.
   ck = 3
   cl = 2
-num_fourier=10
+num_fourier=62
   check = .true.
   nt = 144
-nlon=32
-  nlat = 6
-  nlev = 5
+nlon=192
+  nlat = 10
+  nlev = 64
 /
 
 

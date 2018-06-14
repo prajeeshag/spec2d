@@ -31,7 +31,7 @@
 !NEW: data may be on compute OR data domain
       logical :: data_has_halos, halos_are_global, x_is_global, y_is_global
       integer :: is, ie, js, je, isd, ied, jsd, jed, isg, ieg, jsg, jeg, ism, iem, jsm, jem
-      integer :: position, errunit
+      integer :: position, errunit, kxy
       type(domain2d), pointer :: io_domain=>NULL()
 
       call mpp_clock_begin(mpp_write_clock)
@@ -41,22 +41,35 @@
       if( .NOT.mpp_file(unit)%valid )call mpp_error( FATAL, 'MPP_WRITE: invalid unit number.' )
 
       position = field%position
-
-      call mpp_get_compute_domain( domain, is,  ie,  js,  je, tile_count=tile_count, position=position  )
+      call mpp_get_compute_domain( domain, is,  ie,  js,  je, tile_count=tile_count, position=position, kxy=kxy  )
       call mpp_get_data_domain   ( domain, isd, ied, jsd, jed, x_is_global=x_is_global, &
                                    y_is_global=y_is_global, tile_count=tile_count, position=position )
       call mpp_get_memory_domain ( domain, ism, iem, jsm, jem, position=position )
 
-      if( size(data,1).EQ.ie-is+1 .AND. size(data,2).EQ.je-js+1 )then
-          data_has_halos = .FALSE.
-      else if( size(data,1).EQ.iem-ism+1 .AND. size(data,2).EQ.jem-jsm+1 )then
-          data_has_halos = .TRUE.
-      else
-          write( errunit,'(a,10i5)' )'MPP_WRITE_2DDECOMP fails on field '//trim(field%name)// &
-               ': is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2)=', &
-               is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2)
-          call mpp_error( FATAL, 'MPP_WRITE: data must be either on compute domain or data domain.' )
-      end if
+	  if (kxy==1) then
+      	if( size(data,2).EQ.ie-is+1 .AND. size(data,3).EQ.je-js+1 )then
+      	    data_has_halos = .FALSE.
+      	else if( size(data,2).EQ.iem-ism+1 .AND. size(data,3).EQ.jem-jsm+1 )then
+      	    data_has_halos = .TRUE.
+      	else
+      	    write( errunit,'(a,10i5)' )'MPP_WRITE_2DDECOMP fails on field '//trim(field%name)// &
+      	         ': is,ie,js,je, ism,iem,jsm,jem, size(data,2), size(data,3)=', &
+      	         is,ie,js,je, ism,iem,jsm,jem, size(data,2), size(data,3)
+      	    call mpp_error( FATAL, 'MPP_WRITE: data must be either on compute domain or data domain.' )
+      	end if
+	  else
+      	if( size(data,1).EQ.ie-is+1 .AND. size(data,2).EQ.je-js+1 )then
+      	    data_has_halos = .FALSE.
+      	else if( size(data,1).EQ.iem-ism+1 .AND. size(data,2).EQ.jem-jsm+1 )then
+      	    data_has_halos = .TRUE.
+      	else
+      	    write( errunit,'(a,10i5)' )'MPP_WRITE_2DDECOMP fails on field '//trim(field%name)// &
+      	         ': is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2)=', &
+      	         is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2)
+      	    call mpp_error( FATAL, 'MPP_WRITE: data must be either on compute domain or data domain.' )
+      	end if
+	  endif
+ 
       halos_are_global = x_is_global .AND. y_is_global
       if( npes.GT.1 .AND. mpp_file(unit)%threading.EQ.MPP_SINGLE )then
           if( halos_are_global )then
@@ -66,25 +79,47 @@
                  call write_record( unit, field, size(data(:,:,:)), data, tstamp)
               endif
           else
-!put field onto global domain
-              call mpp_get_global_domain ( domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
-              if(mpp_file(unit)%write_on_this_pe .OR. .NOT. global_field_on_root_pe) then
-                  allocate( gdata(isg:ieg,jsg:jeg,size(data,3)) )
-              else
-                  allocate( gdata(1,1,1))
-              endif
-              if(PRESENT(default_data)) gdata = default_data
-              if(global_field_on_root_pe) then
-                 call mpp_global_field( domain, data, gdata, position = position, flags=XUPDATE+YUPDATE+GLOBAL_ROOT_ONLY)
-              else
-                 call mpp_global_field( domain, data, gdata, position = position)
-              endif
-!all non-0 PEs have passed their data to PE 0 and may now exit
-              if(mpp_file(unit)%write_on_this_pe ) then
-                 call write_record( unit, field, size(gdata(:,:,:)), gdata, tstamp)
-              endif
-              deallocate(gdata)
-          end if
+		  
+		  	if (kxy==1) then
+		  	  !put field onto global domain
+          	    call mpp_get_global_domain ( domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
+          	    if(mpp_file(unit)%write_on_this_pe .OR. .NOT. global_field_on_root_pe) then
+          	        allocate( gdata(size(data,1),isg:ieg,jsg:jeg) )
+          	    else
+          	        allocate( gdata(1,1,1))
+          	    endif
+          	    if(PRESENT(default_data)) gdata = default_data
+          	    if(global_field_on_root_pe) then
+          	       call mpp_global_field( domain, data, gdata, position = position, flags=XUPDATE+YUPDATE+GLOBAL_ROOT_ONLY)
+          	    else
+          	       call mpp_global_field( domain, data, gdata, position = position)
+          	    endif
+		  	  !all non-0 PEs have passed their data to PE 0 and may now exit
+          	    if(mpp_file(unit)%write_on_this_pe ) then
+          	       call write_record( unit, field, size(gdata(:,:,:)), gdata, tstamp)
+          	    endif
+          	    deallocate(gdata)
+		  	else
+		  	  !put field onto global domain
+          	    call mpp_get_global_domain ( domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
+          	    if(mpp_file(unit)%write_on_this_pe .OR. .NOT. global_field_on_root_pe) then
+          	        allocate( gdata(isg:ieg,jsg:jeg,size(data,3)) )
+          	    else
+          	        allocate( gdata(1,1,1))
+          	    endif
+          	    if(PRESENT(default_data)) gdata = default_data
+          	    if(global_field_on_root_pe) then
+          	       call mpp_global_field( domain, data, gdata, position = position, flags=XUPDATE+YUPDATE+GLOBAL_ROOT_ONLY)
+          	    else
+          	       call mpp_global_field( domain, data, gdata, position = position)
+          	    endif
+		  	  !all non-0 PEs have passed their data to PE 0 and may now exit
+          	    if(mpp_file(unit)%write_on_this_pe ) then
+          	       call write_record( unit, field, size(gdata(:,:,:)), gdata, tstamp)
+          	    endif
+          	    deallocate(gdata)
+          	end if
+		  endif
       else if(mpp_file(unit)%io_domain_exist ) then
           if( halos_are_global )then
               call mpp_update_domains( data, domain, position = position )

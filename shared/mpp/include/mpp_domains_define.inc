@@ -578,7 +578,7 @@
   ! </SUBROUTINE>
   subroutine mpp_define_domains2D( global_indices, layout, domain, pelist, xflags, yflags,    &
          xhalo, yhalo, xextent, yextent, maskmap, name, symmetry,  memory_size,               &
-         whalo, ehalo, shalo, nhalo, is_mosaic, tile_count, tile_id, complete, x_cyclic_offset, y_cyclic_offset )
+         whalo, ehalo, shalo, nhalo, is_mosaic, tile_count, tile_id, complete, x_cyclic_offset, y_cyclic_offset, kxy )
     !define 2D data and computational domain on global rectilinear cartesian domain (isg:ieg,jsg:jeg) and assign them to PEs
     integer,          intent(in)           :: global_indices(:) !(/ isg, ieg, jsg, jeg /)
     integer,          intent(in)           :: layout(:)
@@ -606,6 +606,7 @@
     integer, intent(in),          optional :: y_cyclic_offset            ! offset for y-cyclic boundary condition
                                                                          ! (i,0)    = (mod(i+y_cyclic_offset,ni), nj))
                                                                          ! (i,nj+1) = (mod(mod(i+ni-y_cyclic_offset,ni), 1) )
+	integer, intent(in),          optional :: kxy
 
     integer              :: i, j, m, n, xhalosz, yhalosz, memory_xsize, memory_ysize
     integer              :: whalosz, ehalosz, shalosz, nhalosz
@@ -735,6 +736,15 @@
        memory_xsize = memory_size(1)
        memory_ysize = memory_size(2)
     end if
+
+	domain%kxy = 3
+	if(present(kxy)) then
+		if (kxy==1.or.kxy==3) then
+			domain%kxy = kxy
+		else
+			call mpp_error(FATAL,"mpp_define_domains2D: kxy should either 1 or 3")
+		endif
+	endif
 
     !--- set up domain%list.
     !--- set up 2-D domain decomposition for T, E, C, N and computing overlapping

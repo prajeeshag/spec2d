@@ -7,7 +7,7 @@ export MPICC=mpiicc
 export F77=mpiifort
 export LD=mpiifort
 
-cppDef="-Duse_netCDF -Duse_libMPI -DOVERLOAD_C8 -Dtest_grid_to_fourier" #-Dcheck_mpi" # -Dtest_interp"
+cppDef="-Duse_netCDF -Duse_libMPI -DOVERLOAD_C8 -DAMFI -Dtest_grid_to_fourier" #-Dcheck_mpi" # -Dtest_interp"
 
 thisdir=$(pwd)
 

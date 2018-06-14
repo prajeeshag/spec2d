@@ -768,6 +768,7 @@ subroutine write_data_3d_new(filename, fieldname, data, domain, no_domain, scala
   integer                         :: gxsize, gysize
   integer                         :: cxsize, cysize
   integer                         :: dxsize, dysize
+  integer                         :: kxy
   type(domain2d), pointer, save   :: d_ptr   =>NULL()
   type(var_type), pointer, save   :: cur_var =>NULL()
   type(restart_file_type), pointer, save :: cur_file =>NULL()
@@ -802,6 +803,9 @@ subroutine write_data_3d_new(filename, fieldname, data, domain, no_domain, scala
   else if (ASSOCIATED(Current_domain)) then
      d_ptr => Current_domain
   endif
+
+  kxy = 3
+  if(ASSOCIATED(d_ptr)) kxy = d_ptr%kxy
 
   !--- remove .nc from file name
   length = len_trim(filename)
@@ -901,7 +905,7 @@ subroutine write_data_3d_new(filename, fieldname, data, domain, no_domain, scala
      cur_var%siz(2)  = size(data,2)
      cur_var%siz(3)  = size(data,3)
      cur_var%siz(4)  = 1
-     cur_var%gsiz(3) = cur_var%siz(3)
+     cur_var%gsiz(kxy) = cur_var%siz(kxy)
      cur_var%name = fieldname
      cur_var%default_data = default_data
      cur_var%ndim = 3
@@ -937,13 +941,24 @@ subroutine write_data_3d_new(filename, fieldname, data, domain, no_domain, scala
         if (jshift .NE. 0) then
            cysize = cysize+jshift; dysize = dysize+jshift; gysize = gysize + jshift
         endif
-        if( (cur_var%siz(1) .NE. cxsize .AND. cur_var%siz(1) .NE. dxsize ) .OR. &
-            (cur_var%siz(2) .NE. cysize .AND. cur_var%siz(2) .NE. dysize ) ) then
-            call mpp_error(FATAL, 'fms_io(write_data_3d_new): data should be on either computer domain '//&
-              'or data domain when domain is present for field '//trim(fieldname)//' of file '//trim(filename) )
-        end if
-        cur_var%gsiz(1)   = gxsize
-        cur_var%gsiz(2)   = gysize
+
+        if (kxy==1) then
+            if( (cur_var%siz(2) .NE. cxsize .AND. cur_var%siz(2) .NE. dxsize ) .OR. &
+                (cur_var%siz(3) .NE. cysize .AND. cur_var%siz(3) .NE. dysize ) ) then
+                call mpp_error(FATAL, 'fms_io(write_data_3d_new): data should be on either computer domain '//&
+                  'or data domain when domain is present for field '//trim(fieldname)//' of file '//trim(filename) )
+            end if
+            cur_var%gsiz(2)   = gxsize
+            cur_var%gsiz(3)   = gysize
+        else
+            if( (cur_var%siz(1) .NE. cxsize .AND. cur_var%siz(1) .NE. dxsize ) .OR. &
+                (cur_var%siz(2) .NE. cysize .AND. cur_var%siz(2) .NE. dysize ) ) then
+                call mpp_error(FATAL, 'fms_io(write_data_3d_new): data should be on either computer domain '//&
+                  'or data domain when domain is present for field '//trim(fieldname)//' of file '//trim(filename) )
+            end if
+            cur_var%gsiz(1)   = gxsize
+            cur_var%gsiz(2)   = gysize
+        endif
      else
         cur_var%domain_present=.false.
         cur_var%gsiz(1) = size(data,1)
@@ -2600,16 +2615,27 @@ subroutine write_data_2d_new(filename, fieldname, data, domain,    &
   character(len=*), intent(in)                 :: filename, fieldname 
   real, dimension(:,:), intent(in)             :: data
   real, dimension(size(data,1),size(data,2),1) :: data_3d
+  real, dimension(1,size(data,1),size(data,2)) :: data_3dk
   real, intent(in), optional                   :: data_default
   type(domain2d), intent(in), optional         :: domain
   logical, intent(in), optional                :: no_domain
   integer, intent(in), optional                :: position, tile_count
+  integer :: kxy
  
   if(.not.module_is_initialized) call mpp_error(FATAL,'fms_io(write_data_2d_new):need to call fms_io_init first')
-  data_3d(:,:,1) = data(:,:)
 
-  call write_data_3d_new(filename, fieldname, data_3d, domain, &
+  kxy=3
+  if (present(domain)) call mpp_get_compute_domain(domain,kxy=kxy)
+ 
+  if (kxy==1) then
+    data_3dk(1,:,:) = data(:,:)
+    call write_data_3d_new(filename, fieldname, data_3dk, domain, &
                          no_domain, .false., position, tile_count, data_default)
+  else 
+    data_3d(:,:,1) = data(:,:)
+    call write_data_3d_new(filename, fieldname, data_3d, domain, &
+                         no_domain, .false., position, tile_count, data_default)
+  endif
 
 end subroutine write_data_2d_new
 
