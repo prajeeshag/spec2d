@@ -42,7 +42,9 @@ module grid_to_fourier_mod
     type(plan_type) :: myplans(max_plans)
 
 
-    public :: init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial, end_grid_to_fourier, grid_to_fourier
+    public :: init_grid_to_fourier, end_grid_to_fourier
+    public :: grid_to_fourier, fourier_to_grid
+    public :: fft_1dr2c_serial, fft_1dc2c_serial
 
 
     namelist/grid_to_fourier_nml/plan_level
@@ -123,7 +125,7 @@ module grid_to_fourier_mod
         integer(C_INTPTR_T) :: howmany
         integer :: plan_grid_to_fourier, n, flags, t, clck_transpose
         integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1, local_n1_prev
-        integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
+        integer(C_INTPTR_T) :: alloc_local, n0(2)
         integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
 
         howmany = nvars*nlevs*nlats
@@ -236,7 +238,6 @@ module grid_to_fourier_mod
     end subroutine grid_to_fourier
 
 
-
     function plan_fourier_to_grid(nvars, nlevs, nlats, ilen, comm_in, flen)
 
         implicit none
@@ -247,7 +248,7 @@ module grid_to_fourier_mod
         integer :: plan_fourier_to_grid, n, flags, t, clck_transpose
         integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
         integer(C_INTPTR_T) :: local_n0_prev
-        integer(C_INTPTR_T) :: alloc_local, n0(2), oblock
+        integer(C_INTPTR_T) :: alloc_local, n0(2)
         integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
 
         howmany = nvars*nlevs*nlats
@@ -302,8 +303,8 @@ module grid_to_fourier_mod
                                 myplans(n)%srin, inembed, istride, idist, flags)
        
         local_n0_prev = local_n0 
-        !Transpose back
 
+        !Transpose back
         n0=[FTRUNC,howmany]
 
         alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
@@ -315,8 +316,11 @@ module grid_to_fourier_mod
 
         if(flen/=local_n0) call mpp_error('plan_fourier_to_grid', 'flen/=local_n0', FATAL)
 
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%srout, [TWO,NLON/2+1,local_n1])
-        call c_f_pointer(myplans(n)%tcdat, myplans(n)%tsrout, [TWO,howmany,local_n0])
+        myplans(n)%cdat = fftw_alloc_complex(alloc_local)
+
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%scouttr, [FTRUNC,local_n1])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%srout, [TWO,FTRUNC,local_n1])
+        call c_f_pointer(myplans(n)%cdat, myplans(n)%tsrout, [TWO,howmany,local_n0])
 
         myplans(n)%tplan = fftw_mpi_plan_many_transpose(FTRUNC, howmany, 2, &
                                 block0, block0, myplans(n)%tsrout, myplans(n)%srout, &
@@ -326,6 +330,7 @@ module grid_to_fourier_mod
         call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [howmany, local_n0])
 
     end function plan_fourier_to_grid
+
 
     subroutine fourier_to_grid(coutp, rinp)
 
@@ -345,13 +350,14 @@ module grid_to_fourier_mod
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%tsrout, myplans(id)%srout)
 
         !Serial FFT
-        myplans(id)%scout(FTRUNC+1:NLON/2+1,:) = 0. !Truncation
+        myplans(id)%scout(:,:) = 0. !Truncation
+        myplans(id)%scout(1:FTRUNC,:) = myplans(id)%scouttr(1:FTRUNC,:) !Truncation
         call fftw_execute_dft_c2r(myplans(id)%splan, myplans(id)%scout, myplans(id)%srin) 
 
         !Transpose
         call fftw_mpi_execute_r2r(myplans(id)%plan, myplans(id)%trin, myplans(id)%rin)
         
-        rinp = reshape(myplans(id)%rin(1:howmany,:), shape=[NLEV, NLAT, NLON_LOCAL])
+        rinp = reshape(myplans(id)%rin(1:howmany,:), shape=[NLEV, NLAT, NLON_LOCAL], order=[2,1,3])
                 
     end subroutine fourier_to_grid
 

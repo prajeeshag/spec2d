@@ -11,8 +11,8 @@ num_fourier=10
   check = .true.
   nt = 144
 nlon=32
-  nlat = 20
-  nlev = 64
+  nlat = 6
+  nlev = 5
 /
 
 

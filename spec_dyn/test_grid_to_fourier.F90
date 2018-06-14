@@ -11,7 +11,8 @@ program main
     use fms_mod, only : read_data, write_data, open_namelist_file, close_file
     use fms_io_mod, only : fms_io_exit 
 
-    use grid_to_fourier_mod, only : init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial, end_grid_to_fourier, grid_to_fourier
+    use grid_to_fourier_mod, only : init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial
+    use grid_to_fourier_mod, only : end_grid_to_fourier, grid_to_fourier, fourier_to_grid
 
     implicit none
 
@@ -28,19 +29,20 @@ program main
 
     integer :: comm, idfft3d, n, nt=1
     logical :: check=.false.
-    real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:)
+    real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:), fldout(:,:,:)
     complex, allocatable :: fldc1d(:,:), fldct(:,:,:)
     integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
     integer :: isf, ief, flen, jsc, jec
     real :: scl, x, y, imgf=0.3, phi=0.15
-    integer :: clck_fftw3, init, unit, cl, ck, num_fourier
+    integer :: clck_grid2fourier, clck_fourier2grid, init, unit, cl, ck, num_fourier
     complex(kind=4) :: cpout(3)
     logical :: ideal_data=.false.
     real, parameter :: PI=4.D0*DATAN(1.D0)
     complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
     integer :: pe
 
-    namelist/test_grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, check, num_fourier, nt, nlon, nlat, nlev
+    namelist/test_grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, &
+                                      check, num_fourier, nt, nlon, nlat, nlev
 
     call mpp_init() 
 
@@ -50,7 +52,8 @@ program main
     read(unit,nml=test_grid_to_fourier_nml)
     call close_file(unit)
 
-    clck_fftw3 = mpp_clock_id('fftw3')
+    clck_grid2fourier = mpp_clock_id('grid_to_fourier')
+    clck_fourier2grid = mpp_clock_id('fourier_to_grid')
 
     allocate(pelist(mpp_npes()))
     allocate(extent(mpp_npes()))
@@ -75,6 +78,7 @@ program main
     print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
 
     allocate(fld(nlev,nlat,isc:iec))
+    allocate(fldout(nlev,nlat,isc:iec))
     allocate(fldct(isf:ief,nlat,nlev))
 
     allocate(fld1d(1:nlon))
@@ -112,11 +116,20 @@ program main
  
     call mpp_sync()
 
-    call mpp_clock_begin(clck_fftw3)
+
+    call mpp_clock_begin(clck_grid2fourier)
     do t = 1, nt
         call grid_to_fourier(fld, fldct)
     enddo
-    call mpp_clock_end(clck_fftw3)
+    call mpp_clock_end(clck_grid2fourier)
+
+
+    call mpp_clock_begin(clck_fourier2grid)
+    do t = 1, nt
+        call fourier_to_grid(fldct, fldout)
+    enddo
+    call mpp_clock_end(clck_fourier2grid)
+
 
     if(cl>nlat/2) cl = nlat/2
     if(cl<1) cl = 1
@@ -143,12 +156,38 @@ program main
                 cpout(1) = fldc1d(i+1,1)
                 cpout(2) = fldct(i,m,l)
                 cpout(3) = fldct(i,nlat/2+m,l)
-                print *,'trans:', k, cpout(1:3)
+                if(abs(cpout(1)-cpout(2))>1.e-10) then
+                    print *,'forward check:', k, i, cpout(1), cpout(2)
+                    call mpp_error('test_grid_to_fourier','forward check error', FATAL)
+                endif
             enddo
         enddo
         enddo
     endif
 
+    if (ideal_data) then
+        k = 0
+        if (mpp_pe()==mpp_root_pe()) then
+            print *, ''
+            print *, ''
+            print *, 'Backward'
+            print *, ''
+        endif
+        do m = 1, nlat
+            do l = 1, nlev
+                call mpp_sync()
+                !print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check1:', l, m, fld(l,m,isc:iec)
+                !print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check2:', l, m, fldout(l,m,isc:iec)
+                do i = isc, iec
+                    if(abs(fldout(l,m,i)-fld(l,m,i))>1.e-10) then
+                        print *,'backward check:', l, m, i, fldout(l,m,i), fld(l,m,i)
+                        call mpp_error('test_grid_to_fourier','backward check error', FATAL)
+                    endif
+                enddo
+                call mpp_sync()
+            enddo
+        enddo
+    endif
 
     call fms_io_exit()
     call end_grid_to_fourier()
