@@ -7,6 +7,7 @@ program main
     use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
     use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
     use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
+    use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
     use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
     use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
     use fms_io_mod, only : fms_io_exit 
@@ -18,12 +19,14 @@ program main
 
     type(domain2d) :: domainl
     type(domain2d) :: domainf
- 
+
+    logical :: fpe 
     integer :: nlon, nlat, nlev
       
     integer :: ilen, istart, olen, ostart, nlonb2
         
     integer, allocatable :: pelist(:), extent(:)
+    integer, allocatable :: fpelist(:), fextent(:)
  
     character(len=32) :: routine='test_grid_to_fourier'
 
@@ -68,15 +71,33 @@ program main
     call init_grid_to_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat)
 
     call mpp_gather([flen], extent)
-
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
 
-    call mpp_define_domains( [0,num_fourier-1,1,nlat], [mpp_npes(),1], domainf, xhalo=0, xextent=extent)
-    call mpp_get_compute_domain(domainf, isf, ief, jsc, jec)
+    allocate(fextent(count(extent>0)))
+    allocate(fpelist(count(extent>0)))
+   
+    k = 0 
+    do i = 1, size(extent)
+        if (extent(i)>0) then
+            k = k + 1
+            fextent(k) = extent(i)
+            fpelist(k) = pelist(i)
+        endif
+    enddo
+    
+    fpe = any(fpelist==mpp_pe())
 
-    if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
-
-    print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
+    call mpp_declare_pelist(fpelist,'fourier_pes')
+   
+    isf = 0; ief = -1 
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist)
+        call mpp_define_domains( [0,num_fourier-1,1,nlat], [mpp_npes(),1], domainf, xhalo=0, xextent=fextent)
+        call mpp_get_compute_domain(domainf, isf, ief, jsc, jec)
+        if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
+        print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
+    endif
+    call mpp_set_current_pelist()
 
     allocate(fld(nlev,nlat,isc:iec))
     allocate(fldout(nlev,nlat,isc:iec))
@@ -90,14 +111,17 @@ program main
 
     scl=1./nlon
 
-    if (ideal_data) fld1d=0.
-    do i = 0, nlon-1
-        if (ideal_data) then
-            do k = kstart, kend, kstep
-                fld1d(i+1) = fld1d(i+1) + 2*k*cos(2.*PI*(i-phi)*real(k)/nlon)
-            enddo
-        endif
-     enddo
+    if (ideal_data) then
+        kend = num_fourier-1
+        fld1d=0.
+         do i = 0, nlon-1
+            if (ideal_data) then
+                do k = kstart, kend, kstep
+                    fld1d(i+1) = fld1d(i+1) + 2*k*cos(2.*PI*(i-phi)*real(k)/nlon)
+                enddo
+            endif
+         enddo
+     endif
 
      k = 0
      do l = 1, nlev
@@ -177,16 +201,16 @@ program main
         endif
         do m = 1, nlat
             do l = 1, nlev
-                call mpp_sync()
-                !print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check1:', l, m, fld(l,m,isc:iec)
-                !print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check2:', l, m, fldout(l,m,isc:iec)
+               ! call mpp_sync()
+               ! print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check1:', l, m, fld(l,m,isc:iec)
+               ! print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check2:', l, m, fldout(l,m,isc:iec)
+               ! call mpp_sync()
                 do i = isc, iec
                     if(abs(fldout(l,m,i)-fld(l,m,i))>1.e-10) then
                         print *,'backward check:', l, m, i, fldout(l,m,i), fld(l,m,i)
                         call mpp_error('test_grid_to_fourier','backward check error', FATAL)
                     endif
                 enddo
-                call mpp_sync()
             enddo
         enddo
     endif
@@ -197,7 +221,4 @@ program main
             
 end program main
 
-
 #endif
-
-

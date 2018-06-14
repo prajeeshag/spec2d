@@ -31,8 +31,8 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 #FFTW
 if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
 	cd $thisdir/shared/fftw-3.3.8
-	make clean
 	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads
+	make clean
 	make -j 16
 	make install
 fi

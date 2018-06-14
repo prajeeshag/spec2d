@@ -1,18 +1,15 @@
 
 &test_grid_to_fourier_nml
-  kstart=1
-  kend=8
-  kstep=1
   ideal_data = .true.
   imgf = 0.
   ck = 3
   cl = 2
-num_fourier=62
+num_fourier=11
   check = .true.
-  nt = 144
-nlon=192
-  nlat = 10
-  nlev = 64
+  nt = 1
+nlon=32
+  nlat = 2
+  nlev = 1
 /
 
 
