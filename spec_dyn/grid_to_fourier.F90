@@ -30,6 +30,8 @@ module grid_to_fourier_mod
     integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
     integer :: COMM_FFT
 
+    integer :: clck_grid_to_fourier, clck_fourier_to_grid
+    integer :: clck_plan_g2f, clck_plan_f2g
 
     real :: RSCALE
     integer :: plan_level = 3, plan_flags, id_grid2four, id_four2grid
@@ -102,13 +104,22 @@ module grid_to_fourier_mod
 
         call fftw_mpi_init()
 
+        clck_grid_to_fourier = mpp_clock_id('grid_to_fourier')
+        clck_fourier_to_grid = mpp_clock_id('fourier_to_grid')
+        clck_plan_g2f = mpp_clock_id('plan_grid_to_fourier')
+        clck_plan_f2g = mpp_clock_id('plan_fourier_to_grid')
+
         flen = 0
 
+        call mpp_clock_begin(clck_plan_g2f)
         !grid_to_fourier
         id_grid2four = plan_grid_to_fourier(1,NLEV,NLAT,NLON_LOCAL,comm_in, isf, flen)
+        call mpp_clock_end(clck_plan_g2f)
 
+        call mpp_clock_begin(clck_plan_f2g)
         !fourier_to_grid -> should be called after plan_grid_to_fourier
         id_four2grid = plan_fourier_to_grid(1,NLEV,NLAT,NLON_LOCAL,comm_in, flen)
+        call mpp_clock_end(clck_plan_f2g)
 
         initialized = .true.
         call mpp_error(routine, 'grid_to_fourier initialized !!!', NOTE)
@@ -215,6 +226,9 @@ module grid_to_fourier_mod
         integer :: id, i, j, ci=1, cj=2, ct
         integer(C_INTPTR_T) :: howmany
 
+
+        call mpp_clock_begin(clck_grid_to_fourier)
+
         id = id_grid2four
         
         howmany = myplans(id)%howmany
@@ -234,6 +248,8 @@ module grid_to_fourier_mod
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%srout, myplans(id)%tsrout)
 
         coutp = reshape(myplans(id)%cout(1:howmany,1:FLOCAL),shape=[FLOCAL,NLAT,NLEV],order=[3,2,1])
+
+        call mpp_clock_end(clck_grid_to_fourier)
                 
     end subroutine grid_to_fourier
 
@@ -340,6 +356,8 @@ module grid_to_fourier_mod
         integer :: id, i, j, ci=1, cj=2, ct
         integer(C_INTPTR_T) :: howmany
 
+        call mpp_clock_begin(clck_fourier_to_grid)
+
         id = id_four2grid
         
         howmany = myplans(id)%howmany
@@ -359,6 +377,7 @@ module grid_to_fourier_mod
         
         rinp = reshape(myplans(id)%rin(1:howmany,:), shape=[NLEV, NLAT, NLON_LOCAL], order=[2,1,3])
                 
+        call mpp_clock_end(clck_fourier_to_grid)
     end subroutine fourier_to_grid
 
 

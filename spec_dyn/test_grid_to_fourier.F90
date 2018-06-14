@@ -143,24 +143,24 @@ program main
     call mpp_sync()
 
 
-    call mpp_clock_begin(clck_grid2fourier)
+    !call mpp_clock_begin(clck_grid2fourier)
     do t = 1, nt
         call grid_to_fourier(fld, fldct)
     enddo
-    call mpp_clock_end(clck_grid2fourier)
+    !call mpp_clock_end(clck_grid2fourier)
 
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist)
+        call write_data('test_grid2four', 'fldc_r', real(fldct(:,:,:)), domain=domainf)
+    endif
+    call mpp_set_current_pelist()
 
-    call mpp_clock_begin(clck_fourier2grid)
+    !call mpp_clock_begin(clck_fourier2grid)
     do t = 1, nt
         call fourier_to_grid(fldct, fldout)
     enddo
-    call mpp_clock_end(clck_fourier2grid)
+    !call mpp_clock_end(clck_fourier2grid)
 
-
-    if(cl>nlat/2) cl = nlat/2
-    if(cl<1) cl = 1
-    if(ck>nlev) ck = nlev
-    if(ck<1) ck = 1
 
     if (ideal_data) then
         k = 0
