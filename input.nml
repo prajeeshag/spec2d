@@ -4,10 +4,10 @@
   imgf = 0.
   ck = 3
   cl = 2
-num_fourier=63
+num_fourier=6
   check = .true.
   nt = 1
-nlon=192
+nlon=32
   nlat = 2
   nlev = 1
 /
@@ -15,6 +15,7 @@ nlon=192
 
 &grid_to_fourier_nml
   plan_level = 1
+  debug = .true.
 /
  
 

@@ -62,7 +62,6 @@ program main
 
     allocate(pelist(mpp_npes()))
     allocate(extent(mpp_npes()))
-    allocate(Tshuff(num_fourier))
 
     call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, kxy=1)
     call mpp_get_compute_domain(domainl, jsc, jec, isc, iec)
@@ -70,6 +69,7 @@ program main
 
     call mpp_get_current_pelist(pelist,commid=comm)
 
+    allocate(Tshuff(0:num_fourier))
     call init_grid_to_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat, Tshuff=Tshuff)
 
     call mpp_gather([flen], extent)
@@ -94,10 +94,10 @@ program main
     isf = 0; ief = -1 
     if (fpe) then
         call mpp_set_current_pelist(fpelist)
-        call mpp_define_domains( [1,num_fourier,1,nlat], [mpp_npes(),1], domainf, xextent=fextent)
+        call mpp_define_domains( [0,num_fourier,1,nlat], [mpp_npes(),1], domainf, xextent=fextent)
         call mpp_get_compute_domain(domainf, isf, ief, jsc, jec)
         if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
-        print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief)+1)
+        print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief))
     endif
     call mpp_set_current_pelist()
 
@@ -107,7 +107,7 @@ program main
 
     allocate(fld1d(1:nlon))
     allocate(fld1dout(1:nlon))
-    allocate(fldc1d(1:nlon,2))
+    allocate(fldc1d(0:nlon-1,2))
     
     if(.not.ideal_data) call read_data('test_data.nc', 'tas', fld1d)
 

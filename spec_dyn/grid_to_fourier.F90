@@ -72,10 +72,10 @@ module grid_to_fourier_mod
         integer, intent(inout) :: flen ! No: fouriers in this proc
         integer, intent(inout) :: isf ! Starting of the fourier in this proc
         integer, intent(in), optional :: nvars ! No: of variables
-        integer, intent(out), optional :: Tshuff(nfourier) !if present shuffle the fourier for 
-                                                           !load balance for triangular truncation
-                                                           !and give the order of shuffled fouriers
-                                                           !in Tshuff
+        integer, intent(out), optional :: Tshuff(nfourier+1) !if present shuffle the fourier for 
+                                                             !load balance for triangular truncation
+                                                             !and give the order of shuffled fouriers
+                                                             !in Tshuff
 
                                                                     
         character (len=32) :: routine = 'init_grid_to_fourier'
@@ -96,7 +96,7 @@ module grid_to_fourier_mod
         COMM_FFT = comm_in
         NLON_LOCAL = ilen
         FTOTAL = nlons/2
-        FTRUNC = nfourier 
+        FTRUNC = nfourier + 1 !because here everything starts from 1 not from Zero
         RSCALE = 1./nlons
 
         select case (plan_level)
@@ -126,20 +126,20 @@ module grid_to_fourier_mod
         flen = 0
 
         if (present(Tshuff)) then
-            allocate(Tshuffle(nfourier))
+            allocate(Tshuffle(FTRUNC))
             
             if (mpp_npes() > 1) then
-                if (mod(nfourier,2)==0) then
-                    k = nfourier + 1
-                    do i = 1, nfourier/2
+                if (mod(FTRUNC,2)==0) then
+                    k = FTRUNC + 1
+                    do i = 1, FTRUNC/2
                         k = k - 1 
                         Tshuffle(2*(i-1)+1) = i
                         Tshuffle(2*i) = k
                     enddo
                 else
-                    Tshuffle(nfourier) = 1
-                    k = nfourier + 1
-                    do i = 1, (nfourier-1)/2
+                    Tshuffle(FTRUNC) = 1
+                    k = FTRUNC + 1
+                    do i = 1, (FTRUNC-1)/2
                         k = k - 1 
                         Tshuffle(2*(i-1)+1) = i + 1
                         Tshuffle(2*i) = k
@@ -148,13 +148,13 @@ module grid_to_fourier_mod
                 shuffle=.true.
             else 
                 shuffle=.false.
-                forall(i=1:nfourier) Tshuffle(i) = i
+                forall(i=1:FTRUNC) Tshuffle(i) = i
             endif
 
-            Tshuff = Tshuffle
+            Tshuff = Tshuffle-1
             
             if (debug.and.mpp_pe()==mpp_root_pe()) then
-                print *, 'Tshuffle=', Tshuffle
+                print *, 'Tshuffle=', Tshuff
             endif
         endif
 
@@ -248,7 +248,7 @@ module grid_to_fourier_mod
 
         FLOCAL = local_n1
         flen = local_n1
-        isf = local_1_start + 1  !everything starts from 1 rather than zero
+        isf = local_1_start
 
         myplans(n)%cdat = fftw_alloc_complex(alloc_local)
 
