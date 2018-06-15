@@ -40,13 +40,13 @@ program main
     real :: scl, x, y, imgf=0.3, phi=0.15
     integer :: clck_grid2fourier, clck_fourier2grid, init, unit, cl, ck, num_fourier
     complex(kind=4) :: cpout(3)
-    logical :: ideal_data=.false.
+    logical :: ideal_data=.false., debug=.false.
     real, parameter :: PI=4.D0*DATAN(1.D0)
     complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
     integer :: pe
 
     namelist/test_grid_to_fourier_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, &
-                                      check, num_fourier, nt, nlon, nlat, nlev
+                                      check, num_fourier, nt, nlon, nlat, nlev, debug
 
     call mpp_init() 
     call fms_init()
@@ -98,7 +98,7 @@ program main
         call mpp_define_domains( [1,nlat, 0,num_fourier], [1,mpp_npes()], domainf, yextent=fextent)
         call mpp_get_compute_domain(domainf, jsf, jef, isf, ief)
         if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
-        print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief))
+        print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief)+1)
     endif
     call mpp_set_current_pelist()
 
@@ -179,11 +179,12 @@ program main
             k = k+1
                 fld1dout(:) = k + k*fld1d(:)
             call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
-    
-            call mpp_sync()  
-            if (mpp_pe()==mpp_root_pe()) then
-               print *, 'full= ', real(fldc1d(1:num_fourier,1))
-               print *, 'half= ', Tshuff(isf:ief), real(fldct(m,l,:))
+            if (debug) then 
+                call mpp_sync()  
+                if (mpp_pe()==mpp_root_pe()) then
+                   print *, 'full= ', real(fldc1d(1:num_fourier,1))
+                   print *, 'half= ', Tshuff(isf:ief), real(fldct(m,l,:))
+                endif
             endif
             call mpp_sync()  
             do i = isf, ief
@@ -210,10 +211,12 @@ program main
         endif
         do m = 1, nlat
             do l = 1, nlev
-               ! call mpp_sync()
-               ! print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check1:', l, m, fld(l,m,isc:iec)
-               ! print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check2:', l, m, fldout(l,m,isc:iec)
-               ! call mpp_sync()
+                if (debug) then
+                    call mpp_sync()
+                    print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check1:', l, m, fld(l,m,isc:iec)
+                    print '(A,1x,2(I3,1x),100(F13.6,1x))', 'backward check2:', l, m, fldout(l,m,isc:iec)
+                endif
+                call mpp_sync()
                 do i = isc, iec
                     if(abs(fldout(l,m,i)-fld(l,m,i))>1.e-10) then
                         print *,'backward check:', l, m, i, fldout(l,m,i), fld(l,m,i)
