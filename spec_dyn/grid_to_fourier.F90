@@ -303,7 +303,8 @@ module grid_to_fourier_mod
         !Transpose Back
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%srout, myplans(id)%tsrout)
 
-        coutp = reshape(myplans(id)%cout(1:howmany,1:FLOCAL),shape=[FLOCAL,NLAT,NLEV],order=[3,2,1])
+        !coutp = reshape(myplans(id)%cout(1:howmany,1:FLOCAL),shape=[FLOCAL,NLAT,NLEV],order=[3,2,1])
+        coutp = reshape(myplans(id)%cout(1:howmany,1:FLOCAL),shape=[NLAT,NLEV,FLOCAL],order=[2,1,3])
 
         call mpp_clock_end(clck_grid_to_fourier)
                 
@@ -409,7 +410,8 @@ module grid_to_fourier_mod
 
         implicit none
         real, intent(out) :: rinp(:,:,:) ! lev, lat, lon
-        complex, intent(in) :: coutp(:,:,:) ! fourier, lat, lev
+        !complex, intent(in) :: coutp(:,:,:) ! fourier, lat, lev
+        complex, intent(in) :: coutp(:,:,:) ! lat, fourier, lev
         integer :: id, i, j, ci=1, cj=2, ct
         integer(C_INTPTR_T) :: howmany
 
@@ -418,8 +420,8 @@ module grid_to_fourier_mod
         id = id_four2grid
         
         howmany = myplans(id)%howmany
-
-        myplans(id)%cout = reshape(coutp(:,:,:),shape=[howmany,FLOCAL],order=[2,1])
+        
+        myplans(id)%cout = reshape(coutp,shape=[howmany,FLOCAL])
 
         !Transpose Back
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%tsrout, myplans(id)%srout)
