@@ -27,6 +27,7 @@ program main
         
     integer, allocatable :: pelist(:), extent(:)
     integer, allocatable :: fpelist(:), fextent(:)
+    integer, allocatable :: Tshuff(:)
  
     character(len=32) :: routine='test_grid_to_fourier'
 
@@ -35,7 +36,7 @@ program main
     real, allocatable :: fld(:,:,:), fld1d(:), fld1dout(:), fldout(:,:,:)
     complex, allocatable :: fldc1d(:,:), fldct(:,:,:)
     integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
-    integer :: isf, ief, flen, jsc, jec
+    integer :: isf, ief, flen, jsc, jec, j
     real :: scl, x, y, imgf=0.3, phi=0.15
     integer :: clck_grid2fourier, clck_fourier2grid, init, unit, cl, ck, num_fourier
     complex(kind=4) :: cpout(3)
@@ -61,14 +62,15 @@ program main
 
     allocate(pelist(mpp_npes()))
     allocate(extent(mpp_npes()))
+    allocate(Tshuff(num_fourier))
 
-    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, xhalo=0, yhalo=0, kxy=1)
+    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, kxy=1)
     call mpp_get_compute_domain(domainl, jsc, jec, isc, iec)
     ilen = iec-isc+1
 
     call mpp_get_current_pelist(pelist,commid=comm)
 
-    call init_grid_to_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat)
+    call init_grid_to_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat, Tshuff=Tshuff)
 
     call mpp_gather([flen], extent)
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
@@ -92,10 +94,10 @@ program main
     isf = 0; ief = -1 
     if (fpe) then
         call mpp_set_current_pelist(fpelist)
-        call mpp_define_domains( [0,num_fourier-1,1,nlat], [mpp_npes(),1], domainf, xhalo=0, xextent=fextent)
+        call mpp_define_domains( [1,num_fourier,1,nlat], [mpp_npes(),1], domainf, xextent=fextent)
         call mpp_get_compute_domain(domainf, isf, ief, jsc, jec)
         if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
-        print *, 'pe, isf, ief, flen=', mpp_pe(), isf, ief, flen
+        print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief)+1)
     endif
     call mpp_set_current_pelist()
 
@@ -178,12 +180,18 @@ program main
             call fft_1dr2c_serial(fld1dout(:)*scl,fldc1d(:,1))
     
             call mpp_sync()  
+            !if (mpp_pe()==mpp_root_pe()) then
+            !   print *, 'full= ', real(fldc1d(1:num_fourier,1))
+            !   print *, 'half= ', Tshuff(isf:ief), real(fldct(:,m,l))
+            !endif
+            !call mpp_sync()  
             do i = isf, ief
-                cpout(1) = fldc1d(i+1,1)
+                j = Tshuff(i)
+                cpout(1) = fldc1d(j,1)
                 cpout(2) = fldct(i,m,l)
                 cpout(3) = fldct(i,nlat/2+m,l)
                 if(abs(cpout(1)-cpout(2))>1.e-10) then
-                    print *,'forward check:', k, i, cpout(1), cpout(2)
+                    print *,'forward check:', k, j, i, cpout(1), cpout(2)
                     call mpp_error('test_grid_to_fourier','forward check error', FATAL)
                 endif
             enddo

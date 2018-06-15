@@ -3,6 +3,7 @@ module grid_to_fourier_mod
     use, intrinsic :: iso_c_binding
 
     use mpp_mod, only : mpp_pe, mpp_npes, mpp_clock_id, mpp_clock_begin, mpp_clock_end, mpp_sync
+    use mpp_mod, only : mpp_root_pe
     use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, NOTE
 
     implicit none
@@ -29,7 +30,10 @@ module grid_to_fourier_mod
     integer(C_INTPTR_T) :: NLEV, NLAT, NVAR
     integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
     integer :: COMM_FFT
+    integer, allocatable :: Tshuffle(:)
+    logical :: shuffle=.false.
 
+    logical :: debug=.false.
     integer :: clck_grid_to_fourier, clck_fourier_to_grid
     integer :: clck_plan_g2f, clck_plan_f2g
 
@@ -49,23 +53,33 @@ module grid_to_fourier_mod
     public :: fft_1dr2c_serial, fft_1dc2c_serial
 
 
-    namelist/grid_to_fourier_nml/plan_level
+    namelist/grid_to_fourier_nml/plan_level, debug
 
 
     contains
 
 
-    subroutine init_grid_to_fourier (nlons, ilen, nfourier, isf, flen, comm_in, nlevs, nlats, nvars, tshuffle)
+    subroutine init_grid_to_fourier (nlons, ilen, nfourier, isf, flen, comm_in, nlevs, nlats, nvars, Tshuff)
 
         implicit none
 
-        integer, intent(in) :: nlons, comm_in, ilen, nfourier, nlats, nlevs
-        integer, intent(inout) :: flen, isf
-        integer, intent(in), optional :: nvars
-        integer, intent(out), optional :: tshuffle(:) !if present shuffle the fourier for 
-                                                      !load balance for triangular truncation
+        integer, intent(in) :: nlons ! Total no: of longitudes
+        integer, intent(in) :: comm_in !MPI Communicator
+        integer, intent(in) :: ilen ! No: of longitudes in this proc
+        integer, intent(in) :: nfourier ! fourier truncation
+        integer, intent(in) :: nlats ! No: of latitudes in this proc
+        integer, intent(in) :: nlevs ! No: of levs
+        integer, intent(inout) :: flen ! No: fouriers in this proc
+        integer, intent(inout) :: isf ! Starting of the fourier in this proc
+        integer, intent(in), optional :: nvars ! No: of variables
+        integer, intent(out), optional :: Tshuff(nfourier) !if present shuffle the fourier for 
+                                                           !load balance for triangular truncation
+                                                           !and give the order of shuffled fouriers
+                                                           !in Tshuff
+
+                                                                    
         character (len=32) :: routine = 'init_grid_to_fourier'
-        integer :: unit
+        integer :: unit, i, k
 
         unit = open_namelist_file()
 
@@ -110,6 +124,39 @@ module grid_to_fourier_mod
         clck_plan_f2g = mpp_clock_id('plan_fourier_to_grid')
 
         flen = 0
+
+        if (present(Tshuff)) then
+            allocate(Tshuffle(nfourier))
+            
+            if (mpp_npes() > 1) then
+                if (mod(nfourier,2)==0) then
+                    k = nfourier + 1
+                    do i = 1, nfourier/2
+                        k = k - 1 
+                        Tshuffle(2*(i-1)+1) = i
+                        Tshuffle(2*i) = k
+                    enddo
+                else
+                    Tshuffle(nfourier) = 1
+                    k = nfourier + 1
+                    do i = 1, (nfourier-1)/2
+                        k = k - 1 
+                        Tshuffle(2*(i-1)+1) = i + 1
+                        Tshuffle(2*i) = k
+                    enddo 
+                endif
+                shuffle=.true.
+            else 
+                shuffle=.false.
+                forall(i=1:nfourier) Tshuffle(i) = i
+            endif
+
+            Tshuff = Tshuffle
+            
+            if (debug.and.mpp_pe()==mpp_root_pe()) then
+                print *, 'Tshuffle=', Tshuffle
+            endif
+        endif
 
         call mpp_clock_begin(clck_plan_g2f)
         !grid_to_fourier
@@ -201,7 +248,7 @@ module grid_to_fourier_mod
 
         FLOCAL = local_n1
         flen = local_n1
-        isf = local_1_start
+        isf = local_1_start + 1  !everything starts from 1 rather than zero
 
         myplans(n)%cdat = fftw_alloc_complex(alloc_local)
 
@@ -217,6 +264,8 @@ module grid_to_fourier_mod
         call c_f_pointer(myplans(n)%r2c, myplans(n)%cout, [howmany, local_n1])
 
     end function plan_grid_to_fourier
+
+
 
     subroutine grid_to_fourier(rinp, coutp)
 
@@ -241,8 +290,15 @@ module grid_to_fourier_mod
         !Serial FFT
         call fftw_execute_dft_r2c(myplans(id)%splan, myplans(id)%srin, myplans(id)%scout) 
 
-        !Truncation        
-        myplans(id)%scouttr(1:FTRUNC,:) = myplans(id)%scout(1:FTRUNC,:)
+        !Truncation
+        if (shuffle) then
+            do i = 1, FTRUNC
+                j = Tshuffle(i)
+                myplans(id)%scouttr(i,:) = myplans(id)%scout(j,:)
+            enddo 
+        else 
+            myplans(id)%scouttr(1:FTRUNC,:) = myplans(id)%scout(1:FTRUNC,:)
+        endif
 
         !Transpose Back
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%srout, myplans(id)%tsrout)
@@ -252,6 +308,7 @@ module grid_to_fourier_mod
         call mpp_clock_end(clck_grid_to_fourier)
                 
     end subroutine grid_to_fourier
+
 
 
     function plan_fourier_to_grid(nvars, nlevs, nlats, ilen, comm_in, flen)
@@ -368,8 +425,15 @@ module grid_to_fourier_mod
         call fftw_mpi_execute_r2r(myplans(id)%tplan, myplans(id)%tsrout, myplans(id)%srout)
 
         !Serial FFT
-        myplans(id)%scout(:,:) = 0. !Truncation
-        myplans(id)%scout(1:FTRUNC,:) = myplans(id)%scouttr(1:FTRUNC,:) !Truncation
+        myplans(id)%scout(:,:) = 0.
+        if (shuffle) then
+            do i = 1, FTRUNC
+                j = Tshuffle(i)
+                myplans(id)%scout(j,:) = myplans(id)%scouttr(i,:) !Truncation & Shuffle
+            enddo
+        else
+            myplans(id)%scout(1:FTRUNC,:) = myplans(id)%scouttr(1:FTRUNC,:) !Truncation
+        endif
         call fftw_execute_dft_c2r(myplans(id)%splan, myplans(id)%scout, myplans(id)%srin) 
 
         !Transpose
@@ -379,7 +443,6 @@ module grid_to_fourier_mod
                 
         call mpp_clock_end(clck_fourier_to_grid)
     end subroutine fourier_to_grid
-
 
 
     subroutine end_grid_to_fourier()
