@@ -93,7 +93,8 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
     
     nlat = nlat_in
     num_fourier = num_fourier_in
-    num_spherical = num_spherical_in + 1
+    num_spherical = num_spherical_in
+    if (mod(num_spherical,2)==0) num_spherical = num_spherical + 1
 
     if (present(domain_fourier_in)) then
         call mpp_get_compute_domain(domain_fourier_in,js,je,ms,me)

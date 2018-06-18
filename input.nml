@@ -4,7 +4,7 @@
   imgf = 0.
   ck = 3
   cl = 2
-num_fourier=62
+num_fourier=63
   check = .true.
   nt = 1
 nlon=192
