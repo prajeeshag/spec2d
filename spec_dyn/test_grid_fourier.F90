@@ -102,7 +102,7 @@ program main
         if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
         print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief)+1)
 
-        call init_fourier_spherical(num_fourier, num_fourier+1, nlat, domainf, Tshuff) 
+        call init_fourier_spherical(num_fourier, num_fourier, nlat, domainf, Tshuff) 
     endif
     call mpp_set_current_pelist()
 

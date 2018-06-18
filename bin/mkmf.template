@@ -6,7 +6,7 @@ DEBUG = -g -traceback #-fpe0 -fp-stack-check -check all
 
 ARCH = -xAVX
 
-INCL = -I$(NETCDF)/include -I/iitm1/cccr/sandeep/preind-aerosol/library/incmod/w3emc_v2.0.5_d
+INCL = -I$(NETCDF)/include
 
 OPTS = -r8 -O3 -fp-model precise -convert big_endian -align array32byte -save-temps
 

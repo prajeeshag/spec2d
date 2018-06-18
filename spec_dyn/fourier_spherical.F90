@@ -25,7 +25,6 @@ integer :: num_fourier
 integer :: num_spherical
 integer :: nlat
 integer :: ms, me, mlen
-integer :: ns, ne, nlen
 integer :: js_hem, je_hem, jlen_hem, js, je, jlen
 
 integer, allocatable :: ns4m(:) ! Starting of spherical for a particular fourier
@@ -77,7 +76,7 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
     type(domain2d), optional :: domain_fourier_in
     integer, optional :: tshuffle_in(0:num_fourier_in)
 
-    integer :: m, w, n, unit, iostat
+    integer :: m, w, n, unit, iostat, neadj
     character (len=8) :: suffix
 
     namelist/fourier_spherical_nml/debug
@@ -94,7 +93,7 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
     
     nlat = nlat_in
     num_fourier = num_fourier_in
-    num_spherical = num_spherical_in
+    num_spherical = num_spherical_in + 1
 
     if (present(domain_fourier_in)) then
         call mpp_get_compute_domain(domain_fourier_in,js,je,ms,me)
@@ -116,10 +115,6 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
     jlen_hem = jlen/2
 
     mlen = me-ms+1
-
-    ns = 0
-    ne = num_spherical
-    nlen = num_spherical+1
 
     allocate(tshuffle(ms:me))
 
@@ -144,7 +139,9 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
 
     ns4m(:) = 0
     do m = ms, me
-       ne4m(m) = num_spherical - tshuffle(m)
+       neadj = num_spherical - tshuffle(m)
+       if (mod(neadj,2)==0) neadj = neadj + 1 
+       ne4m(m) = neadj
     enddo 
 
     nlen4m(:) = ne4m - ns4m + 1
@@ -172,12 +169,12 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
             endif 
         enddo
         ewe4m(m) = nevenwaves
-        owe4m(m) = noddwaves
+        owe4m(m) = noddwaves 
     enddo
 
-    ws4m(1) = 1
-    ews4m(1) = 1
-    ows4m(1) = 1
+    ws4m(ms) = 1
+    ews4m(ms) = 1
+    ows4m(ms) = 1
     
     do m = ms+1, me
         ws4m(m) = we4m(m-1)+1
@@ -188,6 +185,13 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
     wlen4m(:) = we4m(:) - ws4m(:) + 1
     ewlen4m(:) = ewe4m(:) - ews4m(:) + 1
     owlen4m(:) = owe4m(:) - ows4m(:) + 1
+
+    if (debug) then
+        print *, 'ews4m=', ews4m 
+        print *, 'ows4m=', ows4m 
+        print *, 'ewlen4m=', ewlen4m 
+        print *, 'owlen4m=', owlen4m 
+    endif
 
     call define_gaussian
 
