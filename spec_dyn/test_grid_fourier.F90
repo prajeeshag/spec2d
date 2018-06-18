@@ -12,8 +12,10 @@ program main
     use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
     use fms_io_mod, only : fms_io_exit 
 
-    use grid_to_fourier_mod, only : init_grid_to_fourier, fft_1dr2c_serial, fft_1dc2c_serial
-    use grid_to_fourier_mod, only : end_grid_to_fourier, grid_to_fourier, fourier_to_grid
+    use grid_fourier_mod, only : init_grid_fourier, fft_1dr2c_serial, fft_1dc2c_serial
+    use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
+
+    use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical
 
     implicit none
 
@@ -70,7 +72,7 @@ program main
     call mpp_get_current_pelist(pelist,commid=comm)
 
     allocate(Tshuff(0:num_fourier))
-    call init_grid_to_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat, Tshuff=Tshuff)
+    call init_grid_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat, Tshuff=Tshuff)
 
     call mpp_gather([flen], extent)
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
@@ -99,6 +101,8 @@ program main
         call mpp_get_compute_domain(domainf, jsf, jef, isf, ief)
         if(flen /= ief-isf+1) call mpp_error('test_grid_to_fourier', 'flen /= ief-isf+1', FATAL)
         print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief)+1)
+
+        call init_fourier_spherical(num_fourier, num_fourier+1, nlat, domainf, Tshuff) 
     endif
     call mpp_set_current_pelist()
 
@@ -193,8 +197,8 @@ program main
                 cpout(2) = fldct(m,l,i)
                 cpout(3) = fldct(nlat/2+m,l,i)
                 if(abs(cpout(1)-cpout(2))>1.e-10) then
-                    print *,'forward check:', k, j, i, cpout(1), cpout(2)
-                    call mpp_error('test_grid_to_fourier','forward check error', FATAL)
+                    print *,'forward check:', k, j, i, cpout(1),cpout(1)
+                    call mpp_error('test_grid_to_fourier','forward check error', WARNING)
                 endif
             enddo
         enddo
@@ -218,7 +222,7 @@ program main
                 endif
                 call mpp_sync()
                 do i = isc, iec
-                    if(abs(fldout(l,m,i)-fld(l,m,i))>1.e-10) then
+                    if(abs(fldout(l,m,i)-fld(l,m,i))>1.e-6) then
                         print *,'backward check:', l, m, i, fldout(l,m,i), fld(l,m,i)
                         call mpp_error('test_grid_to_fourier','backward check error', FATAL)
                     endif
@@ -228,7 +232,7 @@ program main
     endif
 
     call fms_io_exit()
-    call end_grid_to_fourier()
+    call end_grid_fourier()
     call mpp_exit()
             
 end program main
