@@ -19,7 +19,8 @@ use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian
 implicit none
 private
 
-public :: init_fourier_spherical, fourier_to_spherical
+public :: init_fourier_spherical, fourier_to_spherical, spherical_to_fourier
+public :: specVar
 
 integer :: num_fourier
 integer :: num_spherical
@@ -33,9 +34,9 @@ integer, allocatable :: ne4m(:) ! Ending of spherical for a particulat fourier
 integer, allocatable :: nlen4m(:) ! number of spherical for a particular fourier
                                   !(Constant in case of rhomboidal truncation)
 
-integer :: nwaves ! number of spectral waves (local)
-integer :: noddwaves ! number of odd waves (local)
-integer :: nevenwaves ! number of even waves (local)
+integer :: nwaves !Total number of spectral waves (local)
+integer :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
+
 logical, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
 
 integer, allocatable :: ws4m(:), we4m(:), wlen4m(:) !starting and ending index of waves for a particular m
@@ -54,14 +55,27 @@ real, allocatable, dimension(:) :: deg_lat
 real, allocatable, dimension(:) :: wts_lat
 real, allocatable, dimension(:) :: sin_hem
 
-real, allocatable, dimension(:,:) :: legendre ! nwaves, js_hem:he_hem 
-real, allocatable, dimension(:,:) :: legendre_wts ! nwaves, js_hem:he_hem 
+type legendrePol(js,je,n)
+    integer, len :: js, je, n
+    real, dimension(js:je,n) :: ev
+    real, dimension(js:je,n) :: od
+end type legendrePol
 
-real, allocatable, dimension(:,:) :: elegendre ! 2, js_hem:je_hem nevenwaves
-real, allocatable, dimension(:,:) :: elegendre_wts ! 2, js_hem:je_hem nevenwaves
+type specCoef(n)
+    integer, len :: n
+    real, dimension(n) :: ev
+    real, dimension(n) :: od
+end type specCoef
 
-real, allocatable, dimension(:,:) :: olegendre ! 2, js_hem:je_hem, noddwaves
-real, allocatable, dimension(:,:) :: olegendre_wts ! 2, js_hem:je_hem, noddwaves
+type specVar(n,nlev)
+    integer, len :: n, nlev
+    complex, dimension(n,nlev) :: ev
+    complex, dimension(n,nlev) :: od
+end type specVar
+
+type(legendrePol(js=:,je=:,n=:)), allocatable :: legendre, legendre_wts
+
+type(specCoef(n=:)), allocatable :: triangle_mask
 
 logical :: debug = .false.
 logical :: initialized = .false.
@@ -70,13 +84,15 @@ contains
 
 !------------------------------------------------------------------------------
 subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
-                domain_fourier_in, tshuffle_in)
+                nwaves_oe_out, domain_fourier_in, tshuffle_in)
 !------------------------------------------------------------------------------
     integer, intent(in) :: num_fourier_in, num_spherical_in, nlat_in
     type(domain2d), optional :: domain_fourier_in
     integer, optional :: tshuffle_in(0:num_fourier_in)
+    integer, intent(out) :: nwaves_oe_out
 
     integer :: m, w, n, unit, iostat, neadj
+    integer :: noddwaves, nevenwaves
     character (len=8) :: suffix
 
     namelist/fourier_spherical_nml/debug
@@ -173,6 +189,11 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
         owe4m(m) = noddwaves 
     enddo
 
+    if (noddwaves/=nevenwaves) call mpp_error('fourier_spherical', 'noddwaves/=nevenwaves', FATAL)
+
+    nwaves_oe = noddwaves
+    nwaves_oe_out = nwaves_oe
+
     ws4m(ms) = 1
     ews4m(ms) = 1
     ows4m(ms) = 1
@@ -201,9 +222,8 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
     if (debug) then
         write(suffix,'(I4.4)') mpp_pe()
         print *, 'debug from fourier_spherical, pe= ', trim(suffix)
-        call write_data('debug_fourier_spherical_'//trim(suffix),'olegen',olegendre,no_domain=.true.)
-        call write_data('debug_fourier_spherical_'//trim(suffix),'elegen',elegendre,no_domain=.true.)
-        call write_data('debug_fourier_spherical_'//trim(suffix),'legen',legendre,no_domain=.true.)
+        call write_data('debug_fourier_spherical_'//trim(suffix),'olegen',legendre%od,no_domain=.true.)
+        call write_data('debug_fourier_spherical_'//trim(suffix),'elegen',legendre%ev,no_domain=.true.)
         print *, 'pe, noddwaves, nevenwaves =', mpp_pe(), noddwaves, nevenwaves
         print *, 'pe, ns4m(:)=', ns4m(:)
         print *, 'pe, ne4m(:)=', ne4m(:)
@@ -214,17 +234,59 @@ subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
 end subroutine init_fourier_spherical
 
 
+
 !--------------------------------------------------------------------------------   
-subroutine fourier_to_spherical(fourier, ewaves, owaves)
+subroutine spherical_to_fourier(waves,fourier)
 !--------------------------------------------------------------------------------   
-    complex, intent(in) :: fourier(js:,:,ms:) ! lat, lev, fourier
-    complex, intent(out) :: ewaves(:,:) ! nevenwaves, lev
-    complex, intent(out) :: owaves(:,:) ! noddwaves, lev
+    complex, intent(out) :: fourier(js:,:,ms:) ! lat, lev, fourier
+    type(specVar(n=*,nlev=*)), intent(in) :: waves
 
     complex :: odd(js_hem:je_hem,size(fourier,2),ms:me)
     complex :: even(js_hem:je_hem,size(fourier,2),ms:me)
 
     integer :: ks, ke, ews, ewe, ows, owe, m
+
+    if (.not.initialized) call mpp_error('spherical_to_fourier', 'call init_fourier_spherical first', FATAL)
+
+    ks = 1; ke = size(fourier,2)
+
+    do m = ms, me
+        if(ewlen4m(m)<1) cycle
+        ews = ews4m(m); ewe = ewe4m(m)
+        call do_matmul(legendre%ev(js_hem:je_hem,ews:ewe), &
+                       waves%ev(ews:ewe,ks:ke), &
+                       even(js_hem:je_hem,ks:ke,m),'N')
+    enddo
+
+    do m = ms, me
+        if(owlen4m(m)<1) cycle
+        ows = ows4m(m); owe = owe4m(m)
+        call do_matmul(legendre%od(js_hem:je_hem,ows:owe), &
+                       waves%od(ows:owe,ks:ke), &
+                       odd(js_hem:je_hem,ks:ke,m),'N')
+    enddo 
+   
+    fourier(js+1:je:2,ks:ke,ms:me) = even(js_hem:je_hem,ks:ke,ms:me) + odd(js_hem:je_hem,ks:ke,ms:me)
+    fourier(js:je:2,ks:ke,ms:me)   = even(js_hem:je_hem,ks:ke,ms:me) - odd(js_hem:je_hem,ks:ke,ms:me)
+
+    !odd(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) - fourier(js:je:2,:,:) ! north_hem - south_hem
+    !even(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) + fourier(js:je:2,ks:ke,ms:me) ! north_hem + south_hem
+
+    return 
+end subroutine spherical_to_fourier
+
+
+
+!--------------------------------------------------------------------------------   
+subroutine fourier_to_spherical(fourier, waves)
+!--------------------------------------------------------------------------------   
+    complex, intent(in) :: fourier(js:,:,ms:) ! lat, lev, fourier
+    type(specVar(n=*,nlev=*)), intent(out) :: waves
+
+    complex :: odd(js_hem:je_hem,size(fourier,2),ms:me)
+    complex :: even(js_hem:je_hem,size(fourier,2),ms:me)
+
+    integer :: ks, ke, ews, ewe, ows, owe, m, k
 
     if (.not.initialized) call mpp_error('fourier_to_spherical', 'call init_fourier_spherical first', FATAL)
 
@@ -233,56 +295,82 @@ subroutine fourier_to_spherical(fourier, ewaves, owaves)
     odd(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) - fourier(js:je:2,:,:) ! north_hem - south_hem
     even(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) + fourier(js:je:2,ks:ke,ms:me) ! north_hem + south_hem
 
+
     do m = ms, me
         if(ewlen4m(m)<1) cycle
         ews = ews4m(m); ewe = ewe4m(m)
-        call do_matmul(elegendre_wts(ews:ewe,js_hem:je_hem), &
+        call do_matmul(legendre_wts%ev(js_hem:je_hem,ews:ewe), &
                        even(js_hem:je_hem,ks:ke,m), &
-                       ewaves(ews:ewe,ks:ke))
+                       waves%ev(ews:ewe,ks:ke),'T')
     enddo
 
     do m = ms, me
         if(owlen4m(m)<1) cycle
         ows = ows4m(m); owe = owe4m(m)
-        call do_matmul(olegendre_wts(ows:owe,js_hem:je_hem), &
+        call do_matmul(legendre_wts%od(js_hem:je_hem,ows:owe), &
                        odd(js_hem:je_hem,ks:ke,m), &
-                       owaves(ows:owe,ks:ke))
+                       waves%od(ows:owe,ks:ke),'T')
     enddo 
-   
+
+    do k = ks, ke
+        waves%ev(:,k) = waves%ev(:,k) * triangle_mask%ev(:)
+        waves%od(:,k) = waves%od(:,k) * triangle_mask%od(:)
+    enddo
+ 
     return 
 end subroutine fourier_to_spherical
 
 
 !--------------------------------------------------------------------------------   
-subroutine do_matmul(A,B,C)
+subroutine do_matmul(A,B,C,TRANSA)
 !--------------------------------------------------------------------------------
-    real, intent(in) :: A(:,:) !k,m
+    real, intent(in) :: A(:,:) !k,m transa=T or m,k transa=N
     complex, intent(in) :: B(:,:) !k,n
-    complex, intent(inout) :: C(:,:) !k,n
+    complex, intent(inout) :: C(:,:) !m,n
+    character, intent(in) :: TRANSA
+
+    real, allocatable :: CTMP(:,:,:), BTMP(:,:,:)
 
     type(C_PTR) :: BPTR, CPTR
     real, pointer :: BP(:,:,:), CP(:,:,:)
 
-    character :: TRANSA='T'
     character :: TRANSB='N'
     integer :: M, K, N, LDA, LDB, LDC, i
     real, parameter :: ALPHA=1., BETA=0.
 
-    M=size(A,2); K=size(B,1); N=size(B,2)
+    K=size(B,1); N=size(B,2)
 
-    LDA=K; LDB=K; LDC=M
+    LDA=size(A,1); LDB=size(B,1); LDC=size(C,1)
 
-    BPTR = C_LOC(B)
-    call c_f_pointer(BPTR, BP, [2,K,N])
+    select case (TRANSA)
+    case('N','n')
+        M = size(A,1)
+    case('T','t')
+        M = size(A,2)
+    case default
+        call mpp_error('do_matmul', 'TRANSA should be either T or N', FATAL)
+    end select
 
-    CPTR = C_LOC(C)
-    call c_f_pointer(CPTR, CP, [2,M,N])
+    allocate(CTMP(M,N,2))
+    allocate(BTMP(K,N,2))
+
+!    BPTR = C_LOC(B)
+!    call c_f_pointer(BPTR, BP, [2,K,N])
+
+!    CPTR = C_LOC(C)
+!    call c_f_pointer(CPTR, CP, [2,M,N])
+
+    BTMP(:,:,1) = real(B(:,:))
+    BTMP(:,:,2) = aimag(B(:,:))
 
     do i = 1, 2
-        call cgemm(TRANSA,TRANSB,M,N,K,ALPHA,A(1:K,1:M),LDA, &
-                   BP(i,1:K,1:N),LDB,BETA,CP(i,1:M,1:N),LDC)
+        call dgemm(TRANSA,TRANSB,M,N,K,ALPHA,A(:,:),LDA, &
+                   BTMP(:,:,i),LDB,BETA,CTMP(:,:,i),LDC)
     enddo
+    C(:,:) = CMPLX(CTMP(:,:,1),CTMP(:,:,2))
 
+    deallocate(CTMP)
+    deallocate(BTMP)
     return
 end subroutine do_matmul
 
@@ -325,14 +413,7 @@ subroutine define_legendre
     real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: legendre_global
     character(len=8) :: suffix
 
-    allocate(legendre(js_hem:je_hem,nwaves))
-    allocate(legendre_wts(js_hem:je_hem,nwaves))
-
-    allocate(olegendre(js_hem:je_hem,noddwaves))
-    allocate(olegendre_wts(js_hem:je_hem,noddwaves))
-
-    allocate(elegendre(js_hem:je_hem,nevenwaves))
-    allocate(elegendre_wts(js_hem:je_hem,nevenwaves))
+    allocate(legendrePol(js=js_hem,je=je_hem,n=nwaves_oe) :: legendre, legendre_wts)
 
     call compute_legendre(legendre_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
 
@@ -343,6 +424,12 @@ subroutine define_legendre
             reshape(legendre_global,shape=[nlat/2,num_spherical+1,num_fourier+1], order=[3,2,1]),no_domain=.true.)
         endif
     endif
+
+    allocate(specCoef(n=nwaves_oe) :: triangle_mask)
+
+    triangle_mask%ev = 1.
+    triangle_mask%od = 1.
+    
     do j = js_hem, je_hem
         w = 0
         wo = 0
@@ -351,20 +438,20 @@ subroutine define_legendre
             mshuff = tshuffle(m)
             do n = ns4m(m), ne4m(m)
                 w = w + 1
-                legendre(j,w) = legendre_global(mshuff,n,j)
                 if (iseven(w)) then
                     we = we + 1
-                    elegendre(j,we) = legendre_global(mshuff,n,j)
+                    legendre%ev(j,we) = legendre_global(mshuff,n,j)
+                    if (mshuff+n>num_fourier) triangle_mask%ev(we) = 0.
                 else
                     wo = wo + 1
-                    olegendre(j,wo) = legendre_global(mshuff,n,j)
+                    legendre%od(j,wo) = legendre_global(mshuff,n,j)
+                    if (mshuff+n>num_fourier) triangle_mask%od(wo) = 0.
                 endif
             enddo
         enddo
 
-        legendre_wts(j,:) = legendre(j,:)*wts_lat(j)
-        elegendre_wts(j,:) = elegendre(j,:)*wts_lat(j)
-        olegendre_wts(j,:) = olegendre(j,:)*wts_lat(j)
+        legendre_wts%ev(j,:) = legendre%ev(j,:)*wts_lat(2*j)
+        legendre_wts%od(j,:) = legendre%od(j,:)*wts_lat(2*j)
     enddo
 
     return

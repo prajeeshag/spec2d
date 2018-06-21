@@ -72,7 +72,7 @@ program main
     call mpp_get_current_pelist(pelist,commid=comm)
 
     allocate(Tshuff(0:num_fourier))
-    call init_grid_fourier(nlon, ilen, num_fourier, isf, flen, comm, nlev, nlat, Tshuff=Tshuff)
+    call init_grid_fourier (nlon, ilen, num_fourier, isf, flen, comm, Tshuff)
 
     call mpp_gather([flen], extent)
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
@@ -141,9 +141,11 @@ program main
            enddo
         enddo
     enddo
-   
-    call write_data('test_grid2four', 'fld', fld(:,:,:), domain=domainl)
-    call write_data('test_grid2four', 'fld1', fld(1,:,:), domain=domainl)
+  
+    if (debug) then 
+        call write_data('test_grid2four', 'fld', fld(:,:,:), domain=domainl)
+        call write_data('test_grid2four', 'fld1', fld(1,:,:), domain=domainl)
+    endif
 
     !idrestart = register_restart_field_r2d(fileObj, filename, fieldname, data, domain)
  
@@ -156,7 +158,7 @@ program main
     enddo
     !call mpp_clock_end(clck_grid2fourier)
 
-    if (fpe) then
+    if (fpe.and.debug) then
         call mpp_set_current_pelist(fpelist)
         call write_data('test_grid2four', 'fldc_r', real(fldct(:,1,:)), domain=domainf)
     endif

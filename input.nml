@@ -1,15 +1,22 @@
 
+&gloopa_nml
+num_fourier=62
+nlon=192
+	nlat = 94
+  	nlev = 64
+/
+
 &test_grid_to_fourier_nml
   ideal_data = .true.
   imgf = 0.
   ck = 3
   cl = 2
-num_fourier=63
+num_fourier=62
   check = .true.
-  nt = 1
+  nt = 144
 nlon=192
-  nlat = 94
-  nlev = 1
+  nlat = 96
+  nlev = 32
 /
 
 &fourier_spherical_nml
