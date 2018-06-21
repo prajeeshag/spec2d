@@ -75,8 +75,6 @@ end type specVar
 
 type(legendrePol(js=:,je=:,n=:)), allocatable :: legendre, legendre_wts
 
-type(specCoef(n=:)), allocatable :: triangle_mask
-
 logical :: debug = .false.
 logical :: initialized = .false.
    
@@ -311,11 +309,6 @@ subroutine fourier_to_spherical(fourier, waves)
                        waves%od(ks:ke,ows:owe),'N')
     enddo 
 
-    !do k = ks, ke
-    !    waves%ev(k,:) = waves%ev(k,:) * triangle_mask%ev(:)
-    !    waves%od(k,:) = waves%od(k,:) * triangle_mask%od(:)
-    !enddo
- 
     return 
 end subroutine fourier_to_spherical
 
@@ -327,8 +320,6 @@ subroutine do_matmul(A,B,C,TRANSB)
     real, intent(in) :: B(:,:) !k,n
     complex, intent(inout) :: C(:,:) !m,n
     character, intent(in) :: TRANSB
-
-    !real, allocatable :: CTMP(:,:,:), BTMP(:,:,:)
 
     type(C_PTR) :: APTR, CPTR
     real, pointer :: AP(:,:), CP(:,:)
@@ -346,9 +337,6 @@ subroutine do_matmul(A,B,C,TRANSB)
         call mpp_error('do_matmul', 'TRANSB should be either T or N', FATAL)
     end select
 
-    !allocate(CTMP(M,N,2))
-    !allocate(BTMP(K,N,2))
-
     M=size(A,1)*2; K=size(A,2)
 
     APTR = C_LOC(A)
@@ -357,23 +345,10 @@ subroutine do_matmul(A,B,C,TRANSB)
     CPTR = C_LOC(C)
     call c_f_pointer(CPTR, CP, [M,N])
 
-    !BTMP(:,:,1) = real(B(:,:))
-    !BTMP(:,:,2) = aimag(B(:,:))
-
     LDA=size(AP,1); LDB=size(B,1); LDC=size(CP,1)
 
-    !if (sum(BP(1,:,:))/=real(sum(B)).or.sum(BP(2,:,:))/=aimag(sum(B))) then
-    !    print *, 'BP, B', sum(BP(1,:,:)),sum(BP(2,:,:)), sum(B(:,:)), TRANSA
-    !endif
-
-    !do i = 1, 2
     call dgemm(TRANSA,TRANSB,M,N,K,ALPHA,AP(:,:),LDA, &
                B(:,:),LDB,BETA,CP(:,:),LDC)
-    !enddo
-    !C(:,:) = CMPLX(CTMP(:,:,1),CTMP(:,:,2))
-
-    !deallocate(CTMP)
-    !deallocate(BTMP)
     return
 end subroutine do_matmul
 
@@ -428,11 +403,6 @@ subroutine define_legendre
         endif
     endif
 
-    allocate(specCoef(n=nwaves_oe) :: triangle_mask)
-
-    triangle_mask%ev = 1.
-    triangle_mask%od = 1.
-    
     do j = js_hem, je_hem
         w = 0
         wo = 0
@@ -444,17 +414,11 @@ subroutine define_legendre
                 if (iseven(w)) then
                     we = we + 1
                     legendre%ev(j,we) = legendre_global(mshuff,n,j)
-                    if (mshuff+n>num_fourier) then
-                        triangle_mask%ev(we) = 0.
-                        !legendre%ev(j,we) = 0.
-                    endif
+                    if (mshuff+n>num_fourier) legendre%ev(j,we) = 0.
                 else
                     wo = wo + 1
                     legendre%od(j,wo) = legendre_global(mshuff,n,j)
-                    if (mshuff+n>num_fourier) then
-                        triangle_mask%od(wo) = 0.
-                        !legendre%od(j,wo) = 0.
-                    endif
+                    if (mshuff+n>num_fourier) legendre%od(j,wo) = 0.
                 endif
             enddo
         enddo
