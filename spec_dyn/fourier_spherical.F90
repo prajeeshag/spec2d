@@ -69,8 +69,8 @@ end type specCoef
 
 type specVar(n,nlev)
     integer, len :: n, nlev
-    complex, dimension(n,nlev) :: ev
-    complex, dimension(n,nlev) :: od
+    complex, dimension(nlev,n) :: ev
+    complex, dimension(nlev,n) :: od
 end type specVar
 
 type(legendrePol(js=:,je=:,n=:)), allocatable :: legendre, legendre_wts
@@ -238,36 +238,36 @@ end subroutine init_fourier_spherical
 !--------------------------------------------------------------------------------   
 subroutine spherical_to_fourier(waves,fourier)
 !--------------------------------------------------------------------------------   
-    complex, intent(out) :: fourier(js:,:,ms:) ! lat, lev, fourier
-    type(specVar(n=*,nlev=*)), intent(in) :: waves
+    complex, intent(out) :: fourier(:,js:,ms:) ! lat, lev, fourier
+    type(specVar(nlev=*,n=*)), intent(in) :: waves
 
-    complex :: odd(js_hem:je_hem,size(fourier,2),ms:me)
-    complex :: even(js_hem:je_hem,size(fourier,2),ms:me)
+    complex :: odd(size(fourier,1),js_hem:je_hem,ms:me)
+    complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
     integer :: ks, ke, ews, ewe, ows, owe, m
 
     if (.not.initialized) call mpp_error('spherical_to_fourier', 'call init_fourier_spherical first', FATAL)
 
-    ks = 1; ke = size(fourier,2)
+    ks = 1; ke = size(fourier,1)
 
     do m = ms, me
         if(ewlen4m(m)<1) cycle
         ews = ews4m(m); ewe = ewe4m(m)
-        call do_matmul(legendre%ev(js_hem:je_hem,ews:ewe), &
-                       waves%ev(ews:ewe,ks:ke), &
-                       even(js_hem:je_hem,ks:ke,m),'N')
+        call do_matmul(waves%ev(ks:ke,ews:ewe), &
+                       legendre%ev(js_hem:je_hem,ews:ewe), &
+                       even(ks:ke,js_hem:je_hem,m),'T')
     enddo
 
     do m = ms, me
         if(owlen4m(m)<1) cycle
         ows = ows4m(m); owe = owe4m(m)
-        call do_matmul(legendre%od(js_hem:je_hem,ows:owe), &
-                       waves%od(ows:owe,ks:ke), &
-                       odd(js_hem:je_hem,ks:ke,m),'N')
+        call do_matmul(waves%od(ks:ke,ows:owe), &
+                       legendre%od(js_hem:je_hem,ows:owe), &
+                       odd(ks:ke,js_hem:je_hem,m),'T')
     enddo 
    
-    fourier(js+1:je:2,ks:ke,ms:me) = even(js_hem:je_hem,ks:ke,ms:me) + odd(js_hem:je_hem,ks:ke,ms:me)
-    fourier(js:je:2,ks:ke,ms:me)   = even(js_hem:je_hem,ks:ke,ms:me) - odd(js_hem:je_hem,ks:ke,ms:me)
+    fourier(ks:ke,js+1:je:2,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) + odd(ks:ke,js_hem:je_hem,ms:me)
+    fourier(ks:ke,js:je:2,ms:me)   = even(ks:ke,js_hem:je_hem,ms:me) - odd(ks:ke,js_hem:je_hem,ms:me)
 
     !odd(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) - fourier(js:je:2,:,:) ! north_hem - south_hem
     !even(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) + fourier(js:je:2,ks:ke,ms:me) ! north_hem + south_hem
@@ -280,97 +280,100 @@ end subroutine spherical_to_fourier
 !--------------------------------------------------------------------------------   
 subroutine fourier_to_spherical(fourier, waves)
 !--------------------------------------------------------------------------------   
-    complex, intent(in) :: fourier(js:,:,ms:) ! lat, lev, fourier
-    type(specVar(n=*,nlev=*)), intent(out) :: waves
+    complex, intent(in) :: fourier(:,js:,ms:) ! lat, lev, fourier
+    type(specVar(nlev=*,n=*)), intent(out) :: waves
 
-    complex :: odd(js_hem:je_hem,size(fourier,2),ms:me)
-    complex :: even(js_hem:je_hem,size(fourier,2),ms:me)
+    complex :: odd(size(fourier,1),js_hem:je_hem,ms:me)
+    complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
     integer :: ks, ke, ews, ewe, ows, owe, m, k
 
     if (.not.initialized) call mpp_error('fourier_to_spherical', 'call init_fourier_spherical first', FATAL)
 
-    ks = 1; ke = size(fourier,2)
+    ks = 1; ke = size(fourier,1)
 
-    odd(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) - fourier(js:je:2,:,:) ! north_hem - south_hem
-    even(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) + fourier(js:je:2,ks:ke,ms:me) ! north_hem + south_hem
-
+    odd(ks:ke,js_hem:je_hem,ms:me)  = fourier(ks:ke,js+1:je:2,ms:me) - fourier(ks:ke,js:je:2,ms:me) ! north_hem - south_hem
+    even(ks:ke,js_hem:je_hem,ms:me) = fourier(ks:ke,js+1:je:2,ms:me) + fourier(ks:ke,js:je:2,ms:me) ! north_hem + south_hem
 
     do m = ms, me
         if(ewlen4m(m)<1) cycle
         ews = ews4m(m); ewe = ewe4m(m)
-        call do_matmul(legendre_wts%ev(js_hem:je_hem,ews:ewe), &
-                       even(js_hem:je_hem,ks:ke,m), &
-                       waves%ev(ews:ewe,ks:ke),'T')
+        call do_matmul(even(ks:ke,js_hem:je_hem,m), &
+                       legendre_wts%ev(js_hem:je_hem,ews:ewe), &
+                       waves%ev(ks:ke,ews:ewe),'N')
     enddo
 
     do m = ms, me
         if(owlen4m(m)<1) cycle
         ows = ows4m(m); owe = owe4m(m)
-        call do_matmul(legendre_wts%od(js_hem:je_hem,ows:owe), &
-                       odd(js_hem:je_hem,ks:ke,m), &
-                       waves%od(ows:owe,ks:ke),'T')
+        call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
+                       legendre_wts%od(js_hem:je_hem,ows:owe), &
+                       waves%od(ks:ke,ows:owe),'N')
     enddo 
 
-    do k = ks, ke
-        waves%ev(:,k) = waves%ev(:,k) * triangle_mask%ev(:)
-        waves%od(:,k) = waves%od(:,k) * triangle_mask%od(:)
-    enddo
+    !do k = ks, ke
+    !    waves%ev(k,:) = waves%ev(k,:) * triangle_mask%ev(:)
+    !    waves%od(k,:) = waves%od(k,:) * triangle_mask%od(:)
+    !enddo
  
     return 
 end subroutine fourier_to_spherical
 
 
 !--------------------------------------------------------------------------------   
-subroutine do_matmul(A,B,C,TRANSA)
+subroutine do_matmul(A,B,C,TRANSB)
 !--------------------------------------------------------------------------------
-    real, intent(in) :: A(:,:) !k,m transa=T or m,k transa=N
-    complex, intent(in) :: B(:,:) !k,n
+    complex, intent(in) :: A(:,:) !k,m transa=T or m,k transa=N
+    real, intent(in) :: B(:,:) !k,n
     complex, intent(inout) :: C(:,:) !m,n
-    character, intent(in) :: TRANSA
+    character, intent(in) :: TRANSB
 
-    real, allocatable :: CTMP(:,:,:), BTMP(:,:,:)
+    !real, allocatable :: CTMP(:,:,:), BTMP(:,:,:)
 
-    type(C_PTR) :: BPTR, CPTR
-    real, pointer :: BP(:,:,:), CP(:,:,:)
+    type(C_PTR) :: APTR, CPTR
+    real, pointer :: AP(:,:), CP(:,:)
 
-    character :: TRANSB='N'
-    integer :: M, K, N, LDA, LDB, LDC, i
+    character, parameter :: TRANSA='N'
     real, parameter :: ALPHA=1., BETA=0.
+    integer :: M, K, N, LDA, LDB, LDC, i
 
-    K=size(B,1); N=size(B,2)
-
-    LDA=size(A,1); LDB=size(B,1); LDC=size(C,1)
-
-    select case (TRANSA)
+    select case (TRANSB)
     case('N','n')
-        M = size(A,1)
+        N = size(B,2)
     case('T','t')
-        M = size(A,2)
+        N = size(B,1)
     case default
-        call mpp_error('do_matmul', 'TRANSA should be either T or N', FATAL)
+        call mpp_error('do_matmul', 'TRANSB should be either T or N', FATAL)
     end select
 
-    allocate(CTMP(M,N,2))
-    allocate(BTMP(K,N,2))
+    !allocate(CTMP(M,N,2))
+    !allocate(BTMP(K,N,2))
 
-!    BPTR = C_LOC(B)
-!    call c_f_pointer(BPTR, BP, [2,K,N])
+    M=size(A,1)*2; K=size(A,2)
 
-!    CPTR = C_LOC(C)
-!    call c_f_pointer(CPTR, CP, [2,M,N])
+    APTR = C_LOC(A)
+    call c_f_pointer(APTR, AP, [M,K])
 
-    BTMP(:,:,1) = real(B(:,:))
-    BTMP(:,:,2) = aimag(B(:,:))
+    CPTR = C_LOC(C)
+    call c_f_pointer(CPTR, CP, [M,N])
 
-    do i = 1, 2
-        call dgemm(TRANSA,TRANSB,M,N,K,ALPHA,A(:,:),LDA, &
-                   BTMP(:,:,i),LDB,BETA,CTMP(:,:,i),LDC)
-    enddo
-    C(:,:) = CMPLX(CTMP(:,:,1),CTMP(:,:,2))
+    !BTMP(:,:,1) = real(B(:,:))
+    !BTMP(:,:,2) = aimag(B(:,:))
 
-    deallocate(CTMP)
-    deallocate(BTMP)
+    LDA=size(AP,1); LDB=size(B,1); LDC=size(CP,1)
+
+    !if (sum(BP(1,:,:))/=real(sum(B)).or.sum(BP(2,:,:))/=aimag(sum(B))) then
+    !    print *, 'BP, B', sum(BP(1,:,:)),sum(BP(2,:,:)), sum(B(:,:)), TRANSA
+    !endif
+
+    !do i = 1, 2
+    call dgemm(TRANSA,TRANSB,M,N,K,ALPHA,AP(:,:),LDA, &
+               B(:,:),LDB,BETA,CP(:,:),LDC)
+    !enddo
+    !C(:,:) = CMPLX(CTMP(:,:,1),CTMP(:,:,2))
+
+    !deallocate(CTMP)
+    !deallocate(BTMP)
     return
 end subroutine do_matmul
 
@@ -441,11 +444,17 @@ subroutine define_legendre
                 if (iseven(w)) then
                     we = we + 1
                     legendre%ev(j,we) = legendre_global(mshuff,n,j)
-                    if (mshuff+n>num_fourier) triangle_mask%ev(we) = 0.
+                    if (mshuff+n>num_fourier) then
+                        triangle_mask%ev(we) = 0.
+                        !legendre%ev(j,we) = 0.
+                    endif
                 else
                     wo = wo + 1
                     legendre%od(j,wo) = legendre_global(mshuff,n,j)
-                    if (mshuff+n>num_fourier) triangle_mask%od(wo) = 0.
+                    if (mshuff+n>num_fourier) then
+                        triangle_mask%od(wo) = 0.
+                        !legendre%od(j,wo) = 0.
+                    endif
                 endif
             enddo
         enddo

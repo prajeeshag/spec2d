@@ -165,7 +165,6 @@ program main
         real, intent(in) :: grid(:,:,:)
         type(specVar(n=*,nlev=*)), intent(out) :: spherical
     
-        complex :: fourier(size(grid,2),size(grid,1),flen)
         complex :: four(size(grid,1)*size(grid,2), flen)
         complex, pointer :: four3(:,:,:)
 
@@ -187,11 +186,7 @@ program main
 
         call grid_to_fourier(grd,four)
 
-        do j = 1, nj
-            fourier(j,:,:) = four3(:,j,:)
-        enddo 
-   
-        call fourier_to_spherical(fourier,spherical)
+        call fourier_to_spherical(four3,spherical)
 
         return
     end subroutine grid_to_spherical3D 
@@ -201,7 +196,6 @@ program main
         real, intent(out) :: grid(:,:,:)
         type(specVar(n=*,nlev=*)), intent(in) :: spherical
     
-        complex :: fourier(size(grid,2),size(grid,1),flen)
         complex :: four(size(grid,1)*size(grid,2), flen)
         complex, pointer :: four3(:,:,:)
 
@@ -221,12 +215,8 @@ program main
         pfour = C_LOC(four)
         call c_f_pointer(pfour, four3, [nk, nj, flen])
 
-        call spherical_to_fourier(spherical, fourier)
+        call spherical_to_fourier(spherical, four3)
 
-        do j = 1, nj
-            four3(:,j,:) = fourier(j,:,:)
-        enddo 
-   
         call fourier_to_grid(four,grd)
 
         return
