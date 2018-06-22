@@ -28,7 +28,7 @@ private
 
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: nwaves_oe, specVar, specCoef, num_spherical, num_fourier, trunc
-public :: spherical_init
+public :: spherical_init, compute_ucos_vcos
 
 type(specCoef(n=:)), allocatable :: eigen_laplacian
 type(specCoef(n=:)), allocatable :: epsilon
@@ -96,14 +96,16 @@ subroutine spherical_init()
     leigen_laplacian = lspherical_wave*(lspherical_wave + 1.0)/(radius*radius)
     
     where (lspherical_wave > 0) 
-      lcoef_uvm = -radius*lepsilon/lspherical_wave
       lcoef_uvc = -radius*lfourier_wave/(lspherical_wave*(lspherical_wave + 1.0))
     else where 
-      lcoef_uvm = 0.0
       lcoef_uvc = 0.0
     end where
+   
+    lcoef_uvm = 0. 
+    lcoef_uvm(:,0:num_spherical-1) = -radius*lepsilon(:,1:num_spherical) &
+                                   / lspherical_wave(:,1:num_spherical)
     
-    lcoef_uvp(:,0:num_spherical-1) =    &
+    lcoef_uvp(:,1:num_spherical) =    &
         -radius*lepsilon(:,1:num_spherical)/   &
          (lspherical_wave(:,0:num_spherical-1) +1.0)
     
@@ -461,70 +463,65 @@ end subroutine compute_lat_deriv_cos
 !
 !  return
 !end function compute_laplacian_3d
-!
-!!----------------------------------------------------------------------
-!subroutine compute_ucos_vcos_3d(vorticity , divergence, u_cos, v_cos)
-!!----------------------------------------------------------------------
-!
-!complex, intent(in), dimension (:,0:,:) :: vorticity
-!complex, intent(in), dimension (:,0:,:) :: divergence
-!complex, intent(out), dimension (:,0:,:) :: u_cos
-!complex, intent(out), dimension (:,0:,:) :: v_cos
-!
-!
-!integer :: k
-!
-!if(.not. module_is_initialized ) then
-!  call error_mesg('compute_ucos_vcos','module spherical not initialized', FATAL)
-!end if
-!
-!if( size(vorticity,2).EQ.num_spherical+1 )then
-!!could be global domain, or only global in N
-!    if( size(vorticity,1).EQ.num_fourier+1 )then
-!        do k=1,size(vorticity,3)
-!           u_cos(:,:,k) = coef_uvc(:,:)*                                     &
-!                cmplx(-aimag(divergence(:,:,k)),real(divergence(:,:,k)))
-!           v_cos(:,:,k) = coef_uvc(:,:)*                                     &
-!                cmplx(-aimag(vorticity(:,:,k)),real(vorticity(:,:,k)))
-!
-!           u_cos(:,1:num_spherical,k) = u_cos(:,1:num_spherical,k) +         &
-!                coef_uvm(:,1:num_spherical)*vorticity(:,0:num_spherical-1,k)
-!           v_cos(:,1:num_spherical,k) = v_cos(:,1:num_spherical,k) -         &
-!                coef_uvm(:,1:num_spherical)*divergence(:,0:num_spherical-1,k)
-!
-!           u_cos(:,0:num_spherical-1,k) = u_cos(:,0:num_spherical-1,k) -     &
-!                coef_uvp(:,0:num_spherical-1)*vorticity(:,1:num_spherical,k)
-!           v_cos(:,0:num_spherical-1,k) = v_cos(:,0:num_spherical-1,k) +     &
-!                coef_uvp(:,0:num_spherical-1)*divergence(:,1:num_spherical,k)         
-!        end do
-!    else if( size(vorticity,1).EQ.me-ms+1 )then
-!        do k=1,size(vorticity,3)
-!           u_cos(:,:,k) = coef_uvc(ms:me,:)*                                     &
-!                cmplx(-aimag(divergence(:,:,k)),real(divergence(:,:,k)))
-!           v_cos(:,:,k) = coef_uvc(ms:me,:)*                                     &
-!                cmplx(-aimag(vorticity(:,:,k)),real(vorticity(:,:,k)))
-!
-!           u_cos(:,1:num_spherical,k) = u_cos(:,1:num_spherical,k) +         &
-!                coef_uvm(ms:me,1:num_spherical)*vorticity(:,0:num_spherical-1,k)
-!           v_cos(:,1:num_spherical,k) = v_cos(:,1:num_spherical,k) -         &
-!                coef_uvm(ms:me,1:num_spherical)*divergence(:,0:num_spherical-1,k)
-!
-!           u_cos(:,0:num_spherical-1,k) = u_cos(:,0:num_spherical-1,k) -     &
-!                coef_uvp(ms:me,0:num_spherical-1)*vorticity(:,1:num_spherical,k)
-!           v_cos(:,0:num_spherical-1,k) = v_cos(:,0:num_spherical-1,k) +     &
-!                coef_uvp(ms:me,0:num_spherical-1)*divergence(:,1:num_spherical,k)         
-!        end do
-!    endif
-!else if( size(vorticity,1).EQ.me-ms+1 .AND. size(vorticity,2).EQ.ne-ns+1 )then
-!!need to write stuff to acquire data at ns-1,ne+1
-!    call abort()
-!else
-!    call error_mesg( 'compute_ucos_vcos', 'invalid argument size', FATAL )
-!endif
-!
-!return
-!end subroutine compute_ucos_vcos_3d
-!
+
+!----------------------------------------------------------------------
+subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos)
+!----------------------------------------------------------------------
+
+    type(specVar(nlev=*,n=*)), intent(in)  :: vorticity
+    type(specVar(nlev=*,n=*)), intent(in)  :: divergence
+    type(specVar(nlev=*,n=*)), intent(out) :: u_cos
+    type(specVar(nlev=*,n=*)), intent(out) :: v_cos
+
+    integer :: k, nw
+
+    if(.not. module_is_initialized ) then
+      call mpp_error('compute_ucos_vcos','module spherical not initialized', FATAL)
+    end if
+
+    nw = vorticity%n
+
+    do k=1,vorticity%nlev
+
+       u_cos%ev(k,:) = coef_uvc%ev(:)*                                     &
+            cmplx(-aimag(divergence%ev(k,:)),real(divergence%ev(k,:)))
+
+       v_cos%ev(k,:) = coef_uvc%ev(:)*                                     &
+            cmplx(-aimag(vorticity%ev(k,:)),real(vorticity%ev(k,:)))
+
+       u_cos%od(k,:) = coef_uvc%od(:)*                                     &
+            cmplx(-aimag(divergence%od(k,:)),real(divergence%od(k,:)))
+
+       v_cos%od(k,:) = coef_uvc%od(:)*                                     &
+            cmplx(-aimag(vorticity%od(k,:)),real(vorticity%od(k,:)))
+
+       u_cos%ev(k,2:nw) = u_cos%ev(k,2:nw) +         &
+            coef_uvm%od(1:nw-1)*vorticity%od(k,1:nw-1)
+
+       u_cos%od(k,1:nw) = u_cos%od(k,1:nw) +         &
+            coef_uvm%ev(1:nw)*vorticity%ev(k,1:nw)
+
+       v_cos%ev(k,2:nw) = v_cos%ev(k,2:nw) -         &
+            coef_uvm%od(1:nw-1)*divergence%od(k,1:nw-1)
+
+       v_cos%od(k,1:nw) = v_cos%od(k,1:nw) -         &
+            coef_uvm%ev(1:nw)*divergence%ev(k,1:nw)
+
+       u_cos%ev(k,1:nw) = u_cos%ev(k,1:nw) -     &
+            coef_uvp%od(1:nw)*vorticity%od(k,1:nw)
+
+       u_cos%od(k,1:nw-1) = u_cos%od(k,1:nw-1) -     &
+            coef_uvp%ev(2:nw)*vorticity%ev(k,2:nw)
+
+       v_cos%ev(k,1:nw) = v_cos%ev(k,1:nw) +     &
+            coef_uvp%od(1:nw)*divergence%od(k,1:nw)
+
+       v_cos%od(k,1:nw-1) = v_cos%od(k,1:nw-1) +     &
+            coef_uvp%ev(2:nw)*divergence%ev(k,2:nw)
+    end do
+    return
+end subroutine compute_ucos_vcos
+
 !!-------------------------------------------------------------------------
 !subroutine compute_vor_div_3d(u_cos, v_cos, vorticity, divergence)
 !!-------------------------------------------------------------------------
