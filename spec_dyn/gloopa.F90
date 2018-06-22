@@ -18,7 +18,7 @@ program main
     use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
 
     use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical, spherical_to_fourier
-    use fourier_spherical_mod, only : specVar
+    use spherical_mod, only : specVar, compute_lon_deriv_cos, compute_lat_deriv_cos
 
     implicit none
 
@@ -39,7 +39,7 @@ program main
 
     integer :: comm, idfft3d, n, nt=1
     logical :: check=.false.
-    real, allocatable :: lnp(:,:), dpdphi(:,:), dpdlam(:,:), tmp(:,:,:)
+    real, allocatable :: lnp(:,:), dpdphi(:,:), dpdlam(:,:), tmp(:,:,:), tmp2d(:,:)
     complex, allocatable :: fldc1d(:,:), fldct(:,:,:)
     integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
     integer :: isf, ief, flen, jsc, jec, j, jsf, jef
@@ -51,7 +51,7 @@ program main
     complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
     integer :: pe
 
-    type(specVar(n=:,nlev=:)), allocatable :: slnp
+    type(specVar(n=:,nlev=:)), allocatable :: slnp, slnpdlam, slnpdphi
 
 
     interface read_griddataGFS
@@ -135,10 +135,11 @@ program main
 
     allocate(lnp(jsc:jec,isc:iec))
     allocate(tmp(nlev,jsc:jec,isc:iec))
+    allocate(tmp2d(jsc:jec,isc:iec))
     allocate(dpdphi(jsc:jec,isc:iec))
     allocate(dpdlam(jsc:jec,isc:iec))
 
-    allocate(specVar(n=nwaves_oe,nlev=1) :: slnp)
+    allocate(specVar(n=nwaves_oe,nlev=1) :: slnp, slnpdlam, slnpdphi)
 
     call read_griddataGFS('gloopa.nc', 'lnp', lnp)
 
@@ -146,12 +147,17 @@ program main
 
     call grid_to_spherical(lnp,slnp)
 
-    call write_data('rgloopa', 'rslnp_ev', real(slnp%ev))
-    call write_data('rgloopa', 'islnp_ev', aimag(slnp%ev))
-    
-    call spherical_to_grid(slnp,tmp(1,:,:))
+    call compute_lon_deriv_cos(slnp,slnpdlam)
 
-    call write_griddata('rgloopa.nc', 's2glnp', tmp(1,:,:))
+    call compute_lat_deriv_cos(slnp,slnpdphi)
+
+    call spherical_to_grid(slnp,tmp2d(:,:))
+    call write_griddata('rgloopa.nc', 's2glnp', tmp2d(:,:))
+    call spherical_to_grid(slnpdlam,tmp2d(:,:))
+    call write_griddata('rgloopa.nc', 'dpdlam', tmp2d(:,:))
+    call spherical_to_grid(slnpdphi,tmp2d(:,:))
+    call write_griddata('rgloopa.nc', 'dpdphi', tmp2d(:,:))
+
 
     call fms_io_exit()
     call end_grid_fourier()
