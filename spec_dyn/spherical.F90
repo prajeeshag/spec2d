@@ -2,11 +2,13 @@ module spherical_mod
 
 use mpp_mod, only: mpp_pe, mpp_root_pe, mpp_error, FATAL, WARNING, NOTE
 
-use spherical_data_mod, only: nwaves_oe, specVar, specCoef, ms, me
+use spherical_data_mod, only: nwaves_oe, specVar, specCoef, ms, me, nlat, iseven
 use spherical_data_mod, only: ns4m, ne4m, num_spherical, num_fourier, trunc
-use spherical_data_mod, only: tshuffle
+use spherical_data_mod, only: tshuffle, legendrePol, js, je, js_hem, je_hem
 
-use constants_mod, only : RADIUS
+use constants_mod, only : RADIUS, PI
+
+use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian 
 
 
 !-------------------------------------------------------------------------
@@ -42,6 +44,17 @@ type(specCoef(n=:)), allocatable :: coef_dym
 type(specCoef(n=:)), allocatable :: coef_dx
 type(specCoef(n=:)), allocatable :: coef_dyp
 type(specCoef(n=:)), allocatable :: triangle_mask
+
+real, allocatable, dimension(:) :: sin_lat
+real, allocatable, dimension(:) :: cos_lat
+real, allocatable, dimension(:) :: cosm_lat
+real, allocatable, dimension(:) :: cosm2_lat
+real, allocatable, dimension(:) :: deg_lat
+real, allocatable, dimension(:) :: wts_lat
+real, allocatable, dimension(:) :: sin_hem
+
+type(legendrePol(js=:,je=:,n=:)), allocatable, public :: legendre, legendre_wts
+type(legendrePol(js=:,je=:,n=:)), allocatable, public :: legendredphi
 
 logical :: module_is_initialized = .false.
 
@@ -202,11 +215,109 @@ subroutine spherical_init()
         coef_dyp%od = 0.
     end where
 
+    call define_gaussian
+
+    call define_legendre(lepsilon,lspherical_wave)
+
     module_is_initialized = .true.
 
 return
 end subroutine spherical_init
 
+
+!------------------------------------------------------------------------------
+subroutine define_gaussian
+!------------------------------------------------------------------------------
+
+    integer :: j
+    real, dimension(nlat/2) :: wts_hem
+
+    allocate (sin_lat(js:je))
+    allocate (cos_lat(js:je))
+    allocate (cosm_lat(js:je))
+    allocate (cosm2_lat(js:je))
+    allocate (wts_lat(js:je))
+    allocate (deg_lat(js:je))
+    allocate (sin_hem(nlat/2))
+
+    call compute_gaussian(sin_hem, wts_hem, nlat/2)
+
+    sin_lat(js:je:2) = -sin_hem !Southern hemisphere
+    sin_lat(js+1:je:2) = sin_hem !Northern hemisphere
+
+    wts_lat(js:je:2) = wts_hem
+    wts_lat(js+1:je:2) = wts_hem
+
+    cos_lat = sqrt(1-sin_lat*sin_lat)
+    cosm_lat = 1./cos_lat
+    cosm2_lat = 1./(cos_lat*cos_lat)
+    deg_lat = asin(sin_lat)*180.0/pi
+
+    return
+end subroutine define_gaussian
+
+!--------------------------------------------------------------------------------   
+subroutine define_legendre(lepsilon,lspherical_wave)
+!--------------------------------------------------------------------------------   
+    real, dimension(0:num_fourier,0:num_spherical), intent(in) :: lepsilon, lspherical_wave
+    integer :: j, m, w, wo, we, mshuff, n
+    real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: legendre_global
+    real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: legendre_global_dphi
+    character(len=8) :: suffix
+
+    allocate(legendrePol(js=js_hem,je=je_hem,n=nwaves_oe) :: legendre, legendre_wts, legendredphi)
+
+    call compute_legendre(legendre_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
+
+
+    do m = 0, num_fourier
+        do n = 0, num_spherical-1
+            legendre_global_dphi(m,n,:) = -lspherical_wave(m,n) &
+                                          * lepsilon(m,n+1) &
+                                          * legendre_global(m,n+1,:)
+        enddo 
+        do n = 1, num_spherical
+            legendre_global_dphi(m,n,:) = legendre_global_dphi(m,n,:) &
+                                          + (lspherical_wave(m,n)+1) &
+                                          * lepsilon(m,n) * legendre_global(m,n-1,:)
+        enddo
+    enddo
+    
+
+    do j = js_hem, je_hem
+        w = 0
+        wo = 0
+        we = 0
+        do m = ms, me
+            mshuff = tshuffle(m)
+            do n = ns4m(m), ne4m(m)
+                w = w + 1
+                if (iseven(w)) then
+                    we = we + 1
+                    legendre%ev(j,we) = legendre_global(mshuff,n,j)
+                    legendredphi%ev(j,we) = legendre_global_dphi(mshuff,n,j)
+                    if (mshuff+n>num_fourier) then
+                        legendre%ev(j,we) = 0.
+                        legendredphi%ev(j,we) = 0.
+                    endif
+                else
+                    wo = wo + 1
+                    legendre%od(j,wo) = legendre_global(mshuff,n,j)
+                    legendredphi%od(j,wo) = legendre_global_dphi(mshuff,n,j)
+                    if (mshuff+n>num_fourier) then
+                        legendre%od(j,wo) = 0.
+                        legendredphi%od(j,wo) = 0.
+                    endif
+                endif
+            enddo
+        enddo
+
+        legendre_wts%ev(j,:) = legendre%ev(j,:)*wts_lat(2*j)
+        legendre_wts%od(j,:) = legendre%od(j,:)*wts_lat(2*j)
+    enddo
+
+    return
+end subroutine define_legendre
 
 
 !---------------------------------------------------------------------------
