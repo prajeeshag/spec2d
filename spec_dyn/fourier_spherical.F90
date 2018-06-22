@@ -52,39 +52,70 @@ end subroutine init_fourier_spherical
 
 
 !--------------------------------------------------------------------------------   
-subroutine spherical_to_fourier(waves,fourier)
+subroutine spherical_to_fourier(waves,fourier,lat_deriv)
 !--------------------------------------------------------------------------------   
     complex, intent(out) :: fourier(:,js:,ms:) ! lat, lev, fourier
     type(specVar(nlev=*,n=*)), intent(in) :: waves
+    logical, intent(in), optional :: lat_deriv
 
     complex :: odd(size(fourier,1),js_hem:je_hem,ms:me)
     complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
     integer :: ks, ke, ews, ewe, ows, owe, m
+    logical :: deriv
+
+    deriv = .false.
+    
+    if (present(lat_deriv)) deriv = lat_deriv
+
+
 
     if (.not.initialized) call mpp_error('spherical_to_fourier', 'call init_fourier_spherical first', FATAL)
 
     ks = 1; ke = size(fourier,1)
 
-    do m = ms, me
-        if(ewlen4m(m)<1) cycle
-        ews = ews4m(m); ewe = ewe4m(m)
-        call do_matmul(waves%ev(ks:ke,ews:ewe), &
-                       legendre%ev(js_hem:je_hem,ews:ewe), &
-                       even(ks:ke,js_hem:je_hem,m),'T')
-    enddo
+    if (deriv) then
+        do m = ms, me
+            if(ewlen4m(m)<1) cycle
+            ews = ews4m(m); ewe = ewe4m(m)
+            call do_matmul(waves%ev(ks:ke,ews:ewe), &
+                           legendredphi%ev(js_hem:je_hem,ews:ewe), &
+                           even(ks:ke,js_hem:je_hem,m),'T')
+        enddo
 
-    do m = ms, me
-        if(owlen4m(m)<1) cycle
-        ows = ows4m(m); owe = owe4m(m)
-        call do_matmul(waves%od(ks:ke,ows:owe), &
-                       legendre%od(js_hem:je_hem,ows:owe), &
-                       odd(ks:ke,js_hem:je_hem,m),'T')
-    enddo 
+        do m = ms, me
+            if(owlen4m(m)<1) cycle
+            ows = ows4m(m); owe = owe4m(m)
+            call do_matmul(waves%od(ks:ke,ows:owe), &
+                           legendredphi%od(js_hem:je_hem,ows:owe), &
+                           odd(ks:ke,js_hem:je_hem,m),'T')
+        enddo 
+
+        fourier(ks:ke,js+1:je:2,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) + odd(ks:ke,js_hem:je_hem,ms:me)
+        fourier(ks:ke,js:je:2,ms:me)   = odd(ks:ke,js_hem:je_hem,ms:me)  - even(ks:ke,js_hem:je_hem,ms:me)
+
+    else
+        do m = ms, me
+            if(ewlen4m(m)<1) cycle
+            ews = ews4m(m); ewe = ewe4m(m)
+            call do_matmul(waves%ev(ks:ke,ews:ewe), &
+                           legendre%ev(js_hem:je_hem,ews:ewe), &
+                           even(ks:ke,js_hem:je_hem,m),'T')
+        enddo
+
+        do m = ms, me
+            if(owlen4m(m)<1) cycle
+            ows = ows4m(m); owe = owe4m(m)
+            call do_matmul(waves%od(ks:ke,ows:owe), &
+                           legendre%od(js_hem:je_hem,ows:owe), &
+                           odd(ks:ke,js_hem:je_hem,m),'T')
+        enddo 
+
+        fourier(ks:ke,js+1:je:2,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) + odd(ks:ke,js_hem:je_hem,ms:me)
+        fourier(ks:ke,js:je:2,ms:me)   = even(ks:ke,js_hem:je_hem,ms:me) - odd(ks:ke,js_hem:je_hem,ms:me)
+
+    endif
    
-    fourier(ks:ke,js+1:je:2,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) + odd(ks:ke,js_hem:je_hem,ms:me)
-    fourier(ks:ke,js:je:2,ms:me)   = even(ks:ke,js_hem:je_hem,ms:me) - odd(ks:ke,js_hem:je_hem,ms:me)
-
     !odd(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) - fourier(js:je:2,:,:) ! north_hem - south_hem
     !even(js_hem:je_hem,ks:ke,ms:me) = fourier(js+1:je:2,ks:ke,ms:me) + fourier(js:je:2,ks:ke,ms:me) ! north_hem + south_hem
 

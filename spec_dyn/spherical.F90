@@ -263,6 +263,7 @@ subroutine define_legendre(lepsilon,lspherical_wave)
     integer :: j, m, w, wo, we, mshuff, n
     real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: legendre_global
     real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: legendre_global_dphi
+    real :: wgt
     character(len=8) :: suffix
 
     allocate(legendrePol(js=js_hem,je=je_hem,n=nwaves_oe) :: legendre, legendre_wts, legendredphi)
@@ -282,7 +283,12 @@ subroutine define_legendre(lepsilon,lspherical_wave)
                                           * lepsilon(m,n) * legendre_global(m,n-1,:)
         enddo
     enddo
-    
+  
+    do j = js_hem, je_hem 
+        !wgt = 1./(RADIUS*sin_lat(2*j)**2)
+        wgt = 1./RADIUS
+        legendre_global_dphi(:,:,j) = legendre_global_dphi(:,:,j)*wgt
+    enddo
 
     do j = js_hem, je_hem
         w = 0

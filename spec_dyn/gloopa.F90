@@ -153,11 +153,15 @@ program main
 
     call spherical_to_grid(slnp,tmp2d(:,:))
     call write_griddata('rgloopa.nc', 's2glnp', tmp2d(:,:))
+
     call spherical_to_grid(slnpdlam,tmp2d(:,:))
     call write_griddata('rgloopa.nc', 'dpdlam', tmp2d(:,:))
+
     call spherical_to_grid(slnpdphi,tmp2d(:,:))
     call write_griddata('rgloopa.nc', 'dpdphi', tmp2d(:,:))
 
+    call spherical_to_grid(slnp,tmp2d(:,:),lat_deriv=.true.)
+    call write_griddata('rgloopa.nc', 'dpdphi1', tmp2d(:,:))
 
     call fms_io_exit()
     call end_grid_fourier()
@@ -198,18 +202,24 @@ program main
     end subroutine grid_to_spherical3D 
 
 
-    subroutine spherical_to_grid3D(spherical,grid)
+    subroutine spherical_to_grid3D(spherical,grid,lat_deriv)
         real, intent(out) :: grid(:,:,:)
         type(specVar(n=*,nlev=*)), intent(in) :: spherical
+        logical, intent(in), optional :: lat_deriv
     
         complex :: four(size(grid,1)*size(grid,2), flen)
         complex, pointer :: four3(:,:,:)
 
         real, pointer :: grd(:,:)
         type(C_PTR) :: pgrd, pfour
+        logical :: lat_deriv1
 
         integer :: nk, nj, ni, howmany
         integer :: i, j, k
+    
+        lat_deriv1 = .false.
+
+        if (present(lat_deriv)) lat_deriv1 = lat_deriv
 
         nk = size(grid,1); nj = size(grid,2); ni = size(grid,3)
 
@@ -221,7 +231,7 @@ program main
         pfour = C_LOC(four)
         call c_f_pointer(pfour, four3, [nk, nj, flen])
 
-        call spherical_to_fourier(spherical, four3)
+        call spherical_to_fourier(spherical, four3, lat_deriv1)
 
         call fourier_to_grid(four,grd)
 
@@ -243,13 +253,14 @@ program main
     end subroutine grid_to_spherical2D
 
 
-    subroutine spherical_to_grid2D(spherical,grid)
+    subroutine spherical_to_grid2D(spherical,grid,lat_deriv)
         real, intent(out) :: grid(:,:)
         type(specVar(n=*,nlev=*)), intent(in) :: spherical
+        logical, intent(in), optional :: lat_deriv
 
         real :: buff(1,size(grid,1),size(grid,2))
 
-        call spherical_to_grid3D(spherical,buff)
+        call spherical_to_grid3D(spherical,buff,lat_deriv)
 
         grid(:,:) = buff(1,:,:)
 
