@@ -14,7 +14,7 @@ use fms_mod, only : fms_init, open_namelist_file, close_file
 
 use fms_io_mod, only : write_data
 
-use spherical_mod, only : spherical_init, legendre_wts, legendre, legendredphi
+use spherical_mod, only : spherical_init, legendre_wts, legendre, legendredphi, triangle_mask
 
 use spherical_data_mod, only : nlat, legendrePol, specVar
 use spherical_data_mod, only : ewlen4m, ews4m, ewe4m, owlen4m, ows4m, owe4m
@@ -61,7 +61,7 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
     complex :: odd(size(fourier,1),js_hem:je_hem,ms:me)
     complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
-    integer :: ks, ke, ews, ewe, ows, owe, m
+    integer :: ks, ke, ews, ewe, ows, owe, m, nj
     logical :: deriv
 
     deriv = .false.
@@ -73,13 +73,14 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
     if (.not.initialized) call mpp_error('spherical_to_fourier', 'call init_fourier_spherical first', FATAL)
 
     ks = 1; ke = size(fourier,1)
+    nj = legendre%nj
 
     if (deriv) then
         do m = ms, me
             if(ewlen4m(m)<1) cycle
             ews = ews4m(m); ewe = ewe4m(m)
             call do_matmul(waves%ev(ks:ke,ews:ewe), &
-                           legendredphi%ev(js_hem:je_hem,ews:ewe), &
+                           legendredphi%ev(:,ews:ewe), &
                            even(ks:ke,js_hem:je_hem,m),'T')
         enddo
 
@@ -87,7 +88,7 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
             if(owlen4m(m)<1) cycle
             ows = ows4m(m); owe = owe4m(m)
             call do_matmul(waves%od(ks:ke,ows:owe), &
-                           legendredphi%od(js_hem:je_hem,ows:owe), &
+                           legendredphi%od(:,ows:owe), &
                            odd(ks:ke,js_hem:je_hem,m),'T')
         enddo 
 
@@ -99,7 +100,7 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
             if(ewlen4m(m)<1) cycle
             ews = ews4m(m); ewe = ewe4m(m)
             call do_matmul(waves%ev(ks:ke,ews:ewe), &
-                           legendre%ev(js_hem:je_hem,ews:ewe), &
+                           legendre%ev(1:nj,ews:ewe), &
                            even(ks:ke,js_hem:je_hem,m),'T')
         enddo
 
@@ -107,7 +108,7 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
             if(owlen4m(m)<1) cycle
             ows = ows4m(m); owe = owe4m(m)
             call do_matmul(waves%od(ks:ke,ows:owe), &
-                           legendre%od(js_hem:je_hem,ows:owe), &
+                           legendre%od(1:nj,ows:owe), &
                            odd(ks:ke,js_hem:je_hem,m),'T')
         enddo 
 
@@ -133,11 +134,12 @@ subroutine fourier_to_spherical(fourier, waves)
     complex :: odd(size(fourier,1),js_hem:je_hem,ms:me)
     complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
-    integer :: ks, ke, ews, ewe, ows, owe, m, k
+    integer :: ks, ke, ews, ewe, ows, owe, m, k, nj
 
     if (.not.initialized) call mpp_error('fourier_to_spherical', 'call init_fourier_spherical first', FATAL)
 
     ks = 1; ke = size(fourier,1)
+    nj = legendre_wts%nj
 
     odd(ks:ke,js_hem:je_hem,ms:me)  = fourier(ks:ke,js+1:je:2,ms:me) - fourier(ks:ke,js:je:2,ms:me) ! north_hem - south_hem
     even(ks:ke,js_hem:je_hem,ms:me) = fourier(ks:ke,js+1:je:2,ms:me) + fourier(ks:ke,js:je:2,ms:me) ! north_hem + south_hem
@@ -146,7 +148,7 @@ subroutine fourier_to_spherical(fourier, waves)
         if(ewlen4m(m)<1) cycle
         ews = ews4m(m); ewe = ewe4m(m)
         call do_matmul(even(ks:ke,js_hem:je_hem,m), &
-                       legendre_wts%ev(js_hem:je_hem,ews:ewe), &
+                       legendre_wts%ev(1:nj,ews:ewe), &
                        waves%ev(ks:ke,ews:ewe),'N')
     enddo
 
@@ -154,9 +156,14 @@ subroutine fourier_to_spherical(fourier, waves)
         if(owlen4m(m)<1) cycle
         ows = ows4m(m); owe = owe4m(m)
         call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
-                       legendre_wts%od(js_hem:je_hem,ows:owe), &
+                       legendre_wts%od(1:nj,ows:owe), &
                        waves%od(ks:ke,ows:owe),'N')
     enddo 
+
+    do k = ks, ke
+        waves%ev(k,:) = waves%ev(k,:)*triangle_mask%ev(:)
+        waves%od(k,:) = waves%od(k,:)*triangle_mask%od(:)
+    enddo
 
     return 
 end subroutine fourier_to_spherical

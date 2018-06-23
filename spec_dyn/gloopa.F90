@@ -18,7 +18,8 @@ program main
     use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
 
     use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical, spherical_to_fourier
-    use spherical_mod, only : specVar, compute_lon_deriv_cos, compute_lat_deriv_cos, compute_ucos_vcos
+    use spherical_mod, only : specVar, compute_lon_deriv_cos, compute_lat_deriv_cos
+    use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cos_lat, legendre
 
     implicit none
 
@@ -54,7 +55,6 @@ program main
 
     type(specVar(n=:,nlev=:)), allocatable :: slnp, slnpdlam, slnpdphi
     type(specVar(n=:,nlev=:)), allocatable :: ucos, vcos, vor, div
-
 
     interface read_griddataGFS
         procedure read_griddataGFS3D
@@ -144,42 +144,22 @@ program main
     allocate(specVar(n=nwaves_oe,nlev=1) :: slnp, slnpdlam, slnpdphi)
     allocate(specVar(n=nwaves_oe,nlev=nlev) :: vor, div, ucos, vcos)
 
-    call read_griddataGFS('gloopa.nc', 'lnp', lnp)
+    call read_specdataGFS('gloopa', 'vor', vor)
 
-    call read_griddataGFS('gloopa.nc', 'div', tmp(:,:,:))
-    call grid_to_spherical(tmp,div)
+    call spherical_to_grid(vor,tmp)
+    call write_griddata('rgloopa', 'vor', tmp)
 
-    call read_griddataGFS('gloopa.nc', 'vor', tmp(:,:,:))
+    vor%ev = cmplx(0.,0.)
+    vor%od = cmplx(0.,0.)
     call grid_to_spherical(tmp,vor)
 
-    call compute_ucos_vcos(vor, div, ucos, vcos)
+    tmp = 0.
+    call spherical_to_grid(vor,tmp)
+    call write_griddata('rgloopa', 'vor2', tmp)
 
-    call spherical_to_grid(ucos, tmp(:,:,:))
-    call write_griddata('rgloopa.nc', 'ucos', tmp)
-
-    call spherical_to_grid(vcos, tmp(:,:,:))
-    call write_griddata('rgloopa.nc', 'vcos', tmp)
-
-    call write_griddata('rgloopa.nc', 'lnp', lnp)
-
-    call grid_to_spherical(lnp,slnp)
-
-    call compute_lon_deriv_cos(slnp,slnpdlam)
-
-    call compute_lat_deriv_cos(slnp,slnpdphi)
-
-    call spherical_to_grid(slnp,tmp2d(:,:))
-
-    call write_griddata('rgloopa.nc', 's2glnp', tmp2d(:,:))
-
-    call spherical_to_grid(slnpdlam,tmp2d(:,:))
-    call write_griddata('rgloopa.nc', 'dpdlam', tmp2d(:,:))
-
-    call spherical_to_grid(slnpdphi,tmp2d(:,:))
-    call write_griddata('rgloopa.nc', 'dpdphi', tmp2d(:,:))
-
-    call spherical_to_grid(slnp,tmp2d(:,:),lat_deriv=.true.)
-    call write_griddata('rgloopa.nc', 'dpdphi1', tmp2d(:,:))
+    
+    call write_data('rgloopa', 'legev', legendre%ev)
+    call write_data('rgloopa', 'legod', legendre%od)
 
     call fms_io_exit()
     call end_grid_fourier()
@@ -285,6 +265,46 @@ program main
         return
     end subroutine spherical_to_grid2D
 
+    subroutine read_specdataGFS(filename,fieldname,dat)
+
+        character (len=*), intent(in) :: filename, fieldname
+        type(specVar(nlev=*,n=*)) :: dat
+
+        real :: rebuff(dat%n,dat%nlev), robuff(dat%n-num_fourier/2,dat%nlev)
+        real :: iebuff(dat%n,dat%nlev), iobuff(dat%n-num_fourier/2,dat%nlev)
+        integer :: i, j, k, nlev, m, nodd
+        character(len=len(fieldname)+3) :: iew, rew, iow, row 
+        integer :: nlen1, nlen2, ns1, ns2, ne1, ne2
+
+        iew = 'iew'//trim(fieldname)
+        rew = 'rew'//trim(fieldname)
+        iow = 'iow'//trim(fieldname)
+        row = 'row'//trim(fieldname)
+
+        nlev = dat%nlev
+        nodd = dat%n-num_fourier/2
+        call read_data(filename,rew,rebuff)
+        call read_data(filename,iew,iebuff)
+        call read_data(filename,row,robuff)
+        call read_data(filename,iow,iobuff)
+
+        dat%od = cmplx(0.,0.)
+        do k = 1, nlev
+            dat%ev(k,:) = cmplx(rebuff(:,k),iebuff(:,k))
+            nlen1 = 32; nlen2 = 33
+            ne1 = 0; ne2 = 0
+            do m = isf, ief
+                if (mod(m+1,2)==0) nlen1 = nlen1 - 1
+                if (mod(m,2)==0) nlen2 = nlen2 - 1
+                ns1 = ne1 + 1; ns2 = ne2 + 1
+                ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
+                print *, ns2, nlen2, ns1, nlen1
+                dat%od(k,ns2:ns2+nlen1-1) = cmplx(robuff(ns1:ne1,k),iobuff(ns1:ne1,k))
+            enddo
+            !dat%od(k,1:nodd) = cmplx(robuff(:,k),iobuff(:,k))
+        enddo
+
+    end subroutine read_specdataGFS
         
     subroutine read_griddataGFS3D(filename,fieldname,dat)
         character (len=*), intent(in) :: filename, fieldname
@@ -322,7 +342,6 @@ program main
 
         return
     end subroutine read_griddataGFS2D
-
 
     subroutine write_griddata3D(filename,fieldname,dat)
         character (len=*), intent(in) :: filename, fieldname

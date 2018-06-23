@@ -2,9 +2,12 @@ module spherical_mod
 
 use mpp_mod, only: mpp_pe, mpp_root_pe, mpp_error, FATAL, WARNING, NOTE
 
-use spherical_data_mod, only: nwaves_oe, specVar, specCoef, ms, me, nlat, iseven
+use fms_io_mod, only: write_data
+
+use spherical_data_mod, only: nwaves_oe, specVar, specCoef, ms, me, nlat
 use spherical_data_mod, only: ns4m, ne4m, num_spherical, num_fourier, trunc
 use spherical_data_mod, only: tshuffle, legendrePol, js, je, js_hem, je_hem
+use spherical_data_mod, only: iseven
 
 use constants_mod, only : RADIUS, PI
 
@@ -28,7 +31,8 @@ private
 
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: nwaves_oe, specVar, specCoef, num_spherical, num_fourier, trunc
-public :: spherical_init, compute_ucos_vcos
+public :: spherical_init, compute_ucos_vcos, compute_vor_div, compute_vor
+public :: compute_div, cos_lat, triangle_mask
 
 type(specCoef(n=:)), allocatable :: eigen_laplacian
 type(specCoef(n=:)), allocatable :: epsilon
@@ -53,8 +57,8 @@ real, allocatable, dimension(:) :: deg_lat
 real, allocatable, dimension(:) :: wts_lat
 real, allocatable, dimension(:) :: sin_hem
 
-type(legendrePol(js=:,je=:,n=:)), allocatable, public :: legendre, legendre_wts
-type(legendrePol(js=:,je=:,n=:)), allocatable, public :: legendredphi
+type(legendrePol(nj=:,n=:)), allocatable, public :: legendre, legendre_wts
+type(legendrePol(nj=:,n=:)), allocatable, public :: legendredphi
 
 logical :: module_is_initialized = .false.
 
@@ -86,7 +90,7 @@ subroutine spherical_init()
       do m=0,num_fourier
         lfourier_wave(m,n)   = m
         lspherical_wave(m,n) = lfourier_wave(m,n) + n
-        if(lspherical_wave(m,n).gt.trunc) ltriangle_mask(m,n) = 0.0
+        if(lspherical_wave(m,n)>trunc) ltriangle_mask(m,n) = 0.0
       end do
     end do
     
@@ -109,8 +113,12 @@ subroutine spherical_init()
         -radius*lepsilon(:,1:num_spherical)/   &
          (lspherical_wave(:,0:num_spherical-1) +1.0)
     
-    lcoef_alpm= (lspherical_wave + 1.0)*lepsilon/radius
-    lcoef_alpp(:,0:num_spherical-1) =    &
+    lcoef_alpm(:,:) = 0.
+    lcoef_alpm(:,0:num_spherical-1) = (lspherical_wave(:,1:num_spherical) + 1.0) &
+                                      * lepsilon(:,1:num_spherical) / radius
+
+    lcoef_alpp(:,:) = 0.
+    lcoef_alpp(:,1:num_spherical) =    &
          lspherical_wave(:,0:num_spherical-1)*lepsilon(:,1:num_spherical)/radius
     
     lcoef_dym = 0.
@@ -122,8 +130,6 @@ subroutine spherical_init()
     lcoef_dyp(:,0:num_spherical-1) = 0.
     lcoef_dyp(:,1:num_spherical) =                                           &
       (lspherical_wave(:,0:num_spherical-1) + 2.0)*lepsilon(:,1:num_spherical)/radius
-
-
 
     allocate(specCoef(n=nwaves_oe) :: eigen_laplacian, &
                                       epsilon, &
@@ -165,6 +171,7 @@ subroutine spherical_init()
                 coef_dx%ev(we)         = lcoef_dx(ma,n)
                 coef_dyp%ev(we)        = lcoef_dyp(ma,n)
                 triangle_mask%ev(we)   = ltriangle_mask(ma,n)
+                if (triangle_mask%ev(we)==0.) print *, 'indev2=', we
             else
                 wo = wo + 1
                 eigen_laplacian%od(wo) = leigen_laplacian(ma,n)
@@ -181,6 +188,7 @@ subroutine spherical_init()
                 coef_dx%od(wo)         = lcoef_dx(ma,n)
                 coef_dyp%od(wo)        = lcoef_dyp(ma,n)
                 triangle_mask%od(wo)   = ltriangle_mask(ma,n)
+                if (triangle_mask%od(wo)==0.) print *, 'indod2=', wo
             endif
         enddo
     enddo
@@ -189,8 +197,6 @@ subroutine spherical_init()
         eigen_laplacian%ev = 0.
         epsilon%ev = 0.
         r_epsilon%ev = 0.
-        fourier_wave%ev = 0.
-        spherical_wave%ev = 0.
         coef_uvm%ev = 0.
         coef_uvc%ev = 0.
         coef_uvp%ev = 0.
@@ -205,8 +211,6 @@ subroutine spherical_init()
         eigen_laplacian%od = 0.
         epsilon%od = 0.
         r_epsilon%od = 0.
-        fourier_wave%od = 0.
-        spherical_wave%od = 0.
         coef_uvm%od = 0.
         coef_uvc%od = 0.
         coef_uvp%od = 0.
@@ -268,10 +272,11 @@ subroutine define_legendre(lepsilon,lspherical_wave)
     real :: wgt
     character(len=8) :: suffix
 
-    allocate(legendrePol(js=js_hem,je=je_hem,n=nwaves_oe) :: legendre, legendre_wts, legendredphi)
+    allocate(legendrePol(nj=je_hem-js_hem+1,n=nwaves_oe) :: legendre, legendre_wts, legendredphi)
 
     call compute_legendre(legendre_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
 
+    call write_data('legeglob','lege', legendre_global)
 
     do m = 0, num_fourier
         do n = 0, num_spherical-1
@@ -286,42 +291,41 @@ subroutine define_legendre(lepsilon,lspherical_wave)
         enddo
     enddo
   
-    do j = js_hem, je_hem 
-        !wgt = 1./(RADIUS*sin_lat(2*j)**2)
-        wgt = 1./RADIUS
-        legendre_global_dphi(:,:,j) = legendre_global_dphi(:,:,j)*wgt
+    wgt = 1./RADIUS
+    legendre_global_dphi(:,:,:) = legendre_global_dphi(:,:,:)*wgt
+
+    print *, 'js_hem, je_hem=', js_hem, je_hem
+
+    w = 0
+    wo = 0
+    we = 0
+    do m = ms, me
+        mshuff = tshuffle(m)
+        do n = ns4m(m), ne4m(m)
+            w = w + 1
+            if (iseven(w)) then
+                we = we + 1
+                legendre%ev(:,we) = legendre_global(mshuff,n,js_hem:je_hem)
+                legendredphi%ev(:,we) = legendre_global_dphi(mshuff,n,js_hem:je_hem)
+                if (mshuff+n>trunc) then
+                !    legendre%ev(:,we) = 0.
+                    legendredphi%ev(:,we) = 0.
+                endif
+            else
+                wo = wo + 1
+                legendre%od(:,wo) = legendre_global(mshuff,n,js_hem:je_hem)
+                legendredphi%od(:,wo) = legendre_global_dphi(mshuff,n,js_hem:je_hem)
+                if (mshuff+n>trunc) then
+                !    legendre%od(:,wo) = 0.
+                    legendredphi%od(:,wo) = 0.
+                endif
+            endif
+        enddo
     enddo
 
     do j = js_hem, je_hem
-        w = 0
-        wo = 0
-        we = 0
-        do m = ms, me
-            mshuff = tshuffle(m)
-            do n = ns4m(m), ne4m(m)
-                w = w + 1
-                if (iseven(w)) then
-                    we = we + 1
-                    legendre%ev(j,we) = legendre_global(mshuff,n,j)
-                    legendredphi%ev(j,we) = legendre_global_dphi(mshuff,n,j)
-                    if (mshuff+n>num_fourier) then
-                        legendre%ev(j,we) = 0.
-                        legendredphi%ev(j,we) = 0.
-                    endif
-                else
-                    wo = wo + 1
-                    legendre%od(j,wo) = legendre_global(mshuff,n,j)
-                    legendredphi%od(j,wo) = legendre_global_dphi(mshuff,n,j)
-                    if (mshuff+n>num_fourier) then
-                        legendre%od(j,wo) = 0.
-                        legendredphi%od(j,wo) = 0.
-                    endif
-                endif
-            enddo
-        enddo
-
-        legendre_wts%ev(j,:) = legendre%ev(j,:)*wts_lat(2*j)
-        legendre_wts%od(j,:) = legendre%od(j,:)*wts_lat(2*j)
+        legendre_wts%ev(j-js_hem+1,:) = legendre%ev(j-js_hem+1,:)*wts_lat(2*j)
+        legendre_wts%od(j-js_hem+1,:) = legendre%od(j-js_hem+1,:)*wts_lat(2*j)
     enddo
 
     return
@@ -422,7 +426,7 @@ end subroutine compute_lat_deriv_cos
 !  real, dimension(size(spherical,1), size(spherical,2)) :: factor
 !
 !  if(.not. module_is_initialized ) then
-!      call error_mesg('compute_laplacian','module spherical not initialized', FATAL)
+!      call mpp_error('compute_laplacian','module spherical not initialized', FATAL)
 !  end if
 !
 !  if( size(spherical,1).EQ.num_fourier+1 .AND. size(spherical,2).EQ.num_spherical+1 )then
@@ -454,7 +458,7 @@ end subroutine compute_lat_deriv_cos
 !          factor = -eigen_laplacian(ms:me,ns:ne)
 !      end if
 !  else
-!      call error_mesg( 'compute_laplacian', 'invalid argument size', FATAL )
+!      call mpp_error( 'compute_laplacian', 'invalid argument size', FATAL )
 !  endif
 !
 !  do k= 1,size(spherical,3)
@@ -522,97 +526,90 @@ subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos)
     return
 end subroutine compute_ucos_vcos
 
-!!-------------------------------------------------------------------------
-!subroutine compute_vor_div_3d(u_cos, v_cos, vorticity, divergence)
-!!-------------------------------------------------------------------------
-!
-!complex, intent(in), dimension (:,:,:) :: u_cos
-!complex, intent(in), dimension (:,:,:) :: v_cos
-!complex, intent(out), dimension (:,:,:) :: vorticity
-!complex, intent(out), dimension (:,:,:) :: divergence
-!
-!vorticity  = compute_alpha_operator(v_cos, u_cos, -1)
-!divergence = compute_alpha_operator(u_cos, v_cos, +1)
-!
-!return
-!end subroutine compute_vor_div_3d
-!
-!!-------------------------------------------------------------------------
-!function compute_vor_3d(u_cos, v_cos) result(vorticity)
-!!-------------------------------------------------------------------------
-!
-!complex, intent(in), dimension (:,:,:) :: u_cos
-!complex, intent(in), dimension (:,:,:) :: v_cos
-!complex, dimension (size(u_cos,1), size(u_cos,2), size(u_cos,3)) :: vorticity
-!
-!vorticity = compute_alpha_operator(v_cos, u_cos, -1)
-!
-!return
-!end function compute_vor_3d
-!
-!!-------------------------------------------------------------------------
-!function compute_div_3d(u_cos, v_cos) result(divergence)
-!!-------------------------------------------------------------------------
-!
-!complex, intent(in), dimension (:,:,:) :: u_cos
-!complex, intent(in), dimension (:,:,:) :: v_cos
-!complex, dimension (size(u_cos,1), size(u_cos,2), size(u_cos,3)) :: divergence
-!
-!divergence = compute_alpha_operator(u_cos, v_cos, +1)
-!
-!return
-!end function compute_div_3d
-!
-!!--------------------------------------------------------------------------------
-!function compute_alpha_operator_3d(spherical_a, spherical_b, isign) result(alpha)
-!!--------------------------------------------------------------------------------
-!
-!complex, intent(in), dimension (:,0:,:) :: spherical_a
-!complex, intent(in), dimension (:,0:,:) :: spherical_b
-!integer,intent(in) :: isign
-!
-!complex, dimension (size(spherical_a,1), 0:size(spherical_a,2)-1, size(spherical_a,3)) :: alpha
-!
-!integer :: k
-!
-!if(.not. module_is_initialized ) then
-!  call error_mesg('compute_vor or div','module spherical not initialized', FATAL)
-!end if
-!
-!alpha = cmplx(0.,0.)
-!
-!if( size(spherical_a,2).EQ.num_spherical+1 )then
-!!could be global domain, or only global in N
-!    if( size(spherical_a,1).EQ.num_fourier+1 )then
-!        do k=1,size(spherical_a,3)
-!           alpha(:,:,k) = coef_dx(:,:)*    &
-!                cmplx(-aimag(spherical_a(:,:,k)),real(spherical_a(:,:,k)))
-!           alpha(:,1:num_spherical,k) = alpha(:,1:num_spherical,k) -  &
-!                isign*coef_alpm(:,1:num_spherical)  &
-!                *spherical_b(:,0:num_spherical-1,k)
-!           alpha(:,0:num_spherical-1,k) = alpha(:,0:num_spherical-1,k) +  &
-!                isign*coef_alpp(:,0:num_spherical-1)*spherical_b(:,1:num_spherical,k)
-!        end do
-!    else if( size(spherical_a,1).EQ.me-ms+1 )then
-!        do k=1,size(spherical_a,3)
-!           alpha(:,:,k) = coef_dx(ms:me,:)*    &
-!                cmplx(-aimag(spherical_a(:,:,k)),real(spherical_a(:,:,k)))
-!           alpha(:,1:num_spherical,k) = alpha(:,1:num_spherical,k) -  &
-!                isign*coef_alpm(ms:me,1:num_spherical)  &
-!                *spherical_b(:,0:num_spherical-1,k)
-!           alpha(:,0:num_spherical-1,k) = alpha(:,0:num_spherical-1,k) +  &
-!                isign*coef_alpp(ms:me,0:num_spherical-1)*spherical_b(:,1:num_spherical,k)
-!        end do
-!    endif
-!else if( size(spherical_a,1).EQ.me-ms+1 .AND. size(spherical_a,2).EQ.ne-ns+1 )then
-!!need to write stuff to acquire data at ns-1,ne+1
-!    call abort()
-!else
-!    call error_mesg( 'compute_alpha_operator_3d', 'invalid argument size', FATAL )
-!endif
-!
-!return
-!end function compute_alpha_operator_3d
+!-------------------------------------------------------------------------
+subroutine compute_vor_div(u_cos, v_cos, vorticity, divergence)
+!-------------------------------------------------------------------------
+
+    type(specVar(nlev=*,n=*)), intent(in)  :: u_cos
+    type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
+    type(specVar(nlev=*,n=*)), intent(out) :: vorticity
+    type(specVar(nlev=*,n=*)), intent(out) :: divergence
+
+    call compute_alpha_operator(v_cos, u_cos, -1., vorticity)
+    call compute_alpha_operator(u_cos, v_cos, +1., divergence)
+
+    return
+end subroutine compute_vor_div
+
+!-------------------------------------------------------------------------
+subroutine compute_vor(u_cos, v_cos, vorticity)
+!-------------------------------------------------------------------------
+
+    type(specVar(nlev=*,n=*)), intent(in)  :: u_cos
+    type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
+    type(specVar(nlev=*,n=*)), intent(out) :: vorticity
+
+    call compute_alpha_operator(v_cos, u_cos, -1., vorticity)
+
+    return
+end subroutine compute_vor
+
+!-------------------------------------------------------------------------
+subroutine compute_div(u_cos, v_cos, divergence)
+!-------------------------------------------------------------------------
+
+    type(specVar(nlev=*,n=*)), intent(in)  :: u_cos
+    type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
+    type(specVar(nlev=*,n=*)), intent(out) :: divergence
+
+    call compute_alpha_operator(u_cos, v_cos, +1., divergence)
+
+    return
+end subroutine compute_div
+
+!--------------------------------------------------------------------------------
+subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
+!--------------------------------------------------------------------------------
+
+    type(specVar(nlev=*,n=*)), intent(in)  :: spherical_a
+    type(specVar(nlev=*,n=*)), intent(in)  :: spherical_b
+    type(specVar(nlev=*,n=*)), intent(out) :: alpha
+    real, intent(in) :: rsign
+
+    integer :: k, nw
+
+    if(.not. module_is_initialized ) then
+      call mpp_error('compute_vor or div','module spherical not initialized', FATAL)
+    end if
+    
+    alpha%ev = cmplx(0.,0.)
+    alpha%od = cmplx(0.,0.)
+   
+    nw = spherical_a%n 
+
+    do k = 1, spherical_a%nlev
+       alpha%ev(k,:) = coef_dx%ev(:)*    &
+            cmplx(-aimag(spherical_a%ev(k,:)),real(spherical_a%ev(k,:)))
+
+       alpha%od(k,:) = coef_dx%od(:)*    &
+            cmplx(-aimag(spherical_a%od(k,:)),real(spherical_a%od(k,:)))
+
+       alpha%ev(k,2:nw) = alpha%ev(k,2:nw) -  &
+            rsign*coef_alpm%od(1:nw-1)  &
+            *spherical_b%od(k,1:nw-1)
+
+       alpha%od(k,1:nw) = alpha%od(k,1:nw) -  &
+            rsign*coef_alpm%ev(1:nw)  &
+            *spherical_b%ev(k,1:nw)
+
+       alpha%ev(k,1:nw) = alpha%ev(k,1:nw) +  &
+            rsign*coef_alpp%od(1:nw)*spherical_b%od(k,1:nw)
+
+       alpha%od(k,1:nw-1) = alpha%od(k,1:nw-1) +  &
+            rsign*coef_alpp%ev(2:nw)*spherical_b%ev(k,2:nw)
+    end do
+    return
+end subroutine compute_alpha_operator
 
 !!-----------------------------------------------------------------------
 !subroutine triangular_truncation_3d(spherical, trunc)
@@ -647,7 +644,7 @@ end subroutine compute_ucos_vcos
 !        end do
 !    end if
 !else
-!    call error_mesg( 'triang_trunc', 'invalid argument size', FATAL )
+!    call mpp_error( 'triang_trunc', 'invalid argument size', FATAL )
 !endif
 !
 !return
@@ -782,12 +779,12 @@ end subroutine compute_ucos_vcos
 !end function compute_div_2d
 !
 !!--------------------------------------------------------------------------------
-!function compute_alpha_operator_2d(spherical_a, spherical_b, isign) result(alpha)
+!function compute_alpha_operator_2d(spherical_a, spherical_b, rsign) result(alpha)
 !!--------------------------------------------------------------------------------
 !
 !complex, intent(in),  dimension (:,:) :: spherical_a
 !complex, intent(in),  dimension (:,:) :: spherical_b
-!integer, intent(in) :: isign
+!integer, intent(in) :: rsign
 !
 !complex, dimension (size(spherical_a,1), size(spherical_a,2)) :: alpha
 !
@@ -797,7 +794,7 @@ end subroutine compute_ucos_vcos
 !
 !spherical_a_3d(:,:,1) = spherical_a(:,:)
 !spherical_b_3d(:,:,1) = spherical_b(:,:)
-!alpha_3d = compute_alpha_operator_3d(spherical_a_3d, spherical_b_3d, isign)
+!alpha_3d = compute_alpha_operator_3d(spherical_a_3d, spherical_b_3d, rsign)
 !alpha(:,:) = alpha_3d(:,:,1)
 !
 !return

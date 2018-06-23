@@ -21,10 +21,10 @@ public :: ns4m, ne4m, nlen4m, nwaves_oe, nwaves, iseven, ws4m, we4m, wlen4m
 public :: ews4m, ewe4m, ewlen4m, ows4m, owe4m, owlen4m, tshuffle
 public :: init_spherical_data
 
-type legendrePol(js,je,n)
-    integer, len :: js, je, n
-    real, dimension(js:je,n) :: ev
-    real, dimension(js:je,n) :: od
+type legendrePol(nj,n)
+    integer, len :: nj, n
+    real, dimension(nj,n) :: ev
+    real, dimension(nj,n) :: od
 end type legendrePol
 
 type specCoef(n)
@@ -55,6 +55,7 @@ integer, allocatable :: nlen4m(:) ! number of spherical for a particular fourier
 
 integer :: nwaves !Total number of spectral waves (local)
 integer :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
+integer :: noddwaves, nevenwaves
 
 logical, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
 
@@ -79,7 +80,6 @@ subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
     integer, intent(out) :: nwaves_oe_out
 
     integer :: m, w, n, unit, iostat, neadj
-    integer :: noddwaves, nevenwaves
     character (len=8) :: suffix
 
     namelist/spherical_nml/debug
@@ -177,9 +177,9 @@ subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
         owe4m(m) = noddwaves 
     enddo
 
-    if (noddwaves/=nevenwaves) call mpp_error('init_spherical_data', 'noddwaves/=nevenwaves', FATAL)
-
-    nwaves_oe = noddwaves
+    !if (noddwaves/=nevenwaves) call mpp_error('init_spherical_data', 'noddwaves/=nevenwaves', FATAL)
+    nwaves_oe = max(noddwaves,nevenwaves)
+    
     nwaves_oe_out = nwaves_oe
 
     ws4m(ms) = 1
