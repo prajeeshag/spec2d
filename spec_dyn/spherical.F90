@@ -32,7 +32,7 @@ private
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: nwaves_oe, specVar, specCoef, num_spherical, num_fourier, trunc
 public :: spherical_init, compute_ucos_vcos, compute_vor_div, compute_vor
-public :: compute_div, cos_lat, triangle_mask
+public :: compute_div, triangle_mask
 
 type(specCoef(n=:)), allocatable :: eigen_laplacian
 type(specCoef(n=:)), allocatable :: epsilon
@@ -49,13 +49,13 @@ type(specCoef(n=:)), allocatable :: coef_dx
 type(specCoef(n=:)), allocatable :: coef_dyp
 type(specCoef(n=:)), allocatable :: triangle_mask
 
-real, allocatable, dimension(:) :: sin_lat
-real, allocatable, dimension(:) :: cos_lat
-real, allocatable, dimension(:) :: cosm_lat
-real, allocatable, dimension(:) :: cosm2_lat
-real, allocatable, dimension(:) :: deg_lat
-real, allocatable, dimension(:) :: wts_lat
-real, allocatable, dimension(:) :: sin_hem
+real, allocatable, dimension(:), public :: sin_lat
+real, allocatable, dimension(:), public :: cos_lat
+real, allocatable, dimension(:), public :: cosm_lat
+real, allocatable, dimension(:), public :: cosm2_lat
+real, allocatable, dimension(:), public :: deg_lat
+real, allocatable, dimension(:), public :: wts_lat
+real, allocatable, dimension(:), public :: sin_hem
 
 type(legendrePol(nj=:,n=:)), allocatable, public :: legendre, legendre_wts
 type(legendrePol(nj=:,n=:)), allocatable, public :: legendredphi
@@ -171,7 +171,6 @@ subroutine spherical_init()
                 coef_dx%ev(we)         = lcoef_dx(ma,n)
                 coef_dyp%ev(we)        = lcoef_dyp(ma,n)
                 triangle_mask%ev(we)   = ltriangle_mask(ma,n)
-                if (triangle_mask%ev(we)==0.) print *, 'indev2=', we
             else
                 wo = wo + 1
                 eigen_laplacian%od(wo) = leigen_laplacian(ma,n)
@@ -188,38 +187,33 @@ subroutine spherical_init()
                 coef_dx%od(wo)         = lcoef_dx(ma,n)
                 coef_dyp%od(wo)        = lcoef_dyp(ma,n)
                 triangle_mask%od(wo)   = ltriangle_mask(ma,n)
-                if (triangle_mask%od(wo)==0.) print *, 'indod2=', wo
             endif
         enddo
     enddo
 
-    where (triangle_mask%ev==0.)
-        eigen_laplacian%ev = 0.
-        epsilon%ev = 0.
-        r_epsilon%ev = 0.
-        coef_uvm%ev = 0.
-        coef_uvc%ev = 0.
-        coef_uvp%ev = 0.
-        coef_alpm%ev = 0.
-        coef_alpp%ev = 0.
-        coef_dym%ev = 0.
-        coef_dx%ev = 0.
-        coef_dyp%ev = 0.
-    end where
+    !where (triangle_mask%ev==0.)
+    !    eigen_laplacian%ev = 0.
+    !    coef_uvm%ev = 0.
+    !    coef_uvc%ev = 0.
+    !    coef_uvp%ev = 0.
+    !    coef_alpm%ev = 0.
+    !    coef_alpp%ev = 0.
+    !    coef_dym%ev = 0.
+    !    coef_dx%ev = 0.
+    !    coef_dyp%ev = 0.
+    !end where
 
-    where (triangle_mask%od==0.)
-        eigen_laplacian%od = 0.
-        epsilon%od = 0.
-        r_epsilon%od = 0.
-        coef_uvm%od = 0.
-        coef_uvc%od = 0.
-        coef_uvp%od = 0.
-        coef_alpm%od = 0.
-        coef_alpp%od = 0.
-        coef_dym%od = 0.
-        coef_dx%od = 0.
-        coef_dyp%od = 0.
-    end where
+    !where (triangle_mask%od==0.)
+    !    eigen_laplacian%od = 0.
+    !    coef_uvm%od = 0.
+    !    coef_uvc%od = 0.
+    !    coef_uvp%od = 0.
+    !    coef_alpm%od = 0.
+    !    coef_alpp%od = 0.
+    !    coef_dym%od = 0.
+    !    coef_dx%od = 0.
+    !    coef_dyp%od = 0.
+    !end where
 
     call define_gaussian
 
@@ -308,7 +302,7 @@ subroutine define_legendre(lepsilon,lspherical_wave)
                 legendre%ev(:,we) = legendre_global(mshuff,n,js_hem:je_hem)
                 legendredphi%ev(:,we) = legendre_global_dphi(mshuff,n,js_hem:je_hem)
                 if (mshuff+n>trunc) then
-                !    legendre%ev(:,we) = 0.
+                    !legendre%ev(:,we) = 0.
                     legendredphi%ev(:,we) = 0.
                 endif
             else
@@ -316,7 +310,7 @@ subroutine define_legendre(lepsilon,lspherical_wave)
                 legendre%od(:,wo) = legendre_global(mshuff,n,js_hem:je_hem)
                 legendredphi%od(:,wo) = legendre_global_dphi(mshuff,n,js_hem:je_hem)
                 if (mshuff+n>trunc) then
-                !    legendre%od(:,wo) = 0.
+                    !legendre%od(:,wo) = 0.
                     legendredphi%od(:,wo) = 0.
                 endif
             endif
@@ -535,8 +529,8 @@ subroutine compute_vor_div(u_cos, v_cos, vorticity, divergence)
     type(specVar(nlev=*,n=*)), intent(out) :: vorticity
     type(specVar(nlev=*,n=*)), intent(out) :: divergence
 
-    call compute_alpha_operator(v_cos, u_cos, -1., vorticity)
-    call compute_alpha_operator(u_cos, v_cos, +1., divergence)
+    call compute_alpha_operator(v_cos, u_cos, -1, vorticity)
+    call compute_alpha_operator(u_cos, v_cos, +1, divergence)
 
     return
 end subroutine compute_vor_div
@@ -549,7 +543,7 @@ subroutine compute_vor(u_cos, v_cos, vorticity)
     type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
     type(specVar(nlev=*,n=*)), intent(out) :: vorticity
 
-    call compute_alpha_operator(v_cos, u_cos, -1., vorticity)
+    call compute_alpha_operator(v_cos, u_cos, -1, vorticity)
 
     return
 end subroutine compute_vor
@@ -562,7 +556,7 @@ subroutine compute_div(u_cos, v_cos, divergence)
     type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
     type(specVar(nlev=*,n=*)), intent(out) :: divergence
 
-    call compute_alpha_operator(u_cos, v_cos, +1., divergence)
+    call compute_alpha_operator(u_cos, v_cos, +1, divergence)
 
     return
 end subroutine compute_div
@@ -574,7 +568,7 @@ subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
     type(specVar(nlev=*,n=*)), intent(in)  :: spherical_a
     type(specVar(nlev=*,n=*)), intent(in)  :: spherical_b
     type(specVar(nlev=*,n=*)), intent(out) :: alpha
-    real, intent(in) :: rsign
+    integer, intent(in) :: rsign
 
     integer :: k, nw
 
@@ -591,19 +585,19 @@ subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
        alpha%ev(k,:) = coef_dx%ev(:)*    &
             cmplx(-aimag(spherical_a%ev(k,:)),real(spherical_a%ev(k,:)))
 
-       alpha%od(k,:) = coef_dx%od(:)*    &
-            cmplx(-aimag(spherical_a%od(k,:)),real(spherical_a%od(k,:)))
-
        alpha%ev(k,2:nw) = alpha%ev(k,2:nw) -  &
             rsign*coef_alpm%od(1:nw-1)  &
             *spherical_b%od(k,1:nw-1)
 
+       alpha%ev(k,1:nw) = alpha%ev(k,1:nw) +  &
+            rsign*coef_alpp%od(1:nw)*spherical_b%od(k,1:nw)
+
+       alpha%od(k,:) = coef_dx%od(:)*    &
+            cmplx(-aimag(spherical_a%od(k,:)),real(spherical_a%od(k,:)))
+
        alpha%od(k,1:nw) = alpha%od(k,1:nw) -  &
             rsign*coef_alpm%ev(1:nw)  &
             *spherical_b%ev(k,1:nw)
-
-       alpha%ev(k,1:nw) = alpha%ev(k,1:nw) +  &
-            rsign*coef_alpp%od(1:nw)*spherical_b%od(k,1:nw)
 
        alpha%od(k,1:nw-1) = alpha%od(k,1:nw-1) +  &
             rsign*coef_alpp%ev(2:nw)*spherical_b%ev(k,2:nw)

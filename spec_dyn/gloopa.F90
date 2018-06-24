@@ -19,7 +19,8 @@ program main
 
     use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical, spherical_to_fourier
     use spherical_mod, only : specVar, compute_lon_deriv_cos, compute_lat_deriv_cos
-    use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cos_lat, legendre
+    use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cosm2_lat, legendre
+    use spherical_mod, only : triangle_mask
 
     implicit none
 
@@ -52,6 +53,7 @@ program main
     real, parameter :: PI=4.D0*DATAN(1.D0)
     complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
     integer :: pe
+    character(len=16) :: rfile='gloopa', wfile='rgloopa'
 
     type(specVar(n=:,nlev=:)), allocatable :: slnp, slnpdlam, slnpdphi
     type(specVar(n=:,nlev=:)), allocatable :: ucos, vcos, vor, div
@@ -144,22 +146,85 @@ program main
     allocate(specVar(n=nwaves_oe,nlev=1) :: slnp, slnpdlam, slnpdphi)
     allocate(specVar(n=nwaves_oe,nlev=nlev) :: vor, div, ucos, vcos)
 
-    call read_specdataGFS('gloopa', 'vor', vor)
+
+    call read_griddataGFS(rfile,'vor',tmp)
+    call grid_to_spherical(tmp,vor)     
+    call spherical_to_grid(vor,tmp)
+    call write_griddata(wfile,'vor',tmp)
+
+    call read_griddataGFS(rfile,'div',tmp)
+    call grid_to_spherical(tmp,div)
+    call spherical_to_grid(div,tmp)
+    call write_griddata(wfile,'div',tmp)
+
+    call compute_ucos_vcos(vor, div, ucos, vcos)
+
+    call spherical_to_grid(ucos,tmp)
+    call write_specdata(wfile,'ucos',ucos)
+    call write_griddata(wfile,'ucos',tmp)
+    do j = jsc, jec
+        tmp(:,j,:) = tmp(:,j,:)*cosm2_lat(j)
+    enddo
+    call grid_to_spherical(tmp,ucos)
+
+    call spherical_to_grid(vcos,tmp)
+    call write_specdata(wfile,'vcos',vcos)
+    call write_griddata(wfile,'vcos',tmp)
+    do j = jsc, jec
+        tmp(:,j,:) = tmp(:,j,:)*cosm2_lat(j)
+    enddo
+    call grid_to_spherical(tmp,vcos)
+
+    call compute_vor_div(ucos,vcos,vor,div)
+    call compute_ucos_vcos(vor,div,ucos,vcos)
 
     call spherical_to_grid(vor,tmp)
-    call write_griddata('rgloopa', 'vor', tmp)
+    call write_griddata(wfile,'vorc',tmp)
 
-    vor%ev = cmplx(0.,0.)
-    vor%od = cmplx(0.,0.)
-    call grid_to_spherical(tmp,vor)
+    call spherical_to_grid(div,tmp)
+    call write_griddata(wfile,'divc',tmp)
 
-    tmp = 0.
-    call spherical_to_grid(vor,tmp)
-    call write_griddata('rgloopa', 'vor2', tmp)
+    call spherical_to_grid(ucos,tmp)
+    call write_griddata(wfile,'ucosc',tmp)
 
-    
-    call write_data('rgloopa', 'legev', legendre%ev)
-    call write_data('rgloopa', 'legod', legendre%od)
+    call spherical_to_grid(vcos,tmp)
+    call write_griddata(wfile,'vcosc',tmp)
+
+!--------------------------------------------------------------------------------   
+
+    !call read_specdataGFS(rfile,'vor',vor)
+    !call write_specdata(wfile,'vor1',vor)
+    !call spherical_to_grid(vor,tmp)
+    !call write_griddata(wfile,'vor1',tmp)
+
+    !call read_specdataGFS(rfile,'div',div)
+    !call write_specdata(wfile,'div1',div)
+    !call spherical_to_grid(div,tmp)
+    !call write_griddata(wfile,'div1',tmp)
+
+    !call compute_ucos_vcos(vor, div, ucos, vcos)
+
+    !call spherical_to_grid(ucos,tmp)
+    !call write_specdata(wfile,'ucos1',ucos)
+    !call write_griddata(wfile,'ucos1',tmp)
+
+    !call spherical_to_grid(vcos,tmp)
+    !call write_specdata(wfile,'vcos1',vcos)
+    !call write_griddata(wfile,'vcos1',tmp)
+
+!---!-----------------------------------------------------------------------------    
+    !call read_specdataGFS(rfile,'ucos',ucos)
+    !call read_specdataGFS(rfile,'vcos',vcos)
+    !call write_specdata(wfile,'ucos2',ucos)
+    !call write_specdata(wfile,'vcos2',vcos)
+
+    !call spherical_to_grid(ucos,tmp)
+    !call write_griddata(wfile,'ucos2',tmp)
+    !call spherical_to_grid(vcos,tmp)
+    !call write_griddata(wfile,'vcos2',tmp)
+
+!    call write_data('rgloopa', 'legev', legendre%ev)
+!    call write_data('rgloopa', 'legod', legendre%od)
 
     call fms_io_exit()
     call end_grid_fourier()
@@ -265,6 +330,50 @@ program main
         return
     end subroutine spherical_to_grid2D
 
+    subroutine write_specdata(filename,fieldname,dat)
+
+        character (len=*), intent(in) :: filename, fieldname
+        type(specVar(nlev=*,n=*)) :: dat
+
+        real :: rebuff(dat%n,dat%nlev), robuff(dat%n-num_fourier/2,dat%nlev)
+        real :: iebuff(dat%n,dat%nlev), iobuff(dat%n-num_fourier/2,dat%nlev)
+        integer :: i, j, k, nlev, m, nodd
+        character(len=len(fieldname)+3) :: iew, rew, iow, row 
+        integer :: nlen1, nlen2, ns1, ns2, ne1, ne2
+
+        iew = 'iew'//trim(fieldname)
+        rew = 'rew'//trim(fieldname)
+        iow = 'iow'//trim(fieldname)
+        row = 'row'//trim(fieldname)
+
+        nlev = dat%nlev
+        nodd = dat%n-num_fourier/2
+
+        robuff = 0.
+        iobuff = 0.
+
+        do k = 1, nlev
+            rebuff(:,k) = real(dat%ev(k,:))
+            iebuff(:,k) = aimag(dat%ev(k,:))
+            nlen1 = 32; nlen2 = 33
+            ne1 = 0; ne2 = 0
+            do m = isf, ief
+                if (mod(m+1,2)==0) nlen1 = nlen1 - 1
+                if (mod(m,2)==0) nlen2 = nlen2 - 1
+                ns1 = ne1 + 1; ns2 = ne2 + 1
+                ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
+                robuff(ns1:ne1,k) = real(dat%od(k,ns2:ns2+nlen1-1))
+                iobuff(ns1:ne1,k) = aimag(dat%od(k,ns2:ns2+nlen1-1))
+            enddo
+        enddo
+
+        call write_data(filename,rew,rebuff)
+        call write_data(filename,iew,iebuff)
+        call write_data(filename,row,robuff)
+        call write_data(filename,iow,iobuff)
+
+    end subroutine write_specdata
+
     subroutine read_specdataGFS(filename,fieldname,dat)
 
         character (len=*), intent(in) :: filename, fieldname
@@ -298,11 +407,13 @@ program main
                 if (mod(m,2)==0) nlen2 = nlen2 - 1
                 ns1 = ne1 + 1; ns2 = ne2 + 1
                 ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
-                print *, ns2, nlen2, ns1, nlen1
+                !print *, ns2, nlen2, ns1, nlen1
                 dat%od(k,ns2:ns2+nlen1-1) = cmplx(robuff(ns1:ne1,k),iobuff(ns1:ne1,k))
             enddo
             !dat%od(k,1:nodd) = cmplx(robuff(:,k),iobuff(:,k))
         enddo
+
+        
 
     end subroutine read_specdataGFS
         

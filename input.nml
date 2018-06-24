@@ -3,7 +3,7 @@
 num_fourier=62
 nlon=192
 	nlat = 94
-  	nlev = 64
+  	nlev = 1
 /
 
 &spherical_nml

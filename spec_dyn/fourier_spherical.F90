@@ -80,7 +80,7 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
             if(ewlen4m(m)<1) cycle
             ews = ews4m(m); ewe = ewe4m(m)
             call do_matmul(waves%ev(ks:ke,ews:ewe), &
-                           legendredphi%ev(:,ews:ewe), &
+                           legendredphi%ev(1:nj,ews:ewe), &
                            even(ks:ke,js_hem:je_hem,m),'T')
         enddo
 
@@ -88,7 +88,7 @@ subroutine spherical_to_fourier(waves,fourier,lat_deriv)
             if(owlen4m(m)<1) cycle
             ows = ows4m(m); owe = owe4m(m)
             call do_matmul(waves%od(ks:ke,ows:owe), &
-                           legendredphi%od(:,ows:owe), &
+                           legendredphi%od(1:nj,ows:owe), &
                            odd(ks:ke,js_hem:je_hem,m),'T')
         enddo 
 
