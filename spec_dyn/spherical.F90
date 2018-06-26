@@ -475,14 +475,12 @@ subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
     nw = spherical_a%n 
 
     do k = 1, spherical_a%nlev
-        print *, 1, alpha%ev(k,95)
        alpha%ev(k,:) = coef_dx%ev(:)*    &
             cmplx(-aimag(spherical_a%ev(k,:)),real(spherical_a%ev(k,:)))
 
        alpha%od(k,:) = coef_dx%od(:)*    &
             cmplx(-aimag(spherical_a%od(k,:)),real(spherical_a%od(k,:)))
 
-        print *, 2, alpha%ev(k,95)
        alpha%ev(k,2:nw) = alpha%ev(k,2:nw) -  &
             rsign*coef_alpm%od(1:nw-1)  &
             *spherical_b%od(k,1:nw-1)
@@ -491,17 +489,14 @@ subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
             rsign*coef_alpm%ev(1:nw)  &
             *spherical_b%ev(k,1:nw)
 
-        print *, 3, alpha%ev(k,95)
        alpha%ev(k,1:nw) = alpha%ev(k,1:nw) +  &
             rsign*coef_alpp%od(1:nw)*spherical_b%od(k,1:nw)
 
        alpha%od(k,1:nw-1) = alpha%od(k,1:nw-1) +  &
             rsign*coef_alpp%ev(2:nw)*spherical_b%ev(k,2:nw)
 
-        print *, 4, alpha%ev(k,95)
        alpha%ev(k,:) = alpha%ev(k,:) * triangle_mask%ev
        alpha%od(k,:) = alpha%od(k,:) * triangle_mask%od
-        print *, 5, alpha%ev(k,95)
             
     end do
     return
