@@ -10,17 +10,25 @@ program main
     use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
     use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
     use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
+
     use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
+
     use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
+
     use fms_io_mod, only : fms_io_exit 
+
+    use constants_mod, only : RADIUS
 
     use grid_fourier_mod, only : init_grid_fourier, fft_1dr2c_serial, fft_1dc2c_serial
     use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
 
     use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical, spherical_to_fourier
+
     use spherical_mod, only : specVar, compute_lon_deriv_cos, compute_lat_deriv_cos
-    use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cosm2_lat, legendre
-    use spherical_mod, only : triangle_mask
+    use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cosm2_lat, Pnm
+    use spherical_mod, only : triangle_mask, cosm_lat
+    use spherical_mod, only : operator(+), operator(-), operator(*)
+    use spherical_mod, only : operator(/), assignment(=)
 
     implicit none
 
@@ -42,7 +50,7 @@ program main
     integer :: comm, idfft3d, n, nt=1
     logical :: check=.false.
     real, allocatable :: lnp(:,:), dpdphi(:,:), dpdlam(:,:)
-    real, allocatable :: tmp(:,:,:), tmp2d(:,:)
+    real, allocatable :: tmp(:,:,:), tmp2d(:,:), u(:,:,:), v(:,:,:)
     complex, allocatable :: fldc1d(:,:), fldct(:,:,:)
     integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
     integer :: isf, ief, flen, jsc, jec, j, jsf, jef
@@ -56,7 +64,17 @@ program main
     character(len=16) :: rfile='gloopa', wfile='rgloopa'
 
     type(specVar(n=:,nlev=:)), allocatable :: slnp, slnpdlam, slnpdphi
-    type(specVar(n=:,nlev=:)), allocatable :: ucos, vcos, vor, div
+    type(specVar(n=:,nlev=:)), allocatable :: ucos, vcos, vor, div, vor1, div1
+
+    interface vor_div_from_uv_grid
+        procedure vor_div_from_uv_grid3D
+        procedure vor_div_from_uv_grid2D
+    end interface vor_div_from_uv_grid
+
+    interface uv_grid_to_vor_div
+        procedure uv_grid_to_vor_div3D
+        procedure uv_grid_to_vor_div2D
+    end interface uv_grid_to_vor_div
 
     interface read_griddataGFS
         procedure read_griddataGFS3D
@@ -139,56 +157,120 @@ program main
 
     allocate(lnp(jsc:jec,isc:iec))
     allocate(tmp(nlev,jsc:jec,isc:iec))
+    allocate(u(nlev,jsc:jec,isc:iec))
+    allocate(v(nlev,jsc:jec,isc:iec))
     allocate(tmp2d(jsc:jec,isc:iec))
     allocate(dpdphi(jsc:jec,isc:iec))
     allocate(dpdlam(jsc:jec,isc:iec))
 
     allocate(specVar(n=nwaves_oe,nlev=1) :: slnp, slnpdlam, slnpdphi)
     allocate(specVar(n=nwaves_oe,nlev=nlev) :: vor, div, ucos, vcos)
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: vor1, div1)
 
 
-    call read_griddataGFS(rfile,'vor',tmp)
-    call grid_to_spherical(tmp,vor)     
+    call read_griddatagfs('uv10.nc','u',u)
+    call read_griddatagfs('uv10.nc','v',v)
+
+    call uv_grid_to_vor_div(u,v,vor,div)
+
+    vor1 = vor
+    div1 = div
+
     call spherical_to_grid(vor,tmp)
+    call write_specdata(wfile,'vor',vor)
     call write_griddata(wfile,'vor',tmp)
 
-    call read_griddataGFS(rfile,'div',tmp)
-    call grid_to_spherical(tmp,div)
     call spherical_to_grid(div,tmp)
+    call write_specdata(wfile,'div',div)
     call write_griddata(wfile,'div',tmp)
 
-    call compute_ucos_vcos(vor, div, ucos, vcos)
-
-    call spherical_to_grid(ucos,tmp)
-    call write_specdata(wfile,'ucos',ucos)
-    call write_griddata(wfile,'ucos',tmp)
-    do j = jsc, jec
-        tmp(:,j,:) = tmp(:,j,:)*cosm2_lat(j)
-    enddo
-    call grid_to_spherical(tmp,ucos)
-
-    call spherical_to_grid(vcos,tmp)
-    call write_specdata(wfile,'vcos',vcos)
-    call write_griddata(wfile,'vcos',tmp)
-    do j = jsc, jec
-        tmp(:,j,:) = tmp(:,j,:)*cosm2_lat(j)
-    enddo
-    call grid_to_spherical(tmp,vcos)
-
-    call compute_vor_div(ucos,vcos,vor,div)
-    call compute_ucos_vcos(vor,div,ucos,vcos)
+    call vor_div_from_uv_grid(u,v,vor,div)
 
     call spherical_to_grid(vor,tmp)
-    call write_griddata(wfile,'vorc',tmp)
+    call write_specdata(wfile,'vor',vor)
+    call write_griddata(wfile,'vor',tmp)
 
     call spherical_to_grid(div,tmp)
-    call write_griddata(wfile,'divc',tmp)
+    call write_specdata(wfile,'div',div)
+    call write_griddata(wfile,'div',tmp)
 
-    call spherical_to_grid(ucos,tmp)
-    call write_griddata(wfile,'ucosc',tmp)
+    vor = vor - vor1
+    div = div - div1
 
-    call spherical_to_grid(vcos,tmp)
-    call write_griddata(wfile,'vcosc',tmp)
+    call spherical_to_grid(vor,tmp)
+    call write_specdata(wfile,'vor',vor)
+    call write_griddata(wfile,'vor',tmp)
+
+    call spherical_to_grid(div,tmp)
+    call write_specdata(wfile,'div',div)
+    call write_griddata(wfile,'div',tmp)
+
+!--------------------------------------------------------------------------------   
+
+    !call read_griddatagfs('uv10.nc','u',tmp)
+    !do j = jsc, jec
+    !    tmp(:,j,:) = tmp(:,j,:)*cosm_lat(j)
+    !enddo
+    !call grid_to_spherical(tmp,ucos)
+
+    !call read_griddatagfs('uv10.nc','v',tmp)
+    !do j = jsc, jec
+    !    tmp(:,j,:) = tmp(:,j,:)*cosm_lat(j)
+    !enddo
+    !call grid_to_spherical(tmp,vcos)
+
+    !call compute_vor_div(ucos,vcos,vor,div)
+
+    !call spherical_to_grid(vor,tmp)
+    !call write_griddata(wfile,'vor',tmp)
+
+    !call spherical_to_grid(div,tmp)
+    !call write_griddata(wfile,'div',tmp)
+!--------------------------------------------------------------------------------       
+    !call read_griddataGFS(rfile,'vor',tmp)
+    !call grid_to_spherical(tmp,vor)     
+    !call spherical_to_grid(vor,tmp)
+    !call write_griddata(wfile,'vor',tmp)
+
+    !call read_griddataGFS(rfile,'div',tmp)
+    !call grid_to_spherical(tmp,div)
+    !call spherical_to_grid(div,tmp)
+    !call write_griddata(wfile,'div',tmp)
+
+    !call compute_ucos_vcos(vor, div, ucos, vcos)
+
+    !call spherical_to_grid(ucos,tmp)
+    !call write_specdata(wfile,'ucos',ucos)
+    !call write_griddata(wfile,'ucos',tmp)
+    !do j = jsc, jec
+    !    tmp(:,j,:) = tmp(:,j,:)*cosm2_lat(j)
+    !enddo
+    !call grid_to_spherical(tmp,ucos)
+
+    !call spherical_to_grid(vcos,tmp)
+    !call write_specdata(wfile,'vcos',vcos)
+    !call write_griddata(wfile,'vcos',tmp)
+    !do j = jsc, jec
+    !    tmp(:,j,:) = tmp(:,j,:)*cosm2_lat(j)
+    !enddo
+    !call grid_to_spherical(tmp,vcos)
+
+    !call compute_vor_div(ucos,vcos,vor,div)
+    !call compute_ucos_vcos(vor,div,ucos,vcos)
+
+    !call write_specdata(wfile,'vorc',vor)
+    !call spherical_to_grid(vor,tmp)
+    !call write_griddata(wfile,'vorc',tmp)
+
+    !call write_specdata(wfile,'divc',div)
+    !call spherical_to_grid(div,tmp)
+    !call write_griddata(wfile,'divc',tmp)
+
+    !call spherical_to_grid(ucos,tmp)
+    !call write_griddata(wfile,'ucosc',tmp)
+
+    !call spherical_to_grid(vcos,tmp)
+    !call write_griddata(wfile,'vcosc',tmp)
 
 !--------------------------------------------------------------------------------   
 
@@ -223,8 +305,8 @@ program main
     !call spherical_to_grid(vcos,tmp)
     !call write_griddata(wfile,'vcos2',tmp)
 
-!    call write_data('rgloopa', 'legev', legendre%ev)
-!    call write_data('rgloopa', 'legod', legendre%od)
+!    call write_data('rgloopa', 'legev', Pnm%ev)
+!    call write_data('rgloopa', 'legod', Pnm%od)
 
     call fms_io_exit()
     call end_grid_fourier()
@@ -232,6 +314,136 @@ program main
 
 
     contains
+
+    subroutine vor_div_from_uv_grid3D(u,v,vor,div)
+
+        real, intent(in) :: u(:,:,:), v(:,:,:)
+        type(specVar(nlev=*,n=*)), intent(out) :: vor, div
+
+        type(specVar(nlev=vor%nlev,n=vor%n)) :: usm, vsm
+        type(specVar(nlev=vor%nlev,n=vor%n)) :: usp, vsp
+
+        complex :: four(size(u,1)*size(u,2), flen)
+        complex, pointer :: four3(:,:,:)
+
+        real, pointer :: grd(:,:)
+        type(C_PTR) :: pgrd, pfour
+
+        real :: rradius=1./RADIUS
+        integer :: nk, nj, ni, howmany
+        integer :: i, j, k
+
+        nk = size(u,1); nj = size(u,2); ni = size(u,3)
+
+        howmany = nk*nj
+
+        pgrd = C_LOC(u)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        pfour = C_LOC(four)
+        call c_f_pointer(pfour, four3, [nk, nj, flen])
+
+        call grid_to_fourier(grd,four)
+
+        do j = jsc, jec
+            four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+        enddo
+        
+        call fourier_to_spherical(four3,usp)
+        call compute_lon_deriv_cos(usp,usm)
+        call fourier_to_spherical(four3,usp,useHnm=.true.)
+
+        pgrd = C_LOC(v)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        call grid_to_fourier(grd,four)
+
+        do j = jsc, jec
+            four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+        enddo
+        
+        call fourier_to_spherical(four3,vsp)
+        call compute_lon_deriv_cos(vsp,vsm)
+        call fourier_to_spherical(four3,vsp,useHnm=.true.)
+
+        rradius = 1./RADIUS
+        vor = vsm + usp*rradius
+        div = usm - vsp*rradius
+
+    end subroutine vor_div_from_uv_grid3D 
+
+
+    subroutine uv_grid_to_vor_div3D(u,v,vor,div)
+        real, intent(in) :: u(:,:,:), v(:,:,:)
+        type(specVar(nlev=*,n=*)), intent(out) :: vor, div
+
+        type(specVar(nlev=vor%nlev,n=vor%n)) :: us, vs
+
+        complex :: four(size(u,1)*size(u,2), flen)
+        complex, pointer :: four3(:,:,:)
+
+        real, pointer :: grd(:,:)
+        type(C_PTR) :: pgrd, pfour
+
+        integer :: nk, nj, ni, howmany
+        integer :: i, j, k
+
+        nk = size(u,1); nj = size(u,2); ni = size(u,3)
+
+        howmany = nk*nj
+
+        pgrd = C_LOC(u)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        pfour = C_LOC(four)
+        call c_f_pointer(pfour, four3, [nk, nj, flen])
+
+        call grid_to_fourier(grd,four)
+
+        do j = jsc, jec
+            four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+        enddo
+        
+        call fourier_to_spherical(four3,us,do_trunc=.false.)
+
+        pgrd = C_LOC(v)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        call grid_to_fourier(grd,four)
+
+        do j = jsc, jec
+            four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+        enddo
+        
+        call fourier_to_spherical(four3,vs,do_trunc=.false.)
+
+        call compute_vor_div(us,vs,vor,div)
+
+    end subroutine uv_grid_to_vor_div3D 
+
+    subroutine vor_div_from_uv_grid2D(u,v,vor,div)
+        real, intent(in) :: u(:,:), v(:,:)
+        type(specVar(nlev=*,n=*)), intent(out) :: vor, div
+        real :: u3d(1,size(u,1),size(u,2))
+        real :: v3d(1,size(u,1),size(u,2))
+
+        u3d(1,:,:) = u(:,:)
+        v3d(1,:,:) = v(:,:)
+        call vor_div_from_uv_grid3D(u3d,v3d,vor,div)
+
+    end subroutine vor_div_from_uv_grid2D
+
+    subroutine uv_grid_to_vor_div2D(u,v,vor,div)
+        real, intent(in) :: u(:,:), v(:,:)
+        type(specVar(nlev=*,n=*)), intent(out) :: vor, div
+        real :: u3d(1,size(u,1),size(u,2))
+        real :: v3d(1,size(u,1),size(u,2))
+
+        u3d(1,:,:) = u(:,:)
+        v3d(1,:,:) = v(:,:)
+        call uv_grid_to_vor_div3D(u3d,v3d,vor,div)
+
+    end subroutine uv_grid_to_vor_div2D
 
 
     subroutine grid_to_spherical3D(grid,spherical)
@@ -335,8 +547,10 @@ program main
         character (len=*), intent(in) :: filename, fieldname
         type(specVar(nlev=*,n=*)) :: dat
 
-        real :: rebuff(dat%n,dat%nlev), robuff(dat%n-num_fourier/2,dat%nlev)
-        real :: iebuff(dat%n,dat%nlev), iobuff(dat%n-num_fourier/2,dat%nlev)
+        !real :: rebuff(dat%n,dat%nlev), robuff(dat%n-num_fourier/2,dat%nlev)
+        !real :: iebuff(dat%n,dat%nlev), iobuff(dat%n-num_fourier/2,dat%nlev)
+        real :: rebuff(dat%n,dat%nlev), robuff(dat%n,dat%nlev)
+        real :: iebuff(dat%n,dat%nlev), iobuff(dat%n,dat%nlev)
         integer :: i, j, k, nlev, m, nodd
         character(len=len(fieldname)+3) :: iew, rew, iow, row 
         integer :: nlen1, nlen2, ns1, ns2, ne1, ne2
@@ -355,16 +569,18 @@ program main
         do k = 1, nlev
             rebuff(:,k) = real(dat%ev(k,:))
             iebuff(:,k) = aimag(dat%ev(k,:))
-            nlen1 = 32; nlen2 = 33
-            ne1 = 0; ne2 = 0
-            do m = isf, ief
-                if (mod(m+1,2)==0) nlen1 = nlen1 - 1
-                if (mod(m,2)==0) nlen2 = nlen2 - 1
-                ns1 = ne1 + 1; ns2 = ne2 + 1
-                ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
-                robuff(ns1:ne1,k) = real(dat%od(k,ns2:ns2+nlen1-1))
-                iobuff(ns1:ne1,k) = aimag(dat%od(k,ns2:ns2+nlen1-1))
-            enddo
+            robuff(:,k) = real(dat%od(k,:))
+            iobuff(:,k) = aimag(dat%od(k,:))
+            !nlen1 = 32; nlen2 = 33
+            !ne1 = 0; ne2 = 0
+            !do m = isf, ief
+            !    if (mod(m+1,2)==0) nlen1 = nlen1 - 1
+            !    if (mod(m,2)==0) nlen2 = nlen2 - 1
+            !    ns1 = ne1 + 1; ns2 = ne2 + 1
+            !    ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
+            !    robuff(ns1:ne1,k) = real(dat%od(k,ns2:ns2+nlen1-1))
+            !    iobuff(ns1:ne1,k) = aimag(dat%od(k,ns2:ns2+nlen1-1))
+            !enddo
         enddo
 
         call write_data(filename,rew,rebuff)

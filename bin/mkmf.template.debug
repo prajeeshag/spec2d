@@ -13,4 +13,4 @@ OPTS = -r8 -O3 -fp-model precise -convert big_endian -align array32byte -save-te
 FFLAGS  = $(OPTS) $(DEBUG) $(INCL)
 CFLAGS  = $(INCL)
 
-LDFLAGS = -L$(NETCDF)/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm
+LDFLAGS = -L$(NETCDF)/lib -lnetcdf -lnetcdff -mkl -lrt -lm

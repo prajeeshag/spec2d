@@ -15,11 +15,9 @@ use fms_io_mod, only : write_data
 implicit none
 private
 
-public :: legendrePol, specCoef, specVar, num_fourier, num_spherical, trunc
-public :: nlat, ms, me, mlen, js_hem, je_hem, jlen_hem, js, je, jlen
-public :: ns4m, ne4m, nlen4m, nwaves_oe, nwaves, iseven, ws4m, we4m, wlen4m
-public :: ews4m, ewe4m, ewlen4m, ows4m, owe4m, owlen4m, tshuffle
+public :: legendrePol, specCoef, specVar
 public :: init_spherical_data
+public :: operator(+),operator(-),operator(*),operator(/), assignment(=)
 
 type legendrePol(nj,n)
     integer, len :: nj, n
@@ -39,31 +37,55 @@ type specVar(n,nlev)
     complex, dimension(nlev,n) :: od
 end type specVar
 
-integer :: num_fourier
-integer :: num_spherical
-integer :: trunc
-integer :: nlat
-integer :: ms, me, mlen
-integer :: js_hem, je_hem, jlen_hem, js, je, jlen
+interface assignment(=)
+    module procedure assignss, assignsr
+end interface
 
-integer, allocatable :: ns4m(:) ! Starting of spherical for a particular fourier
-integer, allocatable :: ne4m(:) ! Ending of spherical for a particulat fourier 
+interface operator(+)
+    module procedure addss, addsr
+end interface
+
+interface operator(-)
+    module procedure subss, subsr
+end interface
+
+interface operator(*)
+    module procedure mulss, mulsr
+end interface
+
+interface operator(/)
+    module procedure divss, divsr
+end interface
+
+integer, public :: num_fourier
+integer, public :: num_spherical
+integer, public :: trunc
+integer, public :: truncadj
+integer, public :: nlat
+integer, public :: ms, me, mlen
+integer, public :: js_hem, je_hem, jlen_hem, js, je, jlen
+
+integer, public, allocatable :: ns4m(:) ! Starting of spherical for a particular fourier
+integer, public, allocatable :: ne4m(:) ! Ending of spherical for a particulat fourier 
                                 !(=num_spherical in case of Triangular
                                 !truncation)
-integer, allocatable :: nlen4m(:) ! number of spherical for a particular fourier
+integer, public, allocatable :: nlen4m(:) ! number of spherical for a particular fourier
                                   !(Constant in case of rhomboidal truncation)
 
-integer :: nwaves !Total number of spectral waves (local)
-integer :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
-integer :: noddwaves, nevenwaves
+integer, public :: nwaves !Total number of spectral waves (local)
+integer, public :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
+integer, public :: noddwaves, nevenwaves
 
-logical, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
+logical, public, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
 
-integer, allocatable :: ws4m(:), we4m(:), wlen4m(:) !starting and ending index of waves for a particular m
-integer, allocatable :: ews4m(:), ewe4m(:), ewlen4m(:) !starting and ending index of even waves for a          particular m
-integer, allocatable :: ows4m(:), owe4m(:), owlen4m(:) !starting and ending index of odd waves for a           particular m
+integer, public, allocatable :: ws4m(:), we4m(:), wlen4m(:) !starting and ending index of 
+                                                            !waves for a particular m
+integer, public, allocatable :: ews4m(:), ewe4m(:), ewlen4m(:) !starting and ending index of 
+                                                               !even waves for a particular m
+integer, public, allocatable :: ows4m(:), owe4m(:), owlen4m(:) !starting and ending index of 
+                                                               !odd waves for a particular m
 
-integer, allocatable :: tshuffle(:)
+integer, public, allocatable :: tshuffle(:)
 
 logical :: debug
 
@@ -96,7 +118,7 @@ subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
     
     nlat = nlat_in
     num_fourier = num_fourier_in
-    num_spherical = num_spherical_in
+    num_spherical = num_spherical_in + 1
     trunc = num_spherical_in
     if (mod(num_spherical,2)==0) num_spherical = num_spherical + 1
 
@@ -209,5 +231,97 @@ subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
     endif
 
 end subroutine init_spherical_data
+
+function divss(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a, b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev / b%ev
+    c%od = a%od / b%od
+    return
+end function divss
+
+function divsr(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a
+    real, intent(in) :: b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev / b
+    c%od = a%od / b
+    return
+end function divsr
+
+function mulss(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a, b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev * b%ev
+    c%od = a%od * b%od
+    return
+end function mulss
+
+function mulsr(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a
+    real, intent(in) :: b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev * b
+    c%od = a%od * b
+    return
+end function mulsr
+
+function addss(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a, b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev + b%ev
+    c%od = a%od + b%od
+    return
+end function addss
+
+function addsr(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a
+    real, intent(in) :: b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev + b
+    c%od = a%od + b
+    return
+end function addsr
+
+function subss(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a, b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev - b%ev
+    c%od = a%od - b%od
+    return
+end function subss
+
+function subsr(a,b) result(c)
+    type(specVar(nlev=*,n=*)), intent(in) :: a
+    real, intent(in) :: b
+    type(specVar(nlev=a%nlev,n=a%n)) :: c
+
+    c%ev = a%ev - b
+    c%od = a%od - b
+    return
+end function subsr
+
+subroutine assignss(a,b)
+    type(specVar(nlev=*,n=*)), intent(in) :: b
+    type(specVar(nlev=*,n=*)), intent(out) :: a
+
+    a%ev = b%ev
+    a%od = b%od
+end subroutine assignss
+
+subroutine assignsr(a,b)
+    real, intent(in) :: b
+    type(specVar(nlev=*,n=*)), intent(out) :: a
+
+    a%ev = cmplx(b,b)
+    a%od = cmplx(b,b)
+end subroutine assignsr
 
 end module spherical_data_mod
