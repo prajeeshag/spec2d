@@ -22,15 +22,50 @@ program main
     use grid_fourier_mod, only : init_grid_fourier, fft_1dr2c_serial, fft_1dc2c_serial
     use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
 
-    use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical, spherical_to_fourier
+    use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical
+    use fourier_spherical_mod, only : spherical_to_fourier
 
     use spherical_mod, only : specVar, compute_lon_deriv_cos, compute_lat_deriv_cos
     use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cosm2_lat, Pnm
-    use spherical_mod, only : triangle_mask, cosm_lat
+    use spherical_mod, only : triangle_mask, cosm_lat, sin_lat
     use spherical_mod, only : operator(+), operator(-), operator(*)
     use spherical_mod, only : operator(/), assignment(=)
 
+    use vertical_levels_mod, only: init_vertical_levels, ak, bk
+
+    use implicit_mod, only : init_implicit, do_implicit
+
+    use gfidi_mod, only : gfidi_drv
+
     implicit none
+
+
+    type(SpecVar(nlev=:,n=:)), allocatable :: svor1
+    type(SpecVar(nlev=:,n=:)), allocatable :: sdiv1
+    type(SpecVar(nlev=:,n=:)), allocatable :: stem1
+    type(SpecVar(nlev=:,n=:)), allocatable :: str1(:)
+    type(SpecVar(nlev=:,n=:)), allocatable :: sprs1
+    type(SpecVar(nlev=:,n=:)), allocatable :: svor2
+    type(SpecVar(nlev=:,n=:)), allocatable :: sdiv2
+    type(SpecVar(nlev=:,n=:)), allocatable :: stem2
+    type(SpecVar(nlev=:,n=:)), allocatable :: str2(:)
+    type(SpecVar(nlev=:,n=:)), allocatable :: sprs2
+    type(SpecVar(nlev=:,n=:)), allocatable :: svor3
+    type(SpecVar(nlev=:,n=:)), allocatable :: sdiv3
+    type(SpecVar(nlev=:,n=:)), allocatable :: stem3
+    type(SpecVar(nlev=:,n=:)), allocatable :: str3(:)
+    type(SpecVar(nlev=:,n=:)), allocatable :: sprs3
+    type(specVar(nlev=:,n=:)), allocatable :: sucos, svcos
+    type(specVar(nlev=:,n=:)), allocatable :: stopo
+
+    real, allocatable, dimension(:,:,:) :: p, dpdphi, dpdlam, dpdt
+    real, allocatable, dimension(:,:,:) :: u, dudphi, dudlam, dudt
+    real, allocatable, dimension(:,:,:) :: v, dvdphi, dvdlam, dvdt
+    real, allocatable, dimension(:,:,:) :: tem, dtemdphi, dtemdlam, dtemdt
+    real, allocatable, dimension(:,:,:,:) :: tr, dtrdphi, dtrdlam, dtrdt
+    real, allocatable, dimension(:,:,:) :: div, vor
+
+    real, allocatable, dimension(:) :: spdmax
 
     type(domain2d) :: domainl
     type(domain2d) :: domainf
@@ -38,7 +73,7 @@ program main
     logical :: fpe 
     integer :: nlon, nlat, nlev
       
-    integer :: ilen, istart, olen, ostart, nlonb2
+    integer :: ilen, istart, olen, ostart, nlonb2, jlen
     integer :: nwaves_oe=0
         
     integer, allocatable :: pelist(:), extent(:)
@@ -49,9 +84,9 @@ program main
 
     integer :: comm, idfft3d, n, nt=1
     logical :: check=.false.
-    real, allocatable :: lnp(:,:), dpdphi(:,:), dpdlam(:,:)
-    real, allocatable :: tmp(:,:,:), tmp2d(:,:), u(:,:,:), v(:,:,:)
+    real, allocatable :: tmp(:,:,:), tmp2d(:,:)
     complex, allocatable :: fldc1d(:,:), fldct(:,:,:)
+    real :: ref_temp
     integer :: isc, iec, isg, ieg, m, l, t, i, ig, k, kstart=0, kend=0, kstep=1
     integer :: isf, ief, flen, jsc, jec, j, jsf, jef
     real :: scl, x, y, imgf=0.3, phi=0.15
@@ -60,11 +95,11 @@ program main
     logical :: ideal_data=.false., debug=.false.
     real, parameter :: PI=4.D0*DATAN(1.D0)
     complex, parameter :: ui = cmplx(0.,1.), mui = -1.*ui
-    integer :: pe
+    integer :: pe, ntrac=3, ntr
+    real :: deltim=600.
     character(len=16) :: rfile='gloopa', wfile='rgloopa'
+    character(len=8) :: fldnm
 
-    type(specVar(n=:,nlev=:)), allocatable :: slnp, slnpdlam, slnpdphi
-    type(specVar(n=:,nlev=:)), allocatable :: ucos, vcos, vor, div, vor1, div1
 
     interface vor_div_to_uv_grid
         procedure vor_div_to_uv_grid3d
@@ -96,13 +131,8 @@ program main
         procedure grid_to_spherical2D
     end interface
 
-    interface spherical_to_grid
-        procedure spherical_to_grid3D
-        procedure spherical_to_grid2D
-    end interface
-
     namelist/gloopa_nml/kstart, kend, kstep, ideal_data, imgf, ck, cl, &
-                                      check, num_fourier, nt, nlon, nlat, nlev, debug
+                        check, num_fourier, nt, nlon, nlat, nlev, debug, deltim
 
     call mpp_init() 
     call fms_init()
@@ -122,6 +152,7 @@ program main
     call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domainl, kxy=1)
     call mpp_get_compute_domain(domainl, jsc, jec, isc, iec)
     ilen = iec-isc+1
+    jlen = jec-jsc+1
 
     call mpp_get_current_pelist(pelist,commid=comm)
 
@@ -160,74 +191,184 @@ program main
     endif
     call mpp_set_current_pelist()
 
-    allocate(lnp(jsc:jec,isc:iec))
-    allocate(tmp(nlev,jsc:jec,isc:iec))
+    call init_vertical_levels(nlev)
+
+    ref_temp = 300.
+    if (nlev>100) ref_temp=1500.
+
+    call init_implicit(ak,bk,ref_temp,deltim,num_fourier)
+
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: sucos, svcos)
+
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: svor1, sdiv1)
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: stem1, str1(ntrac))
+    allocate(specVar(n=nwaves_oe,nlev=1) :: sprs1)
+
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: svor2, sdiv2)
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: stem2, str2(ntrac))
+    allocate(specVar(n=nwaves_oe,nlev=1) :: sprs2)
+
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: svor3, sdiv3)
+    allocate(specVar(n=nwaves_oe,nlev=nlev) :: stem3, str3(ntrac))
+    allocate(specVar(n=nwaves_oe,nlev=1) :: sprs3)
+
+    allocate(specVar(n=nwaves_oe,nlev=1) :: stopo)
+
     allocate(u(nlev,jsc:jec,isc:iec))
+    allocate(dudlam(nlev,jsc:jec,isc:iec))
+    allocate(dudphi(nlev,jsc:jec,isc:iec))
+    allocate(dudt(nlev,jsc:jec,isc:iec))
+
+    allocate(p(1,jsc:jec,isc:iec))
+    allocate(dpdlam(1,jsc:jec,isc:iec))
+    allocate(dpdphi(1,jsc:jec,isc:iec))
+    allocate(dpdt(1,jsc:jec,isc:iec))
+
     allocate(v(nlev,jsc:jec,isc:iec))
+    allocate(dvdlam(nlev,jsc:jec,isc:iec))
+    allocate(dvdphi(nlev,jsc:jec,isc:iec))
+    allocate(dvdt(nlev,jsc:jec,isc:iec))
+
+    allocate(tem(nlev,jsc:jec,isc:iec))
+    allocate(dtemdlam(nlev,jsc:jec,isc:iec))
+    allocate(dtemdphi(nlev,jsc:jec,isc:iec))
+    allocate(dtemdt(nlev,jsc:jec,isc:iec))
+
+    allocate(tr(nlev,jsc:jec,isc:iec,ntrac))
+    allocate(dtrdlam(nlev,jsc:jec,isc:iec,ntrac))
+    allocate(dtrdphi(nlev,jsc:jec,isc:iec,ntrac))
+    allocate(dtrdt(nlev,jsc:jec,isc:iec,ntrac))
+
+    allocate(div(nlev,jsc:jec,isc:iec))
+    allocate(vor(nlev,jsc:jec,isc:iec))
     allocate(tmp2d(jsc:jec,isc:iec))
-    allocate(dpdphi(jsc:jec,isc:iec))
-    allocate(dpdlam(jsc:jec,isc:iec))
+    allocate(spdmax(nlev))
+    spdmax = 0.
 
-    allocate(specVar(n=nwaves_oe,nlev=1) :: slnp, slnpdlam, slnpdphi)
-    allocate(specVar(n=nwaves_oe,nlev=nlev) :: vor, div, ucos, vcos)
-    allocate(specVar(n=nwaves_oe,nlev=nlev) :: vor1, div1)
+    !call read_specdatagfs('specdata','topo',stopo)
+
+    !call read_specdatagfs('specdata','lnp_1',sprs1)
+    !call read_specdatagfs('specdata','lnp_2',sprs2)
+
+    !call read_specdatagfs('specdata','vor_1',svor1)
+    !call read_specdatagfs('specdata','vor_2',svor2)
+
+    !call read_specdatagfs('specdata','div_1',sdiv1)
+    !call read_specdatagfs('specdata','div_2',sdiv2)
+
+    !call read_specdatagfs('specdata','tem_1',stem1)
+    !call read_specdatagfs('specdata','tem_2',stem2)
+
+    !call read_specdatagfs('specdata','tr1_1',str1(1))
+    !call read_specdatagfs('specdata','tr1_2',str2(1))
+
+    !call read_specdatagfs('specdata','tr2_1',str1(2))
+    !call read_specdatagfs('specdata','tr2_2',str2(2))
+
+    !call read_specdatagfs('specdata','tr3_1',str1(3))
+    !call read_specdatagfs('specdata','tr3_2',str2(3))
 
 
-    call read_griddatagfs('uv10.nc','u',u)
-    call read_griddatagfs('uv10.nc','v',v)
+    !call compute_ucos_vcos(svor1,sdiv2,sucos,svcos,do_trunc=.false.)
 
-    call write_griddata(wfile,'u',u)
-    call write_griddata(wfile,'v',v)
+    !call spherical_to_grid3d(sdiv2,grid=div)
 
-    call uv_grid_to_vor_div(u,v,vor,div)
-    call vor_div_to_uv_grid(vor,div,u,v)
+    !call spherical_to_grid3d(svor2,grid=vor)
 
-    call write_griddata(wfile,'u',u)
-    call write_griddata(wfile,'v',v)
+    !call spherical_to_grid3d(sucos,grid=u,lon_deriv=dudlam)
 
+    !call spherical_to_grid3d(svcos,grid=v,lon_deriv=dvdlam)
 
-    vor1 = vor
-    div1 = div
+    !call spherical_to_grid3d(sprs2,grid=p,lat_deriv=dpdphi,lon_deriv=dpdlam)
 
-    call spherical_to_grid(vor,tmp)
-    call write_specdata(wfile,'vor',vor)
-    call write_griddata(wfile,'vor',tmp)
+    !call spherical_to_grid3d(stem2,grid=tem,lat_deriv=dtemdphi,lon_deriv=dtemdlam)
 
-    call spherical_to_grid(div,tmp)
-    call write_specdata(wfile,'div',div)
-    call write_griddata(wfile,'div',tmp)
+    !do ntr = 1, ntrac
+    !    call spherical_to_grid3d(str2(ntr),grid=tr(:,:,:,ntr), &
+    !        lat_deriv=dtrdphi(:,:,:,ntr),lon_deriv=dtrdlam(:,:,:,ntr))
+    !enddo
 
-    call vor_div_from_uv_grid(u,v,vor,div)
+    !do j = jsc, jec
+    !    dtemdphi(:,j,:) = dtemdphi(:,j,:) * cosm2_lat(j)
+    !    dtrdphi(:,j,:,:) = dtrdphi(:,j,:,:) * cosm2_lat(j)
 
-    call vor_div_to_uv_grid(vor,div,u,v)
+    !    dtemdlam(:,j,:) = dtemdlam(:,j,:) * cosm2_lat(j)
+    !    dtrdlam(:,j,:,:) = dtrdlam(:,j,:,:) * cosm2_lat(j)
 
-    call spherical_to_grid(vor,tmp)
-    call write_specdata(wfile,'vor',vor)
-    call write_griddata(wfile,'vor',tmp)
+    !    dudlam(:,j,:) = dudlam(:,j,:) * cosm2_lat(j)
+    !    dvdlam(:,j,:) = dvdlam(:,j,:) * cosm2_lat(j)
+    !enddo
 
-    call spherical_to_grid(div,tmp)
-    call write_specdata(wfile,'div',div)
-    call write_griddata(wfile,'div',tmp)
+    !dudphi = dvdlam - vor
+    !dvdphi = div - dudlam
 
-    call write_griddata(wfile,'u',u)
-    call write_griddata(wfile,'v',v)
+    !call gfidi_drv(nlev, ntrac, ilen, jlen, deltim, sin_lat(jsc:jec), cosm2_lat(jsc:jec), &
+    !        div, tem, u, v, tr, dpdphi, dpdlam, p, dtemdphi, dtemdlam, dtrdphi, &
+    !        dtrdlam, dudlam, dvdlam, dudphi, dvdphi, dpdt, dtemdt, dtrdt, dudt, dvdt, spdmax)
 
-    vor = vor - vor1
-    div = div - div1
+    !call write_griddata('rgloopa','div',div)
+    !call write_griddata('rgloopa','vor',vor)
 
-    call spherical_to_grid(vor,tmp)
-    call write_specdata(wfile,'vor',vor)
-    call write_griddata(wfile,'vor',tmp)
+    !call write_griddata('rgloopa','dudt',dudt)
+    !call write_griddata('rgloopa','dudphi',dudphi)
+    !call write_griddata('rgloopa','dudlam',dudlam)
+    !call write_griddata('rgloopa','u',u)
 
-    call spherical_to_grid(div,tmp)
-    call write_specdata(wfile,'div',div)
-    call write_griddata(wfile,'div',tmp)
+    !call write_griddata('rgloopa','dvdt',dvdt)
+    !call write_griddata('rgloopa','dvdphi',dvdphi)
+    !call write_griddata('rgloopa','dvdlam',dvdlam)
+    !call write_griddata('rgloopa','v',v)
 
+    !call write_griddata('rgloopa','dpdt',dpdt)
+    !call write_griddata('rgloopa','dpdphi',dpdphi)
+    !call write_griddata('rgloopa','dpdlam',dpdlam)
+    !call write_griddata('rgloopa','p',p)
+
+    !call write_griddata('rgloopa','dtemdt',dtemdt)
+    !call write_griddata('rgloopa','dtemdphi',dtemdphi)
+    !call write_griddata('rgloopa','dtemdlam',dtemdlam)
+    !call write_griddata('rgloopa','tem',tem)
+
+    !do ntr = 1, ntrac
+    !    write(fldnm,'(A,I2.2)') 'tr',ntr
+    !    print *, trim(fldnm)
+    !    call write_griddata('rgloopa','d'//trim(fldnm)//'dt',dtrdt(:,:,:,ntr))
+    !    call write_griddata('rgloopa','d'//trim(fldnm)//'dphi',dtrdphi(:,:,:,ntr))
+    !    call write_griddata('rgloopa','d'//trim(fldnm)//'dlam',dtrdlam(:,:,:,ntr))
+    !    call write_griddata('rgloopa',trim(fldnm),tr(:,:,:,ntr))
+    !enddo
+
+    !call grid_to_spherical(dpdt,sprs3,do_trunc=.true.)
+    !call grid_to_spherical(dtemdt,stem3,do_trunc=.true.)
+    !call grid_to_spherical(dudt,sucos,do_trunc=.true.)
+    !call grid_to_spherical(dvdt,svcos,do_trunc=.true.)
+    !call grid_to_spherical(dtrdt(:,:,:,ntr),str3(ntr),do_trunc=.true.)
+
+    !call compute_vor_div(sucos,svcos,svor3,sdiv3,do_trunc=.true.)
+
+    call read_specdatagfs('specdata','lnp_1',sprs1)
+    call read_specdatagfs('specdata','lnp_2',sprs2)
+    call read_specdatagfs('specdata','lnp_3',sprs3)
+
+    call read_specdatagfs('specdata','div_1',sdiv1)
+    call read_specdatagfs('specdata','div_2',sdiv2)
+    call read_specdatagfs('specdata','div_3',sdiv3)
+
+    call read_specdatagfs('specdata','tem_1',stem1)
+    call read_specdatagfs('specdata','tem_2',stem2)
+    call read_specdatagfs('specdata','tem_3',stem3)
+
+    print *,'stem3=', stem3%ev(10,10)
+    call do_implicit(sdiv1, stem1, sprs1, sdiv2, stem2, sprs2, &
+                             sdiv3, stem3, sprs3, deltim)
+
+    call write_specdata('rgloopa','divdt',sdiv3)
+    call write_specdata('rgloopa','temdt',stem3)
+    call write_specdata('rgloopa','prsdt',sprs3)
 
     call fms_io_exit()
     call end_grid_fourier()
     call mpp_exit()
-
 
     contains
 
@@ -246,9 +387,9 @@ subroutine vor_div_to_uv_grid3d(vor,div,u,v,getcosuv)
 
     call compute_ucos_vcos(vor,div,sucos,svcos)
 
-    call spherical_to_grid(sucos,u)
+    call spherical_to_grid3D(sucos,grid=u)
 
-    call spherical_to_grid(svcos,v)
+    call spherical_to_grid3D(svcos,grid=v)
 
     if (getcosuv1) return
 
@@ -443,39 +584,64 @@ subroutine grid_to_spherical3D(grid,spherical)
     return
 end subroutine grid_to_spherical3D 
 
-
-subroutine spherical_to_grid3D(spherical,grid,lat_deriv)
-    real, intent(out) :: grid(:,:,:)
+!--------------------------------------------------------------------------------   
+subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
+!--------------------------------------------------------------------------------   
     type(specVar(n=*,nlev=*)), intent(in) :: spherical
-    logical, intent(in), optional :: lat_deriv
+    real, intent(out), optional :: grid(:,:,:)
+    real, intent(out), optional :: lat_deriv(:,:,:)
+    real, intent(out), optional :: lon_deriv(:,:,:)
 
-    complex :: four(size(grid,1)*size(grid,2), flen)
+    complex :: four(spherical%nlev*(jec-jsc+1), isf:ief)
     complex, pointer :: four3(:,:,:)
 
     real, pointer :: grd(:,:)
     type(C_PTR) :: pgrd, pfour
-    logical :: lat_deriv1
 
     integer :: nk, nj, ni, howmany
     integer :: i, j, k
+    real :: ma
+    real, parameter :: rRADIUS = 1./RADIUS
 
-    lat_deriv1 = .false.
-
-    if (present(lat_deriv)) lat_deriv1 = lat_deriv
-
-    nk = size(grid,1); nj = size(grid,2); ni = size(grid,3)
+    nk = spherical%nlev; nj = jec-jsc+1; ni = iec-isc+1
 
     howmany = nk*nj
-
-    pgrd = C_LOC(grid)
-    call c_f_pointer(pgrd, grd, [howmany, ni])
 
     pfour = C_LOC(four)
     call c_f_pointer(pfour, four3, [nk, nj, flen])
 
-    call spherical_to_fourier(spherical, four3, lat_deriv1)
+    if (present(lat_deriv)) then
+        call spherical_to_fourier(spherical, four3, .true.)
 
-    call fourier_to_grid(four,grd)
+        pgrd = C_LOC(lat_deriv)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        call fourier_to_grid(four,grd)
+    endif
+
+    if (.not.present(lon_deriv).and. &
+        .not.present(grid)) return
+
+    call spherical_to_fourier(spherical, four3, .false.)
+
+    if (present(grid)) then
+        pgrd = C_LOC(grid)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        call fourier_to_grid(four,grd)
+    endif
+     
+    if (present(lon_deriv)) then
+        pgrd = C_LOC(lon_deriv)
+        call c_f_pointer(pgrd, grd, [howmany, ni])
+
+        do m = isf, ief
+            ma = Tshuff(m)*rRADIUS
+            four(:,m) = ma*cmplx(-aimag(four(:,m)),real(four(:,m)))
+        enddo
+     
+        call fourier_to_grid(four,grd)
+    endif
 
     return
 end subroutine spherical_to_grid3D
@@ -495,32 +661,52 @@ subroutine grid_to_spherical2D(grid,spherical)
 end subroutine grid_to_spherical2D
 
 
-subroutine spherical_to_grid2D(spherical,grid,lat_deriv)
-    real, intent(out) :: grid(:,:)
+subroutine spherical_to_grid2D(spherical,grid,lat_deriv,lon_deriv)
     type(specVar(n=*,nlev=*)), intent(in) :: spherical
-    logical, intent(in), optional :: lat_deriv
+    real, intent(out), optional :: grid(:,:)
+    real, intent(out), optional :: lat_deriv(:,:)
+    real, intent(out), optional :: lon_deriv(:,:)
 
-    real :: buff(1,size(grid,1),size(grid,2))
+    real :: buff1(1,jec-jsc+1,iec-isc+1)
+    real :: buff2(1,jec-jsc+1,iec-isc+1)
 
-    call spherical_to_grid3D(spherical,buff,lat_deriv)
+    if (present(lat_deriv)) then
+        call spherical_to_grid3D(spherical,lat_deriv=buff1)
+        lat_deriv=buff1(1,:,:)
+    endif
 
-    grid(:,:) = buff(1,:,:)
+    if (present(grid).and.present(lon_deriv)) then
+        call spherical_to_grid3D(spherical,grid=buff1,lon_deriv=buff2)
+        grid = buff1(1,:,:)
+        lon_deriv = buff2(1,:,:)
+    elseif(present(grid).and..not.present(lon_deriv)) then
+        call spherical_to_grid3D(spherical,grid=buff1)
+        grid = buff1(1,:,:)
+    elseif(.not.present(grid).and.present(lon_deriv)) then
+        call spherical_to_grid3D(spherical,lon_deriv=buff2)
+        lon_deriv = buff2(1,:,:)
+    endif
 
     return
 end subroutine spherical_to_grid2D
+
+
 
 subroutine write_specdata(filename,fieldname,dat)
 
     character (len=*), intent(in) :: filename, fieldname
     type(specVar(nlev=*,n=*)) :: dat
 
-    !real :: rebuff(dat%n,dat%nlev), robuff(dat%n-num_fourier/2,dat%nlev)
-    !real :: iebuff(dat%n,dat%nlev), iobuff(dat%n-num_fourier/2,dat%nlev)
+    real :: robuff1(dat%n-num_fourier/2,dat%nlev)
+    real :: iobuff1(dat%n-num_fourier/2,dat%nlev)
     real :: rebuff(dat%n,dat%nlev), robuff(dat%n,dat%nlev)
     real :: iebuff(dat%n,dat%nlev), iobuff(dat%n,dat%nlev)
     integer :: i, j, k, nlev, m, nodd
     character(len=len(fieldname)+3) :: iew, rew, iow, row 
     integer :: nlen1, nlen2, ns1, ns2, ne1, ne2
+    logical :: gfs_type
+
+    gfs_type=.true.
 
     iew = 'iew'//trim(fieldname)
     rew = 'rew'//trim(fieldname)
@@ -538,23 +724,27 @@ subroutine write_specdata(filename,fieldname,dat)
         iebuff(:,k) = aimag(dat%ev(k,:))
         robuff(:,k) = real(dat%od(k,:))
         iobuff(:,k) = aimag(dat%od(k,:))
-        !nlen1 = 32; nlen2 = 33
-        !ne1 = 0; ne2 = 0
-        !do m = isf, ief
-        !    if (mod(m+1,2)==0) nlen1 = nlen1 - 1
-        !    if (mod(m,2)==0) nlen2 = nlen2 - 1
-        !    ns1 = ne1 + 1; ns2 = ne2 + 1
-        !    ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
-        !    robuff(ns1:ne1,k) = real(dat%od(k,ns2:ns2+nlen1-1))
-        !    iobuff(ns1:ne1,k) = aimag(dat%od(k,ns2:ns2+nlen1-1))
-        !enddo
+        nlen1 = 32; nlen2 = 33
+        ne1 = 0; ne2 = 0
+        do m = isf, ief
+            if (mod(m+1,2)==0) nlen1 = nlen1 - 1
+            if (mod(m,2)==0) nlen2 = nlen2 - 1
+            ns1 = ne1 + 1; ns2 = ne2 + 1
+            ne1 = ns1 + nlen1 - 1; ne2 = ns2 + nlen2 -1
+            robuff1(ns1:ne1,k) = real(dat%od(k,ns2:ns2+nlen1-1))
+            iobuff1(ns1:ne1,k) = aimag(dat%od(k,ns2:ns2+nlen1-1))
+        enddo
     enddo
 
     call write_data(filename,rew,rebuff)
     call write_data(filename,iew,iebuff)
+    if (gfs_type) then
+    call write_data(filename,row,robuff1)
+    call write_data(filename,iow,iobuff1)
+    else
     call write_data(filename,row,robuff)
     call write_data(filename,iow,iobuff)
-
+    endif
 end subroutine write_specdata
 
 subroutine read_specdataGFS(filename,fieldname,dat)

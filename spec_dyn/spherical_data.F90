@@ -20,18 +20,21 @@ public :: init_spherical_data
 public :: operator(+),operator(-),operator(*),operator(/), assignment(=)
 
 type legendrePol(nj,n)
+    sequence
     integer, len :: nj, n
     real, dimension(nj,n) :: ev
     real, dimension(nj,n) :: od
 end type legendrePol
 
 type specCoef(n)
+    sequence
     integer, len :: n
     real, dimension(n) :: ev
     real, dimension(n) :: od
 end type specCoef
 
 type specVar(n,nlev)
+    sequence
     integer, len :: n, nlev
     complex, dimension(nlev,n) :: ev
     complex, dimension(nlev,n) :: od

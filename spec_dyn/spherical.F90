@@ -34,7 +34,7 @@ private
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: nwaves_oe, specVar, specCoef, num_spherical, num_fourier, trunc
 public :: spherical_init, compute_ucos_vcos, compute_vor_div, compute_vor
-public :: compute_div, triangle_mask
+public :: compute_div, triangle_mask, do_truncation, nnp1, spherical_wave
 public :: operator(+), operator(-), operator(*), operator(/), assignment(=)
 
 type(specCoef(n=:)), allocatable :: eigen_laplacian
@@ -51,6 +51,8 @@ type(specCoef(n=:)), allocatable :: coef_dym
 type(specCoef(n=:)), allocatable :: coef_dx
 type(specCoef(n=:)), allocatable :: coef_dyp
 type(specCoef(n=:)), allocatable :: triangle_mask
+type(specCoef(n=:)), allocatable :: triangle_mask1
+type(specCoef(n=:)), allocatable :: nnp1
 
 real, allocatable, dimension(:), public :: sin_lat
 real, allocatable, dimension(:), public :: cos_lat
@@ -83,7 +85,10 @@ subroutine spherical_init()
                                                       lcoef_dym, &
                                                       lcoef_dx, &
                                                       lcoef_dyp, &
-                                                      ltriangle_mask
+                                                      ltriangle_mask, &
+                                                      ltriangle_mask1, &
+                                                      lnnp1
+
     integer :: m, n, we, wo, ma, np1, nm1, nums, numf
 
     if(module_is_initialized) return
@@ -91,11 +96,14 @@ subroutine spherical_init()
     nums = num_spherical; numf = num_fourier
 
     ltriangle_mask = 1.0
+    ltriangle_mask1 = 1.0
     do n=0,num_spherical
       do m=0,num_fourier
         lfourier_wave(m,n)   = m
         lspherical_wave(m,n) = lfourier_wave(m,n) + n
+        lnnp1(m,n) = lspherical_wave(m,n)*(lspherical_wave(m,n)+1.) 
         if(lspherical_wave(m,n)>trunc) ltriangle_mask(m,n) = 0.0
+        if(lspherical_wave(m,n)>trunc+1) ltriangle_mask1(m,n) = 0.0
       end do
     end do
     
@@ -148,7 +156,9 @@ subroutine spherical_init()
                                       coef_dym, &
                                       coef_dx, &
                                       coef_dyp, &
-                                      triangle_mask)
+                                      triangle_mask, &
+                                      triangle_mask1, &
+                                      nnp1)
 
 
     wo = 0
@@ -175,6 +185,8 @@ subroutine spherical_init()
                 coef_dx%ev(we)         = lcoef_dx(ma,n)
                 coef_dyp%ev(we)        = lcoef_dyp(ma,n)
                 triangle_mask%ev(we)   = ltriangle_mask(ma,n)
+                triangle_mask1%ev(we)  = ltriangle_mask1(ma,n)
+                nnp1%ev(we)            = lnnp1(ma,n)
             else
                 wo = wo + 1
                 eigen_laplacian%od(wo) = leigen_laplacian(ma,n)
@@ -191,12 +203,14 @@ subroutine spherical_init()
                 coef_dx%od(wo)         = lcoef_dx(ma,n)
                 coef_dyp%od(wo)        = lcoef_dyp(ma,n)
                 triangle_mask%od(wo)   = ltriangle_mask(ma,n)
+                triangle_mask1%od(wo)  = ltriangle_mask1(ma,n)
+                nnp1%od(wo)            = lnnp1(ma,n)
             endif
         enddo
     enddo
 
     where (triangle_mask%ev==0.)
-    !    eigen_laplacian%ev = 0.
+        eigen_laplacian%ev = 0.
         coef_uvm%ev = 0.
         coef_uvc%ev = 0.
         coef_uvp%ev = 0.
@@ -208,7 +222,7 @@ subroutine spherical_init()
     end where
 
     where (triangle_mask%od==0.)
-    !    eigen_laplacian%od = 0.
+        eigen_laplacian%od = 0.
         coef_uvm%od = 0.
         coef_uvc%od = 0.
         coef_uvp%od = 0.
@@ -222,6 +236,8 @@ subroutine spherical_init()
     call define_gaussian
 
     call define_legendre(lepsilon,lspherical_wave)
+
+    print *, 'max(wavenumber)=', maxval(spherical_wave%od(:)), maxval(spherical_wave%ev(:))
 
     module_is_initialized = .true.
 
@@ -289,8 +305,8 @@ subroutine define_legendre(lepsilon,lspherical_wave)
         enddo
     enddo
   
-    !wgt = 1./RADIUS
-    !Hnm_global(:,:,:) = Hnm_global(:,:,:)*wgt
+    wgt = 1./RADIUS
+    Hnm_global(:,:,:) = Hnm_global(:,:,:)*wgt
 
     w = 0
     wo = 0
@@ -316,6 +332,21 @@ subroutine define_legendre(lepsilon,lspherical_wave)
         Pnm_wts%od(j-js_hem+1,:) = Pnm%od(j-js_hem+1,:)*wts_lat(2*j)
         Hnm_wts%ev(j-js_hem+1,:) = Hnm%ev(j-js_hem+1,:)*wts_lat(2*j)
         Hnm_wts%od(j-js_hem+1,:) = Hnm%od(j-js_hem+1,:)*wts_lat(2*j)
+
+        where(triangle_mask%ev==0.) Hnm%ev(j-js_hem+1,:) = 0.
+        where(triangle_mask%od==0.) Hnm%od(j-js_hem+1,:) = 0.
+        
+        where(triangle_mask1%ev==0.) 
+            Hnm_wts%ev(j-js_hem+1,:) = 0.
+            Pnm_wts%ev(j-js_hem+1,:) = 0.
+            Pnm%ev(j-js_hem+1,:) = 0.
+        end where
+
+        where(triangle_mask1%od==0.)
+            Hnm_wts%od(j-js_hem+1,:) = 0.
+            Pnm_wts%od(j-js_hem+1,:) = 0.
+            Pnm%od(j-js_hem+1,:) = 0.
+        end where
     enddo
 
     return
@@ -389,20 +420,44 @@ subroutine compute_lat_deriv_cos(spherical,deriv_lat)
 end subroutine compute_lat_deriv_cos
 
 
+!--------------------------------------------------------------------------------   
+subroutine do_truncation(spherical)
+!--------------------------------------------------------------------------------   
+    type(specVar(nlev=*,n=*)), intent(inout) :: spherical
+
+    integer :: k
+
+    do k = 1, spherical%nlev
+        where(triangle_mask%ev==0.) spherical%ev(k,:) = 0.
+        where(triangle_mask%od==0.) spherical%od(k,:) = 0.
+    enddo
+
+    return
+
+end subroutine do_truncation
+
+
+
 !----------------------------------------------------------------------
-subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos)
+subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos, do_trunc)
 !----------------------------------------------------------------------
 
     type(specVar(nlev=*,n=*)), intent(in)  :: vorticity
     type(specVar(nlev=*,n=*)), intent(in)  :: divergence
     type(specVar(nlev=*,n=*)), intent(out) :: u_cos
     type(specVar(nlev=*,n=*)), intent(out) :: v_cos
+    logical, intent(in), optional :: do_trunc
 
+    logical :: do_trunc1
     integer :: k, nw
 
     if(.not. module_is_initialized ) then
       call mpp_error('compute_ucos_vcos','module spherical not initialized', FATAL)
     end if
+
+    do_trunc1 = .true.
+   
+    if(present(do_trunc)) do_trunc1=do_trunc 
 
     nw = vorticity%n
 
@@ -426,9 +481,6 @@ subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos)
        u_cos%od(k,1:nw-1) = u_cos%od(k,1:nw-1) -     &
             coef_uvp%ev(2:nw)*vorticity%ev(k,2:nw)
 
-       u_cos%ev(k,:) = u_cos%ev(k,:) * triangle_mask%ev
-       u_cos%od(k,:) = u_cos%od(k,:) * triangle_mask%od
-
        v_cos%ev(k,:) = coef_uvc%ev(:)*                                     &
             cmplx(-aimag(vorticity%ev(k,:)),real(vorticity%ev(k,:)))
 
@@ -447,27 +499,35 @@ subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos)
        v_cos%od(k,1:nw-1) = v_cos%od(k,1:nw-1) +     &
             coef_uvp%ev(2:nw)*divergence%ev(k,2:nw)
 
-       v_cos%ev(k,:) = v_cos%ev(k,:) * triangle_mask%ev
-       v_cos%od(k,:) = v_cos%od(k,:) * triangle_mask%od
-            
     end do
+
+    if (do_trunc1) then
+       call do_truncation(v_cos)
+       call do_truncation(u_cos)
+    endif
+            
     return
 end subroutine compute_ucos_vcos
 
 !--------------------------------------------------------------------------------
-subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
+subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha, do_trunc)
 !--------------------------------------------------------------------------------
 
     type(specVar(nlev=*,n=*)), intent(in)  :: spherical_a
     type(specVar(nlev=*,n=*)), intent(in)  :: spherical_b
     type(specVar(nlev=*,n=*)), intent(out) :: alpha
     integer, intent(in) :: rsign
+    logical, intent(in), optional :: do_trunc
 
+    logical :: do_trunc1
     integer :: k, nw
 
     if(.not. module_is_initialized ) then
       call mpp_error('compute_vor or div','module spherical not initialized', FATAL)
     end if
+
+    do_trunc1 = .true.
+    if(present(do_trunc)) do_trunc1=do_trunc
     
     alpha%ev = cmplx(0.,0.)
     alpha%od = cmplx(0.,0.)
@@ -495,50 +555,53 @@ subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha)
        alpha%od(k,1:nw-1) = alpha%od(k,1:nw-1) +  &
             rsign*coef_alpp%ev(2:nw)*spherical_b%ev(k,2:nw)
 
-       alpha%ev(k,:) = alpha%ev(k,:) * triangle_mask%ev
-       alpha%od(k,:) = alpha%od(k,:) * triangle_mask%od
-            
     end do
+
+    if (do_trunc1) call do_truncation(alpha)
+
     return
 end subroutine compute_alpha_operator
 
 !-------------------------------------------------------------------------
-subroutine compute_vor_div(u_cos, v_cos, vorticity, divergence)
+subroutine compute_vor_div(u_cos, v_cos, vorticity, divergence, do_trunc)
 !-------------------------------------------------------------------------
 
     type(specVar(nlev=*,n=*)), intent(in)  :: u_cos
     type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
     type(specVar(nlev=*,n=*)), intent(out) :: vorticity
     type(specVar(nlev=*,n=*)), intent(out) :: divergence
+    logical, intent(in), optional :: do_trunc
 
-    call compute_alpha_operator(v_cos, u_cos, -1, vorticity)
-    call compute_alpha_operator(u_cos, v_cos, +1, divergence)
+    call compute_alpha_operator(v_cos, u_cos, -1, vorticity, do_trunc)
+    call compute_alpha_operator(u_cos, v_cos, +1, divergence, do_trunc)
 
     return
 end subroutine compute_vor_div
 
 !-------------------------------------------------------------------------
-subroutine compute_vor(u_cos, v_cos, vorticity)
+subroutine compute_vor(u_cos, v_cos, vorticity, do_trunc)
 !-------------------------------------------------------------------------
 
     type(specVar(nlev=*,n=*)), intent(in)  :: u_cos
     type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
     type(specVar(nlev=*,n=*)), intent(out) :: vorticity
+    logical, intent(in), optional :: do_trunc
 
-    call compute_alpha_operator(v_cos, u_cos, -1, vorticity)
+    call compute_alpha_operator(v_cos, u_cos, -1, vorticity, do_trunc)
 
     return
 end subroutine compute_vor
 
 !-------------------------------------------------------------------------
-subroutine compute_div(u_cos, v_cos, divergence)
+subroutine compute_div(u_cos, v_cos, divergence, do_trunc)
 !-------------------------------------------------------------------------
 
     type(specVar(nlev=*,n=*)), intent(in)  :: u_cos
     type(specVar(nlev=*,n=*)), intent(in)  :: v_cos
     type(specVar(nlev=*,n=*)), intent(out) :: divergence
+    logical, intent(in), optional :: do_trunc
 
-    call compute_alpha_operator(u_cos, v_cos, +1, divergence)
+    call compute_alpha_operator(u_cos, v_cos, +1, divergence, do_trunc)
 
     return
 end subroutine compute_div
