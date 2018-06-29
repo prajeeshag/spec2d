@@ -55,3 +55,8 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 
 make $@
 
+cd $thisdir
+
+mpirun -np 1 -prepend-rank exec/spec2d/spec2d.exe
+
+

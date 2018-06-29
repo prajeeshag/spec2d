@@ -11,13 +11,15 @@ use mpp_mod, only : mpp_error, FATAL
 
 use fms_io_mod, only : write_data
 implicit none
-!private
+private
 
 public :: init_implicit, do_implicit 
 
 real, allocatable :: bmhyb(:,:), amhyb(:,:)
 real, allocatable :: svhyb(:), d_hyb_m(:,:,:)
 real, allocatable :: tor_hyb(:), dm205_hyb(:,:,:)
+real, allocatable :: ak5(:), bk5(:)
+
 integer :: levs, levp1
 
 logical :: initialized=.false.
@@ -43,6 +45,9 @@ subroutine init_implicit(ak, bk, ref_temp, dt, trunc)
  
     allocate(d_hyb_m(levs,levs,jcap1))
     allocate(dm205_hyb(jcap1,levs,levs))
+    allocate(ak5(levp1),bk5(levp1))
+
+    ak5 = ak; bk5 = bk
  
     call am_bm_hyb
     
@@ -278,205 +283,209 @@ subroutine implicit_corr(de,te,qe,de_n,te_n,qe_n,xe,ye,ze,snnp1ev,ndexev,nwaves,
 end subroutine implicit_corr
 
 
-!!--------------------------------------------------------------------------------
-!subroutine am_bm_hyb(levs,ak5,bk5,ref_temp)
-!!--------------------------------------------------------------------------------   
-!
-!    implicit none 
-!    integer, intent(in) :: levs
-!    real, intent(in) :: ak5(:),bk5(:), ref_temp
-!    real :: pk5ref(levs+1),beta,dpkref(levs), tref(levs)
-!    real :: psref, kappa, factor, alfaref(levs), vecm(levs) 
-!    real :: yecm(levs,levs), tecm(levs,levs)
-!    integer :: k, kk, j, irow, icol, icolbeg, icolend
-!
-!
-!    do k=1,levs
-!        tref(k)=ref_temp
-!    enddo
-!
-!    psref=80.
-!    beta=1.
-!    kappa=rd/cp
-! 
-!    do k=1,levs+1
-!        pk5ref(k)=ak5(k)+bk5(k)*psref
-!    enddo
-! 
-!    do k=1,levs
-!        dpkref(k)=pk5ref(k+1)-pk5ref(k)
-!        tor_hyb(k)=beta*rd*tref(k)/(rearth*rearth)
-!    enddo
-! 
-!    alfaref(1)=log(2.) ! could also be=1.  but watch for layer values
-! 
-!    do k=2,levs
-!        alfaref(k)=1.-(pk5ref(k)/dpkref(k))*log(pk5ref(k+1)/pk5ref(k))
-!    enddo
-! 
-!    yecm=0.
-!    do irow=1,levs
-!        yecm(irow,irow)=alfaref(irow)*rd
-!        icolbeg=irow+1
-!        if(icolbeg.le.levs)then
-!            do icol=icolbeg,levs
-!                yecm(irow,icol)=rd*log( pk5ref(icol+1)/pk5ref(icol) )
-!            enddo
-!        endif
-!    enddo
-! 
-!    tecm=0.
-! 
-!    do irow=1,levs
-!        tecm(irow,irow)=kappa*tref(irow)*alfaref(irow)
-!        icolend=irow-1
-!        do icol=1,icolend
-!            factor=(kappa*tref(irow)/ dpkref(irow))*log(pk5ref(irow+1)/pk5ref(irow))
-!            tecm(irow,icol)=factor*dpkref(icol)
-!        enddo
-!    enddo
-! 
-!    do icol=1,levs
-!        vecm(icol)=dpkref(icol)/psref
-!    enddo
-! 
-!    do j=1,levs
-!        svhyb(j)=vecm(levs+1-j)
-!        do k=1,levs
-!            amhyb(k,j)=yecm(levs+1-k,levs+1-j)
-!            bmhyb(k,j)=tecm(levs+1-k,levs+1-j)
-!        enddo
-!    enddo
-! 
-!    do j=1,levs
-!        do k=1,levs
-!            amhyb(k,j)=amhyb(k,j)*beta/(rearth*rearth)
-!        enddo
-!    enddo
-! 
-!    return
-!end subroutine am_bm_hyb 
 
-!!--------------------------------------------------------------------------------   
-!subroutine get_cd_hyb(dt,jcap1)
-!!--------------------------------------------------------------------------------   
-!    implicit none
-!    integer, intent(in) :: jcap1
-!    real, intent(in) :: dt
-!
-!    integer :: i,j,k,n,nn
-!    real :: rnn1
-!    real :: ym(levs,levs)
-!    real :: rim(levs,levs)
-!    real :: ddd(jcap1),ppp(jcap1),rrr(jcap1)
-!    real :: cons0,cons1     !constant
-!    integer :: lu(levs),mu(levs)
-!
-!    cons0 = 0.d0
-!    cons1 = 1.d0 
-!
-!    do k=1,levs
-!        do j=1,levs
-!            rim(j,k)=cons0
-!        enddo
-!    enddo
-!
-!    do k=1,levs
-!        rim(k,k) = cons1   
-!    enddo
-! 
-!    do i=1,levs
-!        do j=1,levs
-!            ym(i,j) = tor_hyb(i)*svhyb(j)
-!        enddo
-!        do k=1,levs
-!            do j=1,levs
-!                ym(i,j) = ym(i,j) + amhyb(i,k)*bmhyb(k,j)
-!            enddo
-!        enddo
-!    enddo
-!
-!    do nn=1,jcap1
-!        n = nn-1
-!        rnn1 = n*(n+1)
-!        do i=1,levs
-!            do j=1,levs
-!                dm205_hyb(nn,i,j) = rim(i,j) + rnn1*dt*dt*ym(i,j)
-!            enddo
-!        enddo
-!    enddo
-!
-!    call matinv(dm205_hyb,jcap1,levs,ddd,ppp,rrr)
-!
-!    do nn=1,jcap1
-!        do i=1,levs
-!            do j=1,levs
-!                D_HYB_m(i,j,nn)=dm205_hyb(nn,i,j)
-!            enddo
-!        enddo
-!    enddo
-!
-!    return
-!end subroutine get_cd_hyb
-!
-!
-!!--------------------------------------------------------------------------------   
-!subroutine matinv(a,m,n,d,p,r)
-!!--------------------------------------------------------------------------------   
-!    implicit none
-!    integer, intent(in) :: m, n
-!    real :: a(m,n,n),d(m),p(m),r(m)
-!    real :: cons0,cons1 
-!    integer :: i,j,k,l
-!
-!    cons0 = 0.d0  
-!    cons1 = 1.d0 
-!
-!    do l=1,m
-!      d(l)=cons1 
-!    enddo
-!
-!    do k=1,n
-!        do l=1,m
-!            p(l)=a(l,k,k)
-!        enddo 
-!        do l=1,m
-!            r(l)=-cons1/p(l) 
-!        enddo 
-!        do l=1,m
-!            a(l,k,k)=cons0 
-!        enddo
-!        do i=1,n
-!            do l=1,m
-!                a(l,i,k)=a(l,i,k)*r(l)
-!            enddo
-!        enddo
-!        do i=1,n
-!            if(i.eq.k) exit
-!            do j=1,n
-!                do l=1,m
-!                    a(l,i,j)=a(l,i,k)*a(l,k,j)+a(l,i,j)
-!                enddo
-!            enddo
-!        enddo
-!        do l=1,m
-!            r(l)=-r(l)
-!        enddo
-!        do j=1,n
-!            do l=1,m
-!                a(l,k,j)=a(l,k,j)*r(l)
-!            enddo
-!        enddo
-!        do l=1,m
-!            d(l)=d(l)*p(l)
-!        enddo
-!        do l=1,m
-!            a(l,k,k)=r(l)
-!        enddo
-!    enddo
-!
-!    return
-!end subroutine matinv
+!--------------------------------------------------------------------------------   
+SUBROUTINE AM_BM_hyb
+!--------------------------------------------------------------------------------   
+ 
+    implicit none 
+    
+    real :: pk5ref(levp1),beta,dpkref(levs), tref(levs),psref,kappa,factor, &
+            alfaref(levs), vecm(levs),   yecm(levs,levs),tecm(levs,levs)
+    integer :: k,kk,j,irow,icol,icolbeg,icolend
+    real :: ref_temp = 300.
+    
+    do k=1,levs
+     tref(k)=ref_temp
+    enddo
+    psref=80.
+    beta=1.
+    kappa=rd/cp
+    
+    
+    
+    
+    do k=1,levp1
+     pk5ref(k)=ak5(k)+bk5(k)*psref
+    enddo
+    
+    
+    do k=1,levs
+     dpkref(k)=pk5ref(k+1)-pk5ref(k)
+     tor_hyb(k)=beta*rd*tref(k)/(rearth*rearth)
+    enddo
+    
+    
+    alfaref(1)=log(2.) ! could also be=1.  but watch for layer values
+    
+    do k=2,levs
+     alfaref(k)=1.-(pk5ref(k)/dpkref(k))*log(pk5ref(k+1)/pk5ref(k))
+    enddo
+    
+    
+    do k=1,levs
+    enddo
+    
+     yecm=0.
+     do irow=1,levs
+        yecm(irow,irow)=alfaref(irow)*rd
+        icolbeg=irow+1
+        if(icolbeg.le.levs)then
+         do icol=icolbeg,levs
+          yecm(irow,icol)=rd*log( pk5ref(icol+1)/pk5ref(icol) )
+         enddo
+        endif
+     enddo
+    
+    tecm=0.
+    
+    do irow=1,levs
+       tecm(irow,irow)=kappa*tref(irow)*alfaref(irow)
+       icolend=irow-1
+    
+    
+    do icol=1,icolend
+    factor=(kappa*tref(irow)/ dpkref(irow))*log(pk5ref(irow+1)/pk5ref(irow))
+    tecm(irow,icol)=factor*dpkref(icol)
+    enddo
+    enddo
+     
+    do icol=1,levs
+     vecm(icol)=dpkref(icol)/psref
+    enddo
+     
+    do j=1,levs
+     svhyb(j)=vecm(levs+1-j)
+    do k=1,levs
+      amhyb(k,j)=yecm(levs+1-k,levs+1-j)
+      bmhyb(k,j)=tecm(levs+1-k,levs+1-j)
+    enddo
+    enddo
+    
+    do j=1,levs
+    do k=1,levs
+      amhyb(k,j)=amhyb(k,j)*beta/(rearth*rearth)
+    enddo
+    enddo
+     
+     
+    return
+end subroutine
 
+!--------------------------------------------------------------------------------   
+subroutine get_cd_hyb(dt,jcap1)
+!--------------------------------------------------------------------------------   
+    
+    implicit none
+    integer :: jcap1
+    integer :: i,j,k,n,nn
+    real :: dt,rnn1
+    real :: ym(levs,levs)
+    real :: rim(levs,levs)
+    
+    real :: ddd(jcap1),ppp(jcap1),rrr(jcap1)
+    integer              lu(levs),mu(levs)
+    real :: cons0,cons1  
+    cons0 = 0.d0 
+    cons1 = 1.d0
+    
+    do k=1,levs
+    do j=1,levs
+    rim(j,k)=cons0 
+    enddo
+    enddo
+    
+    do k=1,levs
+    rim(k,k) = cons1     !constant
+    enddo
+    
+    do i=1,levs
+    
+    do  j=1,levs
+     ym(i,j) = tor_hyb(i)*svhyb(j)
+    enddo
+    
+    do k=1,levs
+    do j=1,levs
+    ym(i,j) = ym(i,j) + amhyb(i,k)*bmhyb(k,j)
+    enddo
+    enddo
+    
+    enddo
+    do nn=1,jcap1
+    
+     n = nn-1
+     rnn1 =       n*(n+1)
+    
+     do i=1,levs
+     do j=1,levs
+      dm205_hyb(nn,i,j) = rim(i,j) + rnn1*dt*dt*ym(i,j)
+     enddo
+     enddo
+    
+    enddo
+    !.............................................................
+    call matinv(dm205_hyb,jcap1,levs,ddd,ppp,rrr)
+    do nn=1,jcap1
+    do i=1,levs
+    do j=1,levs
+    d_hyb_m(i,j,nn)=dm205_hyb(nn,i,j)
+    enddo
+    enddo
+    enddo
+    return
+end subroutine
+
+!--------------------------------------------------------------------------------   
+subroutine matinv(a,m,n,d,p,r)
+!--------------------------------------------------------------------------------   
+      implicit none
+      integer :: i,j,k,l,m,n
+      real :: a(m,n,n),d(m),p(m),r(m)
+      real :: cons0,cons1     !constant
+      cons0 = 0.d0     !constant
+      cons1 = 1.d0     !constant
+      do l=1,m
+      d(l)=cons1     !constant
+      enddo
+      do k=1,n
+      do l=1,m
+      p(l)=a(l,k,k)
+      enddo
+      do l=1,m
+      r(l)=-cons1/p(l)     !constant
+      enddo
+      do l=1,m
+      a(l,k,k)=cons0       !constant
+      enddo
+      do i=1,n
+      do l=1,m
+      a(l,i,k)=a(l,i,k)*r(l)
+      enddo
+      enddo
+      do i=1,n
+      if(i.eq.k) cycle
+      do j=1,n
+      do l=1,m
+      a(l,i,j)=a(l,i,k)*a(l,k,j)+a(l,i,j)
+      enddo
+      enddo
+      enddo 
+      do l=1,m
+      r(l)=-r(l)
+      enddo
+      do j=1,n
+      do l=1,m
+      a(l,k,j)=a(l,k,j)*r(l)
+      enddo
+      enddo
+      do l=1,m
+      d(l)=d(l)*p(l)
+      enddo
+      do l=1,m
+      a(l,k,k)=r(l)
+      enddo
+      enddo
+      return
+end subroutine
 end module implicit_mod
-
