@@ -197,8 +197,6 @@ subroutine implicit_corr(de,te,qe,de_n,te_n,qe_n,xe,ye,ze,snnp1ev,ndexev,nwaves,
         enddo
     enddo
 
-    print *, 'ze=',ze(4,:)
- 
     do indev = indev1 , indev2
         qdtze(indev,1)   =  qe(indev,1)-qe_n(indev,1) + dt*ze(indev,1)
         qdtze(indev,2)   =  qe(indev,2)-qe_n(indev,2) + dt*ze(indev,2)
@@ -255,8 +253,6 @@ subroutine implicit_corr(de,te,qe,de_n,te_n,qe_n,xe,ye,ze,snnp1ev,ndexev,nwaves,
  
         ze(indev,2) = cons2*qdtze(indev,2) - qe(indev,2)
     enddo
-
-    print *, 'ze=',ze(4,:)
 
     call dgemm ('n', 't', indev2-indev1+1, levs, levs, cons1, ve(indev1,1,1), nwaves*2, &
                     bmhyb(1,1), levs, cons0, ue(indev1,1,1), nwaves*2)
