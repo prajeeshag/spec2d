@@ -1,7 +1,7 @@
 
 &gloopa_nml
-!trunc=62
-num_fourier=62
+trunc=62
+!num_fourier=62
 nlon=192
 	nlat = 94
   	nlev = 64
