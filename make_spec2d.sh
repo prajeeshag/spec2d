@@ -16,8 +16,8 @@ EXE="spec2d"
 execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
 
-#mkmftemplate="$thisdir/bin/mkmf.template.debug"
-mkmftemplate="$thisdir/bin/mkmf.template"
+mkmftemplate="$thisdir/bin/mkmf.template.debug"
+#mkmftemplate="$thisdir/bin/mkmf.template"
 
 paths="$thisdir/spec_dyn"
 

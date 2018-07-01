@@ -11,54 +11,10 @@ use fms_mod, only : fms_init, open_namelist_file, close_file
 
 use fms_io_mod, only : write_data
 
-
 implicit none
 private
 
-public :: legendrePol, specCoef, specVar
 public :: init_spherical_data
-public :: operator(+),operator(-),operator(*),operator(/), assignment(=)
-
-type legendrePol(nj,n)
-    sequence
-    integer, len :: nj, n
-    real, dimension(nj,n) :: ev
-    real, dimension(nj,n) :: od
-end type legendrePol
-
-type specCoef(n)
-    sequence
-    integer, len :: n
-    real, dimension(n) :: ev
-    real, dimension(n) :: od
-end type specCoef
-
-type specVar(n,nlev)
-    sequence
-    integer, len :: n, nlev
-    complex, dimension(nlev,n) :: ev
-    complex, dimension(nlev,n) :: od
-end type specVar
-
-interface assignment(=)
-    module procedure assignss, assignsr
-end interface
-
-interface operator(+)
-    module procedure addss, addsr
-end interface
-
-interface operator(-)
-    module procedure subss, subsr
-end interface
-
-interface operator(*)
-    module procedure mulss, mulsr
-end interface
-
-interface operator(/)
-    module procedure divss, divsr
-end interface
 
 integer, public :: num_fourier
 integer, public :: num_spherical
@@ -87,11 +43,11 @@ integer, public, allocatable :: ews4m(:), ewe4m(:), ewlen4m(:) !starting and end
                                                                !even waves for a particular m
 integer, public, allocatable :: ows4m(:), owe4m(:), owlen4m(:) !starting and ending index of 
                                                                !odd waves for a particular m
-
 integer, public, allocatable :: tshuffle(:)
 
 logical :: debug
 
+integer, parameter, public :: ev=1, od=2
 
 contains
 
@@ -234,97 +190,5 @@ subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
     endif
 
 end subroutine init_spherical_data
-
-function divss(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a, b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev / b%ev
-    c%od = a%od / b%od
-    return
-end function divss
-
-function divsr(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a
-    real, intent(in) :: b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev / b
-    c%od = a%od / b
-    return
-end function divsr
-
-function mulss(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a, b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev * b%ev
-    c%od = a%od * b%od
-    return
-end function mulss
-
-function mulsr(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a
-    real, intent(in) :: b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev * b
-    c%od = a%od * b
-    return
-end function mulsr
-
-function addss(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a, b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev + b%ev
-    c%od = a%od + b%od
-    return
-end function addss
-
-function addsr(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a
-    real, intent(in) :: b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev + b
-    c%od = a%od + b
-    return
-end function addsr
-
-function subss(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a, b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev - b%ev
-    c%od = a%od - b%od
-    return
-end function subss
-
-function subsr(a,b) result(c)
-    type(specVar(nlev=*,n=*)), intent(in) :: a
-    real, intent(in) :: b
-    type(specVar(nlev=a%nlev,n=a%n)) :: c
-
-    c%ev = a%ev - b
-    c%od = a%od - b
-    return
-end function subsr
-
-subroutine assignss(a,b)
-    type(specVar(nlev=*,n=*)), intent(in) :: b
-    type(specVar(nlev=*,n=*)), intent(out) :: a
-
-    a%ev = b%ev
-    a%od = b%od
-end subroutine assignss
-
-subroutine assignsr(a,b)
-    real, intent(in) :: b
-    type(specVar(nlev=*,n=*)), intent(out) :: a
-
-    a%ev = cmplx(b,b)
-    a%od = cmplx(b,b)
-end subroutine assignsr
 
 end module spherical_data_mod

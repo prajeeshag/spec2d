@@ -2,7 +2,7 @@ module implicit_mod
 
 use, intrinsic :: iso_c_binding
 
-use spherical_mod, only : specVar, spherical_wave, nnp1
+use spherical_mod, only : spherical_wave, nnp1
 
 use constants_mod, only : rd => rdgas, cp => cp_air
 use constants_mod, only : rearth => radius
@@ -69,17 +69,18 @@ subroutine do_implicit(div, tem, ps, div_n, tem_n, ps_n, &
                                div_dt, tem_dt, ps_dt, dt)
 !--------------------------------------------------------------------------------   
     implicit none
-    type(specVar(nlev=*,n=*)), intent(in) :: div, tem, div_n, tem_n, ps, ps_n 
-    type(specVar(nlev=*,n=*)), intent(inout) :: div_dt, tem_dt, ps_dt
+    complex, dimension(:,:,:), intent(in) :: div, tem, div_n, tem_n, ps, ps_n 
+    complex, dimension(:,:,:), intent(inout) :: div_dt, tem_dt, ps_dt
     real,                      intent(in) :: dt
+
+    integer :: i
 
     if (.not.initialized) call mpp_error('do_implicit', 'module not initialized', FATAL)
 
-    call implicit_corr_drv(div%ev, tem%ev, ps%ev, div_n%ev, tem_n%ev, ps_n%ev, &
-                 div_dt%ev, tem_dt%ev, ps_dt%ev, nnp1%ev, int(spherical_wave%ev), dt)
-
-    call implicit_corr_drv(div%od, tem%od, ps%od, div_n%od, tem_n%od, ps_n%od, &
-                 div_dt%od, tem_dt%od, ps_dt%od, nnp1%od, int(spherical_wave%od), dt)
+    do i = 1, 2
+        call implicit_corr_drv(div(:,:,i), tem(:,:,i), ps(:,:,i), div_n(:,:,i), tem_n(:,:,i), ps_n(:,:,i), &
+                 div_dt(:,:,i), tem_dt(:,:,i), ps_dt(:,:,i), nnp1(:,i), spherical_wave(:,i), dt)
+    enddo
 
 end subroutine do_implicit
 

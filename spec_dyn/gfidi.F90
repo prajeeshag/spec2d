@@ -56,7 +56,7 @@ subroutine gfidi_drv(levs, ntrac, ni, nj, deltim, sinlat_in, rcl_in, &
 
     do i = 1, ni
         ptmp1(1:nj,i) = rcl_in(1:nj) 
-        ptmp2(1:nj,i) = sinlat(1:nj)
+        ptmp2(1:nj,i) = sinlat_in(1:nj)
     enddo
 
     do i = 1, ntrac
@@ -150,16 +150,18 @@ subroutine gfidi_hyb(levs, ntrac, deltim, sinlat, rcl, &
     levp1 = levs + 1
     levm1 = levs - 1
  
-    cons0   = 0.d0      !constant
-    cons0p5 = 0.5d0     !constant
-    cons1   = 1.d0      !constant
-    cons2   = 2.d0      !constant
+    cons0   = 0.d0  
+    cons0p5 = 0.5d0 
+    cons1   = 1.d0  
+    cons2   = 2.d0 
     rk= rd /cp
 
 !-------------------------------------------------------
-    sinra=sinlat     !constant
-    coriol=cons2*omega*sinra        !constant
+   
+    sinra=sinlat
+    coriol=cons2*omega*sinra
     sinra=sinra/rerth
+
 !-------------------------------------------------------
  
     clog2=log(cons2)     ! constant
