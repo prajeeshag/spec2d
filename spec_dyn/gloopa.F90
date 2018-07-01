@@ -180,7 +180,7 @@ program main
         if(flen /= ief-isf+1) call mpp_error('gloopa', 'flen /= ief-isf+1', FATAL)
         print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(num_fourier-Tshuff(isf:ief)+1)
 
-        call init_fourier_spherical(num_fourier, num_fourier, nlat, nwaves_oe, domainf, Tshuff) 
+        call init_fourier_spherical(num_fourier, nlat, nwaves_oe, domainf, Tshuff) 
     endif
     call mpp_set_current_pelist()
 

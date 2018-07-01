@@ -18,8 +18,8 @@ use spherical_mod, only : spherical_init, Pnm_wts, Pnm, Hnm, Hnm_wts, do_truncat
 
 use spherical_data_mod, only : ewlen4m, ews4m, ewe4m, owlen4m, ows4m, owe4m
 use spherical_data_mod, only : js, je, js_hem, je_hem, ms, me, nwaves_oe
-use spherical_data_mod, only : tshuffle, ne4m, ns4m, iseven, num_fourier
-use spherical_data_mod, only : num_spherical, trunc, init_spherical_data
+use spherical_data_mod, only : tshuffle, ne4m, ns4m, iseven
+use spherical_data_mod, only : init_spherical_data
 use spherical_data_mod, only : nlat, ev, od, jlen_hem
 
 implicit none
@@ -33,16 +33,16 @@ logical :: initialized = .false.
 contains
 
 !------------------------------------------------------------------------------
-subroutine init_fourier_spherical(num_fourier_in, num_spherical_in, nlat_in, &
+subroutine init_fourier_spherical(trunc_in, nlat_in, &
                 nwaves_oe_out, domain_fourier_in, tshuffle_in)
 !------------------------------------------------------------------------------
-    integer, intent(in) :: num_fourier_in, num_spherical_in, nlat_in
+    integer, intent(in) :: trunc_in, nlat_in
     type(domain2d), optional :: domain_fourier_in
-    integer, optional :: tshuffle_in(0:num_fourier_in)
+    integer, optional :: tshuffle_in(0:)
     integer, intent(out) :: nwaves_oe_out
 
-    call init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
-                            nwaves_oe_out, domain_fourier_in, tshuffle_in)
+    call init_spherical_data(trunc_in, nlat_in, &
+              nwaves_oe_out, domain_fourier_in, tshuffle_in)
 
     call spherical_init()
 

@@ -1,5 +1,6 @@
 
 &gloopa_nml
+!trunc=62
 num_fourier=62
 nlon=192
 	nlat = 94

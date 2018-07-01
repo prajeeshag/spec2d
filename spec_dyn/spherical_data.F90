@@ -52,12 +52,12 @@ integer, parameter, public :: ev=1, od=2
 contains
 
 !------------------------------------------------------------------------------
-subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
+subroutine init_spherical_data(trunc_in, nlat_in, &
                 nwaves_oe_out, domain_fourier_in, tshuffle_in)
 !------------------------------------------------------------------------------
-    integer, intent(in) :: num_fourier_in, num_spherical_in, nlat_in
+    integer, intent(in) :: trunc_in, nlat_in
     type(domain2d), optional :: domain_fourier_in
-    integer, optional :: tshuffle_in(0:num_fourier_in)
+    integer, optional :: tshuffle_in(0:)
     integer, intent(out) :: nwaves_oe_out
 
     integer :: m, w, n, unit, iostat, neadj
@@ -76,9 +76,9 @@ subroutine init_spherical_data(num_fourier_in, num_spherical_in, nlat_in, &
         call mpp_error('init_spherical_data', 'NLAT should be a even number', FATAL)
     
     nlat = nlat_in
-    num_fourier = num_fourier_in
-    num_spherical = num_spherical_in + 1
-    trunc = num_spherical_in
+    num_fourier = trunc_in
+    num_spherical = trunc_in + 1
+    trunc = trunc_in
     if (mod(num_spherical,2)==0) num_spherical = num_spherical + 1
 
     if (present(domain_fourier_in)) then
