@@ -7,7 +7,7 @@ use fms_io_mod, only: write_data
 use spherical_data_mod, only: nwaves_oe, ms, me, nlat
 use spherical_data_mod, only: ns4m, ne4m, num_spherical, num_fourier, trunc
 use spherical_data_mod, only: tshuffle, js, je, js_hem, je_hem, jlen_hem
-use spherical_data_mod, only: iseven, ev, od
+use spherical_data_mod, only: iseven, ev, od, get_wdecomp
 
 use constants_mod, only : RADIUS, PI
 
@@ -29,7 +29,7 @@ use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian
 implicit none
 private
 
-public :: compute_lon_deriv_cos, compute_lat_deriv_cos
+public :: compute_lon_deriv_cos, compute_lat_deriv_cos, get_wdecomp
 public :: nwaves_oe, num_spherical, num_fourier, trunc, ev, od
 public :: spherical_init, compute_ucos_vcos, compute_vor_div, compute_vor
 public :: compute_div, triangle_mask, do_truncation, nnp1, spherical_wave
@@ -275,8 +275,6 @@ subroutine define_legendre(lepsilon,lspherical_wave)
     allocate(Hnm_wts(jlen_hem,nwaves_oe,2))
 
     call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
-
-    !call write_data('legeglob','lege', Pnm_global)
 
     do m = 0, num_fourier
         do n = 0, num_spherical-1

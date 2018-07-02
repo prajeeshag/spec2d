@@ -16,7 +16,7 @@ use fms_io_mod, only : write_data
 
 use spherical_mod, only : spherical_init, Pnm_wts, Pnm, Hnm, Hnm_wts, do_truncation
 
-use spherical_data_mod, only : ewlen4m, ews4m, ewe4m, owlen4m, ows4m, owe4m
+use spherical_data_mod, only : wlen4m, ws4m, we4m
 use spherical_data_mod, only : js, je, js_hem, je_hem, ms, me, nwaves_oe
 use spherical_data_mod, only : tshuffle, ne4m, ns4m, iseven
 use spherical_data_mod, only : init_spherical_data
@@ -74,16 +74,16 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
 
     if (deriv) then
         do m = ms, me
-            if(ewlen4m(m)<1) cycle
-            ews = ews4m(m); ewe = ewe4m(m)
+            if(wlen4m(m,ev)<1) cycle
+            ews = ws4m(m,ev); ewe = we4m(m,ev)
             call do_matmul(waves(ks:ke,ews:ewe,ev), &
                            Hnm(1:jlen_hem,ews:ewe,ev), &
                            even(ks:ke,js_hem:je_hem,m),'T')
         enddo
 
         do m = ms, me
-            if(owlen4m(m)<1) cycle
-            ows = ows4m(m); owe = owe4m(m)
+            if(wlen4m(m,od)<1) cycle
+            ows = ws4m(m,od); owe = we4m(m,od)
             call do_matmul(waves(ks:ke,ows:owe,od), &
                            Hnm(1:jlen_hem,ows:owe,od), &
                            odd(ks:ke,js_hem:je_hem,m),'T')
@@ -94,16 +94,16 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
 
     else
         do m = ms, me
-            if(ewlen4m(m)<1) cycle
-            ews = ews4m(m); ewe = ewe4m(m)
+            if(wlen4m(m,ev)<1) cycle
+            ews = ws4m(m,ev); ewe = we4m(m,ev)
             call do_matmul(waves(ks:ke,ews:ewe,ev), &
                            Pnm(1:jlen_hem,ews:ewe,ev), &
                            even(ks:ke,js_hem:je_hem,m),'T')
         enddo
 
         do m = ms, me
-            if(owlen4m(m)<1) cycle
-            ows = ows4m(m); owe = owe4m(m)
+            if(wlen4m(m,od)<1) cycle
+            ows = ws4m(m,od); owe = we4m(m,od)
             call do_matmul(waves(ks:ke,ows:owe,od), &
                            Pnm(1:jlen_hem,ows:owe,od), &
                            odd(ks:ke,js_hem:je_hem,m),'T')
@@ -146,16 +146,16 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
         even(ks:ke,js_hem:je_hem,ms:me) = fourier(ks:ke,js+1:je:2,ms:me) - fourier(ks:ke,js:je:2,ms:me) !
 
         do m = ms, me
-            if(ewlen4m(m)<1) cycle
-            ews = ews4m(m); ewe = ewe4m(m)
+            if(wlen4m(m,ev)<1) cycle
+            ews = ws4m(m,ev); ewe = we4m(m,ev)
             call do_matmul(even(ks:ke,js_hem:je_hem,m), &
                            Hnm_wts(1:jlen_hem,ews:ewe,ev), &
                            waves(ks:ke,ews:ewe,ev),'N')
         enddo
 
         do m = ms, me
-            if(owlen4m(m)<1) cycle
-            ows = ows4m(m); owe = owe4m(m)
+            if(wlen4m(m,od)<1) cycle
+            ows = ws4m(m,od); owe = we4m(m,od)
             call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
                            Hnm_wts(1:jlen_hem,ows:owe,od), &
                            waves(ks:ke,ows:owe,od),'N')
@@ -166,16 +166,16 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
         even(ks:ke,js_hem:je_hem,ms:me) = fourier(ks:ke,js+1:je:2,ms:me) + fourier(ks:ke,js:je:2,ms:me) ! 
 
         do m = ms, me
-            if(ewlen4m(m)<1) cycle
-            ews = ews4m(m); ewe = ewe4m(m)
+            if(wlen4m(m,ev)<1) cycle
+            ews = ws4m(m,ev); ewe = we4m(m,ev)
             call do_matmul(even(ks:ke,js_hem:je_hem,m), &
                            Pnm_wts(1:jlen_hem,ews:ewe,ev), &
                            waves(ks:ke,ews:ewe,ev),'N')
         enddo
 
         do m = ms, me
-            if(owlen4m(m)<1) cycle
-            ows = ows4m(m); owe = owe4m(m)
+            if(wlen4m(m,od)<1) cycle
+            ows = ws4m(m,od); owe = we4m(m,od)
             call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
                            Pnm_wts(1:jlen_hem,ows:owe,od), &
                            waves(ks:ke,ows:owe,od),'N')

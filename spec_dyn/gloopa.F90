@@ -15,7 +15,7 @@ program main
 
     use fms_io_mod, only : fms_io_exit 
 
-    use transforms_mod, only : read_specdatagfs, write_specdata, write_griddata
+    use transforms_mod, only : read_specdata, write_griddata
     use transforms_mod, only : compute_ucos_vcos, compute_vor_div
     use transforms_mod, only : spherical_to_grid, grid_to_spherical
     use transforms_mod, only : cosm2_lat, sin_lat, init_transforms
@@ -85,23 +85,13 @@ program main
     allocate(sucos(nlev,nwaves_oe,2))
     allocate(svcos(nlev,nwaves_oe,2))
 
-    allocate(satm(1)%vor(nlev,nwaves_oe,2))
-    allocate(satm(1)%div(nlev,nwaves_oe,2))
-    allocate(satm(1)%tem(nlev,nwaves_oe,2))
-    allocate(satm(1)%tr(nlev,nwaves_oe,2,ntrac))
-    allocate(satm(1)%prs(1,nwaves_oe,2))
-
-    allocate(satm(2)%vor(nlev,nwaves_oe,2))
-    allocate(satm(2)%div(nlev,nwaves_oe,2))
-    allocate(satm(2)%tem(nlev,nwaves_oe,2))
-    allocate(satm(2)%tr(nlev,nwaves_oe,2,ntrac))
-    allocate(satm(2)%prs(1,nwaves_oe,2))
-
-    allocate(satm(3)%vor(nlev,nwaves_oe,2))
-    allocate(satm(3)%div(nlev,nwaves_oe,2))
-    allocate(satm(3)%tem(nlev,nwaves_oe,2))
-    allocate(satm(3)%tr(nlev,nwaves_oe,2,ntrac))
-    allocate(satm(3)%prs(1,nwaves_oe,2))
+    do i = 1, 3
+        allocate(satm(i)%vor(nlev,nwaves_oe,2))
+        allocate(satm(i)%div(nlev,nwaves_oe,2))
+        allocate(satm(i)%tem(nlev,nwaves_oe,2))
+        allocate(satm(i)%tr(nlev,nwaves_oe,2,ntrac))
+        allocate(satm(i)%prs(1,nwaves_oe,2))
+    enddo
 
     allocate(stopo(1,nwaves_oe,2))
 
@@ -135,24 +125,24 @@ program main
     allocate(spdmax(nlev))
     spdmax = 0.
 
-    call read_specdatagfs('specdata','topo',stopo)
+    call read_specdata('specdata','topo',stopo)
 
-    call read_specdatagfs('specdata','lnp_1',satm(1)%prs)
-    call read_specdatagfs('specdata','lnp_2',satm(2)%prs)
+    call read_specdata('specdata','lnp_1',satm(1)%prs)
+    call read_specdata('specdata','lnp_2',satm(2)%prs)
 
-    call read_specdatagfs('specdata','vor_1',satm(1)%vor)
-    call read_specdatagfs('specdata','vor_2',satm(2)%vor)
+    call read_specdata('specdata','vor_1',satm(1)%vor)
+    call read_specdata('specdata','vor_2',satm(2)%vor)
 
-    call read_specdatagfs('specdata','div_1',satm(1)%div)
-    call read_specdatagfs('specdata','div_2',satm(2)%div)
+    call read_specdata('specdata','div_1',satm(1)%div)
+    call read_specdata('specdata','div_2',satm(2)%div)
 
-    call read_specdatagfs('specdata','tem_1',satm(1)%tem)
-    call read_specdatagfs('specdata','tem_2',satm(2)%tem)
+    call read_specdata('specdata','tem_1',satm(1)%tem)
+    call read_specdata('specdata','tem_2',satm(2)%tem)
 
     do ntr = 1, ntrac
         write(fldnm,'(A,I1)') 'tr',ntr
-        call read_specdatagfs('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
-        call read_specdatagfs('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
+        call read_specdata('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
+        call read_specdata('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
     enddo
 
     call compute_ucos_vcos(satm(2)%vor,satm(2)%div,sucos,svcos,do_trunc=.false.)
@@ -246,18 +236,6 @@ program main
     enddo
     satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
 
-    !call read_specdatagfs('specdata','lnp_1',satm(1)%prs)
-    !call read_specdatagfs('specdata','lnp_2',satm(2)%prs)
-    !call read_specdatagfs('specdata','lnp_3',satm(3)%prs)
-
-    !call read_specdatagfs('specdata','div_1',satm(1)%div)
-    !call read_specdatagfs('specdata','div_2',satm(2)%div)
-    !call read_specdatagfs('specdata','div_3',satm(3)%div)
-
-    !call read_specdatagfs('specdata','tem_1',satm(1)%tem)
-    !call read_specdatagfs('specdata','tem_2',satm(2)%tem)
-    !call read_specdatagfs('specdata','tem_3',satm(3)%tem)
-
     call spherical_to_grid(satm(3)%div,grid=div)
     call spherical_to_grid(satm(3)%tem,grid=tem)
     call spherical_to_grid(satm(3)%prs,grid=p)
@@ -270,10 +248,6 @@ program main
                      satm(2)%div, satm(2)%tem, satm(2)%prs, &
                      satm(3)%div, satm(3)%tem, satm(3)%prs, deltim)
 
-    call write_specdata('rgloopa','divdt',satm(3)%div)
-    call write_specdata('rgloopa','temdt',satm(3)%tem)
-    call write_specdata('rgloopa','prsdt',satm(3)%prs)
-
     call spherical_to_grid(satm(3)%div,grid=div)
     call spherical_to_grid(satm(3)%tem,grid=tem)
     call spherical_to_grid(satm(3)%prs,grid=p)
@@ -284,6 +258,5 @@ program main
 
     call fms_io_exit()
     call mpp_exit()
-
 
 end program main

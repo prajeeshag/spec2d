@@ -9,8 +9,8 @@
 
       integer :: i, j, k, m, n, nd, nwords, lpos, rpos, ioff, joff, from_pe, root_pe, tile_id
       integer :: ke, isc, iec, jsc, jec, is, ie, js, je, nword_me
-      integer :: ipos, jpos
-      logical :: xonly, yonly, root_only, global_on_this_pe, kxy
+      integer :: ipos, jpos, ig
+      logical :: xonly, yonly, root_only, global_on_this_pe, kxy, ishuff
       MPP_TYPE_ :: clocal ((domain%x(1)%compute%size+ishift) * (domain%y(1)%compute%size+jshift) * size(local,domain%kxy))
       MPP_TYPE_ :: cremote((domain%x(1)%compute%max_size+ishift) * (domain%y(1)%compute%max_size+jshift) * size(local,domain%kxy))
       integer :: stackuse
@@ -20,6 +20,7 @@
       pointer( ptr_remote, cremote )
 
 	  kxy = domain%kxy
+      ishuff = domain%ishuff
 
       stackuse = size(clocal(:))+size(cremote(:))
       if( stackuse.GT.mpp_domains_stack_size )then
@@ -141,10 +142,15 @@
 
          do j = jsc, jec
          	do i = isc, iec
+				ig = i
+				if (ishuff==1) then
+					ig = (i-1)/2 + 1
+					if (mod(i,2)==0) ig = size(global,2)-ig+1
+				endif
          	   do k = 1, ke
                   m = m + 1
                   clocal(m) = local(k,i+ioff,j+joff)
-                  global(k,i+ipos,j+jpos) = clocal(m) !always fill local domain directly
+                  global(k,ig+ipos,j+jpos) = clocal(m) !always fill local domain directly
                end do
             end do
          end do
@@ -184,9 +190,14 @@
              is = domain%list(rpos)%x(1)%compute%begin; ie = domain%list(rpos)%x(1)%compute%end+ishift
              do j = jsc, jec
              	do i = is, ie
+					ig = i
+					if (ishuff==1) then
+						ig = (i-1)/2 + 1
+						if (mod(i,2)==0) ig = size(global,2)-ig+1
+					endif
              		do k = 1, ke
                       m = m + 1
-                      global(k,i,j+jpos) = cremote(m)
+                      global(k,ig,j+jpos) = cremote(m)
                    end do
                 end do
              end do
@@ -208,9 +219,14 @@
              js = domain%list(rpos)%y(1)%compute%begin; je = domain%list(rpos)%y(1)%compute%end+jshift
              do j = js, je
              	do i = isc, iec
+					ig = i
+					if (ishuff==1) then
+						ig = (i-1)/2 + 1
+						if (mod(i,2)==0) ig = size(global,2)-ig+1
+					endif
              		do k = 1,ke
                       m = m + 1
-                      global(k,i+ipos,j) = cremote(m)
+                      global(k,ig+ipos,j) = cremote(m)
                    end do
                 end do
              end do
@@ -234,9 +250,14 @@
 
                   do j = js, je
                   	do i = is, ie
+						ig = i
+						if (ishuff==1) then
+							ig = (i-1)/2 + 1
+							if (mod(i,2)==0) ig = size(global,2)-ig+1
+						endif
                   		do k = 1,ke
                            m = m + 1
-                           global(k,i,j) = cremote(m)
+                           global(k,ig,j) = cremote(m)
                         end do
                      end do
                   end do
@@ -259,9 +280,14 @@
 
                do j = js, je
                	  do i = is, ie
+					ig = i
+					if (ishuff==1) then
+						ig = (i-1)/2 + 1
+						if (mod(i,2)==0) ig = size(global,2)-ig+1
+					endif
                		 do k = 1, ke
                         m = m + 1
-                        global(k,i,j) = cremote(m)
+                        global(k,ig,j) = cremote(m)
                      end do
                   end do
                end do
@@ -269,7 +295,7 @@
          endif
       end if
 
-	else
+	else !kxy=3
 ! make contiguous array from compute domain
       m = 0
       if(global_on_this_pe) then

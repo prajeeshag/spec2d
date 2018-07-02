@@ -805,7 +805,7 @@ subroutine write_data_3d_new(filename, fieldname, data, domain, no_domain, scala
   endif
 
   kxy = 3
-  if(ASSOCIATED(d_ptr)) kxy = d_ptr%kxy
+  if(ASSOCIATED(d_ptr)) call mpp_get_compute_domain(d_ptr,kxy=kxy)
 
   !--- remove .nc from file name
   length = len_trim(filename)

@@ -1,7 +1,7 @@
 module spherical_data_mod
 
 use mpp_mod, only : mpp_error, FATAL, WARNING, NOTE, mpp_init, mpp_pe
-use mpp_mod, only : mpp_root_pe
+use mpp_mod, only : mpp_root_pe, mpp_sync
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_layout
 
@@ -14,7 +14,7 @@ use fms_io_mod, only : write_data
 implicit none
 private
 
-public :: init_spherical_data
+public :: init_spherical_data, get_wdecomp
 
 integer, public :: num_fourier
 integer, public :: num_spherical
@@ -31,18 +31,17 @@ integer, public, allocatable :: ne4m(:) ! Ending of spherical for a particulat f
 integer, public, allocatable :: nlen4m(:) ! number of spherical for a particular fourier
                                   !(Constant in case of rhomboidal truncation)
 
-integer, public :: nwaves !Total number of spectral waves (local)
+integer :: nwaves !Total number of waves
 integer, public :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
 integer, public :: noddwaves, nevenwaves
+integer :: noddwaves_g, nevenwaves_g, nwaves_oe_g
 
 logical, public, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
 
-integer, public, allocatable :: ws4m(:), we4m(:), wlen4m(:) !starting and ending index of 
-                                                            !waves for a particular m
-integer, public, allocatable :: ews4m(:), ewe4m(:), ewlen4m(:) !starting and ending index of 
-                                                               !even waves for a particular m
-integer, public, allocatable :: ows4m(:), owe4m(:), owlen4m(:) !starting and ending index of 
-                                                               !odd waves for a particular m
+integer, public, allocatable :: ws4m(:,:), we4m(:,:), wlen4m(:,:) !starting and ending index of 
+                                                                  !even & odd waves for a particular m
+integer, allocatable :: wdecomp(:,:)
+
 integer, public, allocatable :: tshuffle(:)
 
 logical :: debug
@@ -51,16 +50,32 @@ integer, parameter, public :: ev=1, od=2
 
 contains
 
+!--------------------------------------------------------------------------------   
+subroutine get_wdecomp(wdom,neven_global,nodd_global)
+!--------------------------------------------------------------------------------
+    integer, intent(out) :: wdom(:,:)
+    integer, intent(out), optional :: neven_global, nodd_global
+    
+    wdom(:,:) = wdecomp(:,:)
+
+    if (present(neven_global)) neven_global = nevenwaves_g
+    if (present(nodd_global)) nodd_global = noddwaves_g
+end subroutine get_wdecomp
+
 !------------------------------------------------------------------------------
 subroutine init_spherical_data(trunc_in, nlat_in, &
                 nwaves_oe_out, domain_fourier_in, tshuffle_in)
 !------------------------------------------------------------------------------
+    implicit none
     integer, intent(in) :: trunc_in, nlat_in
     type(domain2d), optional :: domain_fourier_in
     integer, optional :: tshuffle_in(0:)
     integer, intent(out) :: nwaves_oe_out
 
     integer :: m, w, n, unit, iostat, neadj
+    integer :: nsf4m(0:trunc_in), nef4m(0:trunc_in), nlenf4m(0:trunc_in)
+    integer, allocatable :: wsf4m(:,:), wef4m(:,:), wlenf4m(:,:)
+    integer :: we, wo
     character (len=8) :: suffix
 
     namelist/spherical_nml/debug
@@ -110,18 +125,65 @@ subroutine init_spherical_data(trunc_in, nlat_in, &
         forall(m=ms:me) tshuffle(m) = m
     endif
 
+    allocate(wsf4m(0:num_fourier,2))
+    allocate(wef4m(0:num_fourier,2))
+    allocate(wlenf4m(0:num_fourier,2))
+
+
+!--------------------------------------------------------------------------------   
+    !global domain
+
+    nsf4m(:) = 0
+    do m = 0, num_fourier
+       neadj = num_fourier + 1 - m
+       nef4m(m) = neadj
+    enddo 
+
+    nlenf4m(:) = nef4m - nsf4m + 1
+
+    nwaves = 0; noddwaves = 0; nevenwaves = 0
+
+    do m = 0, num_fourier
+        nwaves = nwaves + nlenf4m(m)
+    enddo
+    
+    do m = 0, num_fourier
+        do n = nsf4m(m), nef4m(m)
+            if (mod(n,2)==0) then
+                nevenwaves = nevenwaves + 1
+            else
+                noddwaves = noddwaves + 1
+            endif 
+        enddo
+        wef4m(m,ev) = nevenwaves
+        wef4m(m,od) = noddwaves 
+    enddo
+
+    if (noddwaves==nevenwaves) call mpp_error('init_spherical_data', 'global noddwaves==nevenwaves', FATAL)
+
+    nevenwaves_g = nevenwaves
+    noddwaves_g = noddwaves
+    nwaves_oe_g = max(nevenwaves,noddwaves)
+    
+    wsf4m(0,:) = 1
+    
+    do m = 1, num_fourier
+        wsf4m(m,:) = wef4m(m-1,:)+1
+    enddo
+
+    wlenf4m(:,:) = wef4m(:,:) - wsf4m(:,:) + 1
+
+   nwaves = 0; noddwaves = 0; nevenwaves = 0
+   !--------------------------------------------------------------------------------   
+    !local
+
     allocate(ns4m(ms:me))
     allocate(ne4m(ms:me))
     allocate(nlen4m(ms:me))
-    allocate(ws4m(ms:me))
-    allocate(we4m(ms:me))
-    allocate(wlen4m(ms:me))
-    allocate(ews4m(ms:me))
-    allocate(ewe4m(ms:me))
-    allocate(ewlen4m(ms:me))
-    allocate(ows4m(ms:me))
-    allocate(owe4m(ms:me))
-    allocate(owlen4m(ms:me))
+
+    allocate(ws4m(ms:me,2))
+    allocate(we4m(ms:me,2))
+    allocate(wlen4m(ms:me,2))
 
     ns4m(:) = 0
     do m = ms, me
@@ -136,7 +198,6 @@ subroutine init_spherical_data(trunc_in, nlat_in, &
 
     do m = ms, me
         nwaves = nwaves + nlen4m(m)
-        we4m(m) = nwaves
     enddo
     
     allocate(iseven(nwaves))
@@ -154,40 +215,60 @@ subroutine init_spherical_data(trunc_in, nlat_in, &
                 iseven(w) = .false.
             endif 
         enddo
-        ewe4m(m) = nevenwaves
-        owe4m(m) = noddwaves 
+        we4m(m,ev) = nevenwaves
+        we4m(m,od) = noddwaves 
     enddo
 
-    !if (noddwaves/=nevenwaves) call mpp_error('init_spherical_data', 'noddwaves/=nevenwaves', FATAL)
+    if (noddwaves/=nevenwaves) call mpp_error('init_spherical_data', 'noddwaves/=nevenwaves', FATAL)
     nwaves_oe = max(noddwaves,nevenwaves)
     
     nwaves_oe_out = nwaves_oe
 
-    ws4m(ms) = 1
-    ews4m(ms) = 1
-    ows4m(ms) = 1
+    ws4m(ms,ev) = 1
+    ws4m(ms,od) = 1
     
     do m = ms+1, me
-        ws4m(m) = we4m(m-1)+1
-        ews4m(m) = ewe4m(m-1)+1
-        ows4m(m) = owe4m(m-1)+1
+        ws4m(m,ev) = we4m(m-1,ev)+1
+        ws4m(m,od) = we4m(m-1,od)+1
     enddo
 
-    wlen4m(:) = we4m(:) - ws4m(:) + 1
-    ewlen4m(:) = ewe4m(:) - ews4m(:) + 1
-    owlen4m(:) = owe4m(:) - ows4m(:) + 1
+    wlen4m(:,ev) = we4m(:,ev) - ws4m(:,ev) + 1
+    wlen4m(:,od) = we4m(:,od) - ws4m(:,od) + 1
+
+    allocate(wdecomp(nwaves_oe,2))
+
+    we = 0
+    wo = 0
+    wdecomp = 0
+    do m = ms, me
+        do n = 1, wlen4m(m,ev)
+            we=we+1
+            if(n<=wlenf4m(tshuffle(m),ev)) then
+                wdecomp(we,ev) = wsf4m(tshuffle(m),ev) + n - 1
+            endif
+        enddo
+        do n = 1, wlen4m(m,od)
+            wo=wo+1
+            if(n<=wlenf4m(tshuffle(m),od)) then
+                wdecomp(wo,od) = wsf4m(tshuffle(m),od) + n - 1
+            endif
+        enddo
+    enddo
 
     if (debug) then
-        print *, 'ews4m=', ews4m 
-        print *, 'ows4m=', ows4m 
-        print *, 'ewlen4m=', ewlen4m 
-        print *, 'owlen4m=', owlen4m 
+        print *, 'ws4m=', ws4m 
+        print *, 'wlen4m=', wlen4m 
         write(suffix,'(I4.4)') mpp_pe()
         print *, 'debug from fourier_spherical, pe= ', trim(suffix)
         print *, 'pe, noddwaves, nevenwaves =', mpp_pe(), noddwaves, nevenwaves
         print *, 'pe, ns4m(:)=', ns4m(:)
         print *, 'pe, ne4m(:)=', ne4m(:)
+
+        !print *, 'pe, wdecomp(:,ev)=', wdecomp(:,ev)
+        !print *, 'pe, wdecomp(:,od)=', wdecomp(:,od)
     endif
+
+    deallocate(wlenf4m,wsf4m,wef4m)
 
 end subroutine init_spherical_data
 
