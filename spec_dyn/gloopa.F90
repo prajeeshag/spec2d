@@ -1,283 +1,307 @@
 
+!module spectral_dynamics_mod
+
 program main
 
-    use, intrinsic :: iso_c_binding
+use, intrinsic :: iso_c_binding
 
-    use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
-    use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
-    use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
-    use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
-    use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
+use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
+use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
+use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
+use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
+use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
 
-    use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
+use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
-    use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
+use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
 
-    use fms_io_mod, only : fms_io_exit 
+use fms_io_mod, only : fms_io_exit 
 
-    use transforms_mod, only : read_specdata, get_spherical_wave
-    use transforms_mod, only : compute_ucos_vcos, compute_vor_div
-    use transforms_mod, only : spherical_to_grid, grid_to_spherical
-    use transforms_mod, only : cosm2_lat, sin_lat, init_transforms
+use transforms_mod, only : read_specdata, get_spherical_wave
+use transforms_mod, only : compute_ucos_vcos, compute_vor_div
+use transforms_mod, only : spherical_to_grid, grid_to_spherical
+use transforms_mod, only : cosm2_lat, sin_lat, init_transforms
 
-    use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
+use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
 
-    use implicit_mod, only : init_implicit, do_implicit
+use implicit_mod, only : init_implicit, do_implicit
 
-    use gfidi_mod, only : gfidi_drv
+use gfidi_mod, only : gfidi_drv
+
+use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
+
+implicit none
+!private
+
+type satm_type
+    complex, dimension(:,:,:),   allocatable :: vor
+    complex, dimension(:,:,:),   allocatable :: div
+    complex, dimension(:,:,:),   allocatable :: tem
+    complex, dimension(:,:,:,:), allocatable :: tr
+    complex, dimension(:,:,:),   allocatable :: prs
+    integer :: ntrac = 0
+end type satm_type
+
+type(satm_type) :: satm(3)
+
+type gatm_type
+    real, dimension(:,:,:),   allocatable :: u
+    real, dimension(:,:,:),   allocatable :: v
+    real, dimension(:,:,:),   allocatable :: tem
+    real, dimension(:,:,:,:), allocatable :: tr
+    real, dimension(:,:,:),   allocatable :: prs
+    integer :: ntrac = 0
+end type gatm_type
+
+type(gatm_type) :: gatm(2), dphi, dlam, dt
+
+complex, dimension(:,:,:),   allocatable :: sucos, svcos
+complex, dimension(:,:,:),   allocatable :: stopo
+real, allocatable, dimension(:,:,:) :: div, vor
+real, allocatable, dimension(:,:) :: gtopo
+
+real, allocatable, dimension(:) :: spdmax
+
+integer :: nlon, nlat, nlev
+  
+integer :: nwaves_oe=0
     
-    use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
+integer :: isc, iec, ilen, i, k
+integer :: jsc, jec, jlen, j
+integer :: unit, trunc
+integer :: pe, ntrac=3, ntr
+real :: deltim=600., ref_temp
+real :: filta = 0.85 
+character(len=16) :: rfile='gloopa', wfile='rgloopa'
+character(len=8) :: fldnm
 
-    implicit none
+type(domain2d) :: domain_g
 
-    type satm_type
-        complex, dimension(:,:,:),   allocatable :: vor
-        complex, dimension(:,:,:),   allocatable :: div
-        complex, dimension(:,:,:),   allocatable :: tem
-        complex, dimension(:,:,:,:), allocatable :: tr
-        complex, dimension(:,:,:),   allocatable :: prs
-    end type satm_type
+real, allocatable :: ak(:), bk(:), sl(:)
+integer, allocatable :: sph_wave(:,:)
 
-    type(satm_type) :: satm(3)
-
-    complex, dimension(:,:,:),   allocatable :: sucos, svcos
-    complex, dimension(:,:,:),   allocatable :: stopo
+namelist/gloopa_nml/ trunc, nlon, nlat, nlev, deltim
 
-    real, allocatable, dimension(:,:,:) :: p, dpdphi, dpdlam, dpdt
-    real, allocatable, dimension(:,:,:) :: u, dudphi, dudlam, dudt
-    real, allocatable, dimension(:,:,:) :: v, dvdphi, dvdlam, dvdt
-    real, allocatable, dimension(:,:,:) :: tem, dtemdphi, dtemdlam, dtemdt
-    real, allocatable, dimension(:,:,:,:) :: tr, dtrdphi, dtrdlam, dtrdt
-    real, allocatable, dimension(:,:,:) :: div, vor
+call mpp_init()
+call fms_init()
 
-    real, allocatable, dimension(:) :: spdmax
+unit = open_namelist_file()
+read(unit,nml=gloopa_nml)
+call close_file(unit)
 
-    integer :: nlon, nlat, nlev
-      
-    integer :: nwaves_oe=0
-        
-    integer :: isc, iec, ilen, i, k
-    integer :: jsc, jec, jlen, j
-    integer :: unit, trunc
-    integer :: pe, ntrac=3, ntr
-    real :: deltim=600., ref_temp
-    character(len=16) :: rfile='gloopa', wfile='rgloopa'
-    character(len=8) :: fldnm
-    type(domain2d) :: domain_g
+call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domain_g, kxy=1, ishuff=1)
+call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
+ilen = iec-isc+1
+jlen = jec-jsc+1
 
-    real, allocatable :: ak(:), bk(:), sl(:)
-    integer, allocatable :: sph_wave(:,:)
+call init_transforms(domain_g,trunc,nwaves_oe)
+jlen = jec-jsc+1
+ilen = iec-isc+1
 
-    namelist/gloopa_nml/ trunc, nlon, nlat, nlev, deltim
+call init_vertical_levels(nlev)
 
-    call mpp_init()
-    call fms_init()
+allocate(ak(nlev+1),bk(nlev+1),sl(nlev))
 
-    unit = open_namelist_file()
-    read(unit,nml=gloopa_nml)
-    call close_file(unit)
+allocate(sph_wave(nwaves_oe,2))
 
-    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domain_g, kxy=1, ishuff=1)
-    call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
-    ilen = iec-isc+1
-    jlen = jec-jsc+1
+call get_ak_bk(ak_out=ak,bk_out=bk,sl_out=sl)
+call get_spherical_wave(sph_wave)
 
-    call init_transforms(domain_g,trunc,nwaves_oe)
-    jlen = jec-jsc+1
-    ilen = iec-isc+1
+ref_temp = 300.
+if (nlev>100) ref_temp=1500.
 
-    call init_vertical_levels(nlev)
+call init_implicit(ak,bk,ref_temp,deltim,trunc)
 
-    allocate(ak(nlev+1),bk(nlev+1),sl(nlev))
+call init_horiz_diffusion(trunc,deltim,sl,sph_wave,bk)
 
-    allocate(sph_wave(nwaves_oe,2))
+allocate(sucos(nlev,nwaves_oe,2))
+allocate(svcos(nlev,nwaves_oe,2))
 
-    call get_ak_bk(ak_out=ak,bk_out=bk,sl_out=sl)
-    call get_spherical_wave(sph_wave)
+do i = 1, 3
+    allocate(satm(i)%vor(nlev,nwaves_oe,2))
+    allocate(satm(i)%div(nlev,nwaves_oe,2))
+    allocate(satm(i)%tem(nlev,nwaves_oe,2))
+    allocate(satm(i)%tr(nlev,nwaves_oe,2,ntrac))
+    allocate(satm(i)%prs(1,nwaves_oe,2))
+enddo
 
-    ref_temp = 300.
-    if (nlev>100) ref_temp=1500.
+allocate(stopo(1,nwaves_oe,2))
 
-    call init_implicit(ak,bk,ref_temp,deltim,trunc)
+do i = 1, 2
+    allocate(gatm(i)%u(nlev,jsc:jec,isc:iec))
+    allocate(gatm(i)%v(nlev,jsc:jec,isc:iec))
+    allocate(gatm(i)%tem(nlev,jsc:jec,isc:iec))
+    allocate(gatm(i)%tr(nlev,jsc:jec,isc:iec,ntrac))
+    allocate(gatm(i)%prs(1,jsc:jec,isc:iec))
+enddo
 
-    call init_horiz_diffusion(trunc,deltim,sl,sph_wave,bk)
+allocate(dphi%u(nlev,jsc:jec,isc:iec))
+allocate(dphi%v(nlev,jsc:jec,isc:iec))
+allocate(dphi%tem(nlev,jsc:jec,isc:iec))
+allocate(dphi%tr(nlev,jsc:jec,isc:iec,ntrac))
+allocate(dphi%prs(1,jsc:jec,isc:iec))
 
-    allocate(sucos(nlev,nwaves_oe,2))
-    allocate(svcos(nlev,nwaves_oe,2))
+allocate(dlam%u(nlev,jsc:jec,isc:iec))
+allocate(dlam%v(nlev,jsc:jec,isc:iec))
+allocate(dlam%tem(nlev,jsc:jec,isc:iec))
+allocate(dlam%tr(nlev,jsc:jec,isc:iec,ntrac))
+allocate(dlam%prs(1,jsc:jec,isc:iec))
 
-    do i = 1, 3
-        allocate(satm(i)%vor(nlev,nwaves_oe,2))
-        allocate(satm(i)%div(nlev,nwaves_oe,2))
-        allocate(satm(i)%tem(nlev,nwaves_oe,2))
-        allocate(satm(i)%tr(nlev,nwaves_oe,2,ntrac))
-        allocate(satm(i)%prs(1,nwaves_oe,2))
-    enddo
+allocate(dt%u(nlev,jsc:jec,isc:iec))
+allocate(dt%v(nlev,jsc:jec,isc:iec))
+allocate(dt%tem(nlev,jsc:jec,isc:iec))
+allocate(dt%tr(nlev,jsc:jec,isc:iec,ntrac))
+allocate(dt%prs(1,jsc:jec,isc:iec))
 
-    allocate(stopo(1,nwaves_oe,2))
+allocate(div(nlev,jsc:jec,isc:iec))
+allocate(vor(nlev,jsc:jec,isc:iec))
+allocate(spdmax(nlev))
+spdmax = 0.
 
-    allocate(u(nlev,jsc:jec,isc:iec))
-    allocate(dudlam(nlev,jsc:jec,isc:iec))
-    allocate(dudphi(nlev,jsc:jec,isc:iec))
-    allocate(dudt(nlev,jsc:jec,isc:iec))
+call read_specdata('specdata','topo',stopo)
 
-    allocate(p(1,jsc:jec,isc:iec))
-    allocate(dpdlam(1,jsc:jec,isc:iec))
-    allocate(dpdphi(1,jsc:jec,isc:iec))
-    allocate(dpdt(1,jsc:jec,isc:iec))
+call read_specdata('specdata','lnp_1',satm(1)%prs)
+call read_specdata('specdata','lnp_2',satm(2)%prs)
 
-    allocate(v(nlev,jsc:jec,isc:iec))
-    allocate(dvdlam(nlev,jsc:jec,isc:iec))
-    allocate(dvdphi(nlev,jsc:jec,isc:iec))
-    allocate(dvdt(nlev,jsc:jec,isc:iec))
+call read_specdata('specdata','vor_1',satm(1)%vor)
+call read_specdata('specdata','vor_2',satm(2)%vor)
 
-    allocate(tem(nlev,jsc:jec,isc:iec))
-    allocate(dtemdlam(nlev,jsc:jec,isc:iec))
-    allocate(dtemdphi(nlev,jsc:jec,isc:iec))
-    allocate(dtemdt(nlev,jsc:jec,isc:iec))
+call read_specdata('specdata','div_1',satm(1)%div)
+call read_specdata('specdata','div_2',satm(2)%div)
 
-    allocate(tr(nlev,jsc:jec,isc:iec,ntrac))
-    allocate(dtrdlam(nlev,jsc:jec,isc:iec,ntrac))
-    allocate(dtrdphi(nlev,jsc:jec,isc:iec,ntrac))
-    allocate(dtrdt(nlev,jsc:jec,isc:iec,ntrac))
+call read_specdata('specdata','tem_1',satm(1)%tem)
+call read_specdata('specdata','tem_2',satm(2)%tem)
 
-    allocate(div(nlev,jsc:jec,isc:iec))
-    allocate(vor(nlev,jsc:jec,isc:iec))
-    allocate(spdmax(nlev))
-    spdmax = 0.
+do ntr = 1, ntrac
+    write(fldnm,'(A,I1)') 'tr',ntr
+    call read_specdata('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
+    call read_specdata('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
+enddo
 
-    call read_specdata('specdata','topo',stopo)
+call compute_ucos_vcos(satm(2)%vor,satm(2)%div,sucos,svcos,do_trunc=.false.)
 
-    call read_specdata('specdata','lnp_1',satm(1)%prs)
-    call read_specdata('specdata','lnp_2',satm(2)%prs)
+call spherical_to_grid(satm(2)%div,grid=div)
 
-    call read_specdata('specdata','vor_1',satm(1)%vor)
-    call read_specdata('specdata','vor_2',satm(2)%vor)
+call spherical_to_grid(satm(2)%vor,grid=vor)
 
-    call read_specdata('specdata','div_1',satm(1)%div)
-    call read_specdata('specdata','div_2',satm(2)%div)
+call spherical_to_grid(sucos,grid=gatm(1)%u,lon_deriv=dlam%u)
 
-    call read_specdata('specdata','tem_1',satm(1)%tem)
-    call read_specdata('specdata','tem_2',satm(2)%tem)
+call spherical_to_grid(svcos,grid=gatm(1)%v,lon_deriv=dlam%v)
 
-    do ntr = 1, ntrac
-        write(fldnm,'(A,I1)') 'tr',ntr
-        call read_specdata('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
-        call read_specdata('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
-    enddo
+call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
 
-    call compute_ucos_vcos(satm(2)%vor,satm(2)%div,sucos,svcos,do_trunc=.false.)
+call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
 
-    call spherical_to_grid(satm(2)%div,grid=div)
+do ntr = 1, ntrac
+    call spherical_to_grid(satm(2)%tr(:,:,:,ntr),grid=gatm(1)%tr(:,:,:,ntr), &
+        lat_deriv=dphi%tr(:,:,:,ntr),lon_deriv=dlam%tr(:,:,:,ntr))
+enddo
 
-    call spherical_to_grid(satm(2)%vor,grid=vor)
+do j = jsc, jec
+    dphi%tem(:,j,:) = dphi%tem(:,j,:) * cosm2_lat(j)
+    dphi%tr(:,j,:,:) = dphi%tr(:,j,:,:) * cosm2_lat(j)
 
-    call spherical_to_grid(sucos,grid=u,lon_deriv=dudlam)
+    dlam%tem(:,j,:) = dlam%tem(:,j,:) * cosm2_lat(j)
+    dlam%tr(:,j,:,:) = dlam%tr(:,j,:,:) * cosm2_lat(j)
 
-    call spherical_to_grid(svcos,grid=v,lon_deriv=dvdlam)
+    dlam%u(:,j,:) = dlam%u(:,j,:) * cosm2_lat(j)
+    dlam%v(:,j,:) = dlam%v(:,j,:) * cosm2_lat(j)
+enddo
 
-    call spherical_to_grid(satm(2)%prs,grid=p,lat_deriv=dpdphi,lon_deriv=dpdlam)
+dphi%u = dlam%v - vor
+dphi%v = div - dlam%u
 
-    call spherical_to_grid(satm(2)%tem,grid=tem,lat_deriv=dtemdphi,lon_deriv=dtemdlam)
+call gfidi_drv(nlev, ntrac, ilen, jlen, deltim, sin_lat(jsc:jec), cosm2_lat(jsc:jec), &
+        div, gatm(1)%tem, gatm(1)%u, gatm(1)%v, gatm(1)%tr, dphi%prs, dlam%prs, gatm(1)%prs, &
+        dphi%tem, dlam%tem, dphi%tr, dlam%tr, dlam%u, dlam%v, dphi%u, dphi%v, &
+        dt%prs, dt%tem, dt%tr, dt%u, dt%v, spdmax)
 
-    do ntr = 1, ntrac
-        call spherical_to_grid(satm(2)%tr(:,:,:,ntr),grid=tr(:,:,:,ntr), &
-            lat_deriv=dtrdphi(:,:,:,ntr),lon_deriv=dtrdlam(:,:,:,ntr))
-    enddo
+call write_data('rgloopa','div',div,domain_g)
+call write_data('rgloopa','vor',vor,domain_g)
 
-    do j = jsc, jec
-        dtemdphi(:,j,:) = dtemdphi(:,j,:) * cosm2_lat(j)
-        dtrdphi(:,j,:,:) = dtrdphi(:,j,:,:) * cosm2_lat(j)
+call write_data('rgloopa','dudt',dt%u,domain_g)
+call write_data('rgloopa','dudphi',dphi%u,domain_g)
+call write_data('rgloopa','dudlam',dlam%u,domain_g)
+call write_data('rgloopa','u',gatm(1)%u,domain_g)
 
-        dtemdlam(:,j,:) = dtemdlam(:,j,:) * cosm2_lat(j)
-        dtrdlam(:,j,:,:) = dtrdlam(:,j,:,:) * cosm2_lat(j)
+call write_data('rgloopa','dvdt',dt%v,domain_g)
+call write_data('rgloopa','dvdphi',dphi%v,domain_g)
+call write_data('rgloopa','dvdlam',dlam%v,domain_g)
+call write_data('rgloopa','v',gatm(1)%v,domain_g)
 
-        dudlam(:,j,:) = dudlam(:,j,:) * cosm2_lat(j)
-        dvdlam(:,j,:) = dvdlam(:,j,:) * cosm2_lat(j)
-    enddo
+call write_data('rgloopa','dpdt',dt%prs,domain_g)
+call write_data('rgloopa','dpdphi',dphi%prs,domain_g)
+call write_data('rgloopa','dpdlam',dlam%prs,domain_g)
+call write_data('rgloopa','p',gatm(1)%prs,domain_g)
 
-    dudphi = dvdlam - vor
-    dvdphi = div - dudlam
+call write_data('rgloopa','dtemdt',dt%tem,domain_g)
+call write_data('rgloopa','dtemdphi',dphi%tem,domain_g)
+call write_data('rgloopa','dtemdlam',dlam%tem,domain_g)
+call write_data('rgloopa','tem',gatm(1)%tem,domain_g)
 
-    call gfidi_drv(nlev, ntrac, ilen, jlen, deltim, sin_lat(jsc:jec), cosm2_lat(jsc:jec), &
-            div, tem, u, v, tr, dpdphi, dpdlam, p, dtemdphi, dtemdlam, dtrdphi, &
-            dtrdlam, dudlam, dvdlam, dudphi, dvdphi, dpdt, dtemdt, dtrdt, dudt, dvdt, spdmax)
+do ntr = 1, ntrac
+    write(fldnm,'(A,I2.2)') 'tr',ntr
+    call write_data('rgloopa','d'//trim(fldnm)//'dt',dt%tr(:,:,:,ntr),domain_g)
+    call write_data('rgloopa','d'//trim(fldnm)//'dphi',dphi%tr(:,:,:,ntr),domain_g)
+    call write_data('rgloopa','d'//trim(fldnm)//'dlam',dlam%tr(:,:,:,ntr),domain_g)
+    call write_data('rgloopa',trim(fldnm),gatm(1)%tr(:,:,:,ntr),domain_g)
+enddo
 
-    call write_data('rgloopa','div',div,domain_g)
-    call write_data('rgloopa','vor',vor,domain_g)
+call grid_to_spherical(dt%prs, satm(3)%prs, do_trunc=.true.)
+call grid_to_spherical(dt%tem, satm(3)%tem, do_trunc=.true.)
+call grid_to_spherical(dt%u, sucos, do_trunc=.false.)
+call grid_to_spherical(dt%v, svcos, do_trunc=.false.)
 
-    call write_data('rgloopa','dudt',dudt,domain_g)
-    call write_data('rgloopa','dudphi',dudphi,domain_g)
-    call write_data('rgloopa','dudlam',dudlam,domain_g)
-    call write_data('rgloopa','u',u,domain_g)
+do ntr = 1, ntrac
+    call grid_to_spherical(dt%tr(:,:,:,ntr),satm(3)%tr(:,:,:,ntr),do_trunc=.true.)
+enddo
 
-    call write_data('rgloopa','dvdt',dvdt,domain_g)
-    call write_data('rgloopa','dvdphi',dvdphi,domain_g)
-    call write_data('rgloopa','dvdlam',dvdlam,domain_g)
-    call write_data('rgloopa','v',v,domain_g)
+call compute_vor_div(sucos,svcos,satm(3)%vor,satm(3)%div)
 
-    call write_data('rgloopa','dpdt',dpdt,domain_g)
-    call write_data('rgloopa','dpdphi',dpdphi,domain_g)
-    call write_data('rgloopa','dpdlam',dpdlam,domain_g)
-    call write_data('rgloopa','p',p,domain_g)
+satm(3)%vor = satm(1)%vor + 2.*deltim*satm(3)%vor
+satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
+do k = 1, size(satm(3)%div,1)
+    satm(3)%div(k,:,:) = satm(3)%div(k,:,:) + stopo(1,:,:)
+enddo
+satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
 
-    call write_data('rgloopa','dtemdt',dtemdt,domain_g)
-    call write_data('rgloopa','dtemdphi',dtemdphi,domain_g)
-    call write_data('rgloopa','dtemdlam',dtemdlam,domain_g)
-    call write_data('rgloopa','tem',tem,domain_g)
+call do_implicit(satm(1)%div, satm(1)%tem, satm(1)%prs, &
+                 satm(2)%div, satm(2)%tem, satm(2)%prs, &
+                 satm(3)%div, satm(3)%tem, satm(3)%prs, deltim)
 
-    do ntr = 1, ntrac
-        write(fldnm,'(A,I2.2)') 'tr',ntr
-        call write_data('rgloopa','d'//trim(fldnm)//'dt',dtrdt(:,:,:,ntr),domain_g)
-        call write_data('rgloopa','d'//trim(fldnm)//'dphi',dtrdphi(:,:,:,ntr),domain_g)
-        call write_data('rgloopa','d'//trim(fldnm)//'dlam',dtrdlam(:,:,:,ntr),domain_g)
-        call write_data('rgloopa',trim(fldnm),tr(:,:,:,ntr),domain_g)
-    enddo
+call horiz_diffusion(satm(3)%tr,satm(3)%vor,satm(3)%div,satm(3)%tem,satm(1)%prs(1,:,:))
 
-    call grid_to_spherical(dpdt, satm(3)%prs, do_trunc=.true.)
-    call grid_to_spherical(dtemdt, satm(3)%tem, do_trunc=.true.)
-    call grid_to_spherical(dudt, sucos, do_trunc=.false.)
-    call grid_to_spherical(dvdt, svcos, do_trunc=.false.)
+call time_filter1()
 
-    do ntr = 1, ntrac
-        call grid_to_spherical(dtrdt(:,:,:,ntr),satm(3)%tr(:,:,:,ntr),do_trunc=.true.)
-    enddo
+call spherical_to_grid(satm(3)%div,grid=div)
+call spherical_to_grid(satm(3)%tem,grid=gatm(2)%tem)
+call spherical_to_grid(satm(3)%prs,grid=gatm(2)%prs)
 
-    call compute_vor_div(sucos,svcos,satm(3)%vor,satm(3)%div)
+call write_data('rgloopa','divdt',div,domain_g)
+call write_data('rgloopa','temdt',gatm(2)%tem,domain_g)
+call write_data('rgloopa','prsdt',gatm(2)%prs,domain_g)
 
-    call spherical_to_grid(satm(3)%div,grid=div)
+call fms_io_exit()
+call mpp_exit()
 
-    call write_data('rgloopa','divdt2',div,domain_g)
+contains
 
-    satm(3)%vor = satm(1)%vor + 2.*deltim*satm(3)%vor
-    satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
-    do k = 1, size(satm(3)%div,1)
-        satm(3)%div(k,:,:) = satm(3)%div(k,:,:) + stopo(1,:,:)
-    enddo
-    satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
+!--------------------------------------------------------------------------------   
+subroutine time_filter1()
+!--------------------------------------------------------------------------------   
+    real :: filtb
 
-    call spherical_to_grid(satm(3)%div,grid=div)
-    call spherical_to_grid(satm(3)%tem,grid=tem)
-    call spherical_to_grid(satm(3)%prs,grid=p)
+    filtb = (1.-filta)*0.5
 
-    call write_data('rgloopa','divdt1',div,domain_g)
-    call write_data('rgloopa','temdt1',tem,domain_g)
-    call write_data('rgloopa','prsdt1',p,domain_g)
+    satm(1)%tem = filtb * satm(1)%tem + filta * satm(2)%tem
+    satm(1)%div = filtb * satm(1)%div + filta * satm(2)%div
+    satm(1)%vor = filtb * satm(1)%vor + filta * satm(2)%vor
+    satm(1)%tr = filtb * satm(1)%tr + filta * satm(2)%tr
 
-    call do_implicit(satm(1)%div, satm(1)%tem, satm(1)%prs, &
-                     satm(2)%div, satm(2)%tem, satm(2)%prs, &
-                     satm(3)%div, satm(3)%tem, satm(3)%prs, deltim)
+    satm(1)%prs = satm(2)%prs
+    satm(2)%prs = satm(3)%prs
 
-    call horiz_diffusion(satm(3)%tr,satm(3)%vor,satm(3)%div,satm(3)%tem,satm(1)%prs(1,:,:))
+end subroutine time_filter1
 
-    call spherical_to_grid(satm(3)%div,grid=div)
-    call spherical_to_grid(satm(3)%tem,grid=tem)
-    call spherical_to_grid(satm(3)%prs,grid=p)
-
-    call write_data('rgloopa','divdt',div,domain_g)
-    call write_data('rgloopa','temdt',tem,domain_g)
-    call write_data('rgloopa','prsdt',p,domain_g)
-
-    call fms_io_exit()
-    call mpp_exit()
 
 end program main
