@@ -2,7 +2,7 @@ module gfidi_mod
 
 use, intrinsic :: iso_c_binding
 
-use vertical_levels_mod, only: ak5=>ak, bk5=>bk, ck, dbk 
+use vertical_levels_mod, only: get_ak_bk
 use constants_mod, only : rerth => RADIUS, OMEGA, rd=>RDGAS
 use constants_mod, only : cp => CP_AIR, cvap => CP_VAPOR
 
@@ -143,6 +143,7 @@ subroutine gfidi_hyb(levs, ntrac, deltim, sinlat, rcl, &
     real :: rmin,rmax,delta,delta1
     real :: rrkp,rrk1m,phkp,phk1m,bb,cc,tmpdrdt
     real :: xvcn
+    real :: ak5(levs+1), bk5(levs+1), ck(levs), dbk(levs)
     integer :: nvcn
     integer :: j,k,n
     integer :: levp1, levm1
@@ -155,6 +156,9 @@ subroutine gfidi_hyb(levs, ntrac, deltim, sinlat, rcl, &
     cons1   = 1.d0  
     cons2   = 2.d0 
     rk= rd /cp
+
+
+    call get_ak_bk(ak_out=ak5,bk_out=bk5,ck_out=ck,dbk_out=dbk)
 
 !-------------------------------------------------------
    

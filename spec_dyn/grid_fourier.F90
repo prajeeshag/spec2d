@@ -150,15 +150,11 @@ module grid_fourier_mod
             endif
         endif
 
-        call mpp_clock_begin(clck_plan_g2f)
         !grid_to_fourier
         id_grid2four = plan_grid_to_fourier(1,NLON_LOCAL,comm_in, isf, flen)
-        call mpp_clock_end(clck_plan_g2f)
 
-        call mpp_clock_begin(clck_plan_f2g)
         !fourier_to_grid -> should be called after plan_grid_to_fourier
         id_four2grid = plan_fourier_to_grid(1,NLON_LOCAL,comm_in)
-        call mpp_clock_end(clck_plan_f2g)
 
         initialized = .true.
         call mpp_error(routine, 'grid_to_fourier initialized !!!', NOTE)
@@ -177,6 +173,7 @@ module grid_fourier_mod
         integer(C_INTPTR_T) :: alloc_local, n0(2)
         integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
 
+        call mpp_clock_begin(clck_plan_g2f)
         if (howmany<1) call mpp_error('plan_grid_to_fourier', 'howmany cannot be Zero', FATAL)
 
         nplang2f = nplang2f + 1
@@ -257,6 +254,7 @@ module grid_fourier_mod
 
         g2fplans(n)%r2c = c_loc(g2fplans(n)%tsrout)
         call c_f_pointer(g2fplans(n)%r2c, g2fplans(n)%cout, [howmany, local_n1])
+        call mpp_clock_end(clck_plan_g2f)
 
     end function plan_grid_to_fourier
 
@@ -269,8 +267,6 @@ module grid_fourier_mod
         integer :: id, i, j, ci=1, cj=2, ct
         integer(C_INTPTR_T) :: howmany
 
-
-        call mpp_clock_begin(clck_grid_to_fourier)
 
         howmany = size(rinp,1)
         id = 0
@@ -289,6 +285,8 @@ module grid_fourier_mod
             id = plan_grid_to_fourier(howmany,NLON_LOCAL,COMM_FFT)
         endif
                      
+        call mpp_clock_begin(clck_grid_to_fourier)
+
         if (present(id_in)) id_in = id
         
         howmany = g2fplans(id)%howmany
@@ -335,6 +333,8 @@ module grid_fourier_mod
         integer(C_INTPTR_T) :: local_n0_prev
         integer(C_INTPTR_T) :: alloc_local, n0(2)
         integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
+
+        call mpp_clock_begin(clck_plan_f2g)
 
         if (howmany<1) call mpp_error('plan_fourier_to_grid', 'howmany cannot be Zero', FATAL)
 
@@ -412,6 +412,8 @@ module grid_fourier_mod
         f2gplans(n)%r2c = c_loc(f2gplans(n)%tsrout)
         call c_f_pointer(f2gplans(n)%r2c, f2gplans(n)%cout, [howmany, local_n0])
 
+        call mpp_clock_end(clck_plan_f2g)
+
     end function plan_fourier_to_grid
 
 
@@ -424,7 +426,6 @@ module grid_fourier_mod
         integer :: id, i, j, ci=1, cj=2, ct
         integer(C_INTPTR_T) :: howmany
 
-        call mpp_clock_begin(clck_fourier_to_grid)
 
         howmany = size(coutp,1)
 
@@ -444,6 +445,8 @@ module grid_fourier_mod
             id = plan_fourier_to_grid(howmany,NLON_LOCAL,COMM_FFT)
         endif
                      
+        call mpp_clock_begin(clck_fourier_to_grid)
+
         if (present(id_in)) id_in = id
         
         howmany = f2gplans(id)%howmany

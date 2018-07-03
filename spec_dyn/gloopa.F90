@@ -15,16 +15,18 @@ program main
 
     use fms_io_mod, only : fms_io_exit 
 
-    use transforms_mod, only : read_specdata, write_griddata
+    use transforms_mod, only : read_specdata, get_spherical_wave
     use transforms_mod, only : compute_ucos_vcos, compute_vor_div
     use transforms_mod, only : spherical_to_grid, grid_to_spherical
     use transforms_mod, only : cosm2_lat, sin_lat, init_transforms
 
-    use vertical_levels_mod, only: init_vertical_levels, ak, bk
+    use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
 
     use implicit_mod, only : init_implicit, do_implicit
 
     use gfidi_mod, only : gfidi_drv
+    
+    use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
 
     implicit none
 
@@ -61,6 +63,10 @@ program main
     real :: deltim=600., ref_temp
     character(len=16) :: rfile='gloopa', wfile='rgloopa'
     character(len=8) :: fldnm
+    type(domain2d) :: domain_g
+
+    real, allocatable :: ak(:), bk(:), sl(:)
+    integer, allocatable :: sph_wave(:,:)
 
     namelist/gloopa_nml/ trunc, nlon, nlat, nlev, deltim
 
@@ -71,16 +77,30 @@ program main
     read(unit,nml=gloopa_nml)
     call close_file(unit)
 
-    call init_transforms(nlon,nlat,trunc,isc,iec,jsc,jec,nwaves_oe)
+    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domain_g, kxy=1, ishuff=1)
+    call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
+    ilen = iec-isc+1
+    jlen = jec-jsc+1
+
+    call init_transforms(domain_g,trunc,nwaves_oe)
     jlen = jec-jsc+1
     ilen = iec-isc+1
 
     call init_vertical_levels(nlev)
 
+    allocate(ak(nlev+1),bk(nlev+1),sl(nlev))
+
+    allocate(sph_wave(nwaves_oe,2))
+
+    call get_ak_bk(ak_out=ak,bk_out=bk,sl_out=sl)
+    call get_spherical_wave(sph_wave)
+
     ref_temp = 300.
     if (nlev>100) ref_temp=1500.
 
     call init_implicit(ak,bk,ref_temp,deltim,trunc)
+
+    call init_horiz_diffusion(trunc,deltim,sl,sph_wave,bk)
 
     allocate(sucos(nlev,nwaves_oe,2))
     allocate(svcos(nlev,nwaves_oe,2))
@@ -182,36 +202,35 @@ program main
             div, tem, u, v, tr, dpdphi, dpdlam, p, dtemdphi, dtemdlam, dtrdphi, &
             dtrdlam, dudlam, dvdlam, dudphi, dvdphi, dpdt, dtemdt, dtrdt, dudt, dvdt, spdmax)
 
-    call write_griddata('rgloopa','div',div)
-    call write_griddata('rgloopa','vor',vor)
+    call write_data('rgloopa','div',div,domain_g)
+    call write_data('rgloopa','vor',vor,domain_g)
 
-    call write_griddata('rgloopa','dudt',dudt)
-    call write_griddata('rgloopa','dudphi',dudphi)
-    call write_griddata('rgloopa','dudlam',dudlam)
-    call write_griddata('rgloopa','u',u)
+    call write_data('rgloopa','dudt',dudt,domain_g)
+    call write_data('rgloopa','dudphi',dudphi,domain_g)
+    call write_data('rgloopa','dudlam',dudlam,domain_g)
+    call write_data('rgloopa','u',u,domain_g)
 
-    call write_griddata('rgloopa','dvdt',dvdt)
-    call write_griddata('rgloopa','dvdphi',dvdphi)
-    call write_griddata('rgloopa','dvdlam',dvdlam)
-    call write_griddata('rgloopa','v',v)
+    call write_data('rgloopa','dvdt',dvdt,domain_g)
+    call write_data('rgloopa','dvdphi',dvdphi,domain_g)
+    call write_data('rgloopa','dvdlam',dvdlam,domain_g)
+    call write_data('rgloopa','v',v,domain_g)
 
-    call write_griddata('rgloopa','dpdt',dpdt)
-    call write_griddata('rgloopa','dpdphi',dpdphi)
-    call write_griddata('rgloopa','dpdlam',dpdlam)
-    call write_griddata('rgloopa','p',p)
+    call write_data('rgloopa','dpdt',dpdt,domain_g)
+    call write_data('rgloopa','dpdphi',dpdphi,domain_g)
+    call write_data('rgloopa','dpdlam',dpdlam,domain_g)
+    call write_data('rgloopa','p',p,domain_g)
 
-    call write_griddata('rgloopa','dtemdt',dtemdt)
-    call write_griddata('rgloopa','dtemdphi',dtemdphi)
-    call write_griddata('rgloopa','dtemdlam',dtemdlam)
-    call write_griddata('rgloopa','tem',tem)
+    call write_data('rgloopa','dtemdt',dtemdt,domain_g)
+    call write_data('rgloopa','dtemdphi',dtemdphi,domain_g)
+    call write_data('rgloopa','dtemdlam',dtemdlam,domain_g)
+    call write_data('rgloopa','tem',tem,domain_g)
 
     do ntr = 1, ntrac
         write(fldnm,'(A,I2.2)') 'tr',ntr
-        print *, trim(fldnm)
-        call write_griddata('rgloopa','d'//trim(fldnm)//'dt',dtrdt(:,:,:,ntr))
-        call write_griddata('rgloopa','d'//trim(fldnm)//'dphi',dtrdphi(:,:,:,ntr))
-        call write_griddata('rgloopa','d'//trim(fldnm)//'dlam',dtrdlam(:,:,:,ntr))
-        call write_griddata('rgloopa',trim(fldnm),tr(:,:,:,ntr))
+        call write_data('rgloopa','d'//trim(fldnm)//'dt',dtrdt(:,:,:,ntr),domain_g)
+        call write_data('rgloopa','d'//trim(fldnm)//'dphi',dtrdphi(:,:,:,ntr),domain_g)
+        call write_data('rgloopa','d'//trim(fldnm)//'dlam',dtrdlam(:,:,:,ntr),domain_g)
+        call write_data('rgloopa',trim(fldnm),tr(:,:,:,ntr),domain_g)
     enddo
 
     call grid_to_spherical(dpdt, satm(3)%prs, do_trunc=.true.)
@@ -227,7 +246,7 @@ program main
 
     call spherical_to_grid(satm(3)%div,grid=div)
 
-    call write_griddata('rgloopa','divdt2',div)
+    call write_data('rgloopa','divdt2',div,domain_g)
 
     satm(3)%vor = satm(1)%vor + 2.*deltim*satm(3)%vor
     satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
@@ -240,21 +259,23 @@ program main
     call spherical_to_grid(satm(3)%tem,grid=tem)
     call spherical_to_grid(satm(3)%prs,grid=p)
 
-    call write_griddata('rgloopa','divdt1',div)
-    call write_griddata('rgloopa','temdt1',tem)
-    call write_griddata('rgloopa','prsdt1',p)
+    call write_data('rgloopa','divdt1',div,domain_g)
+    call write_data('rgloopa','temdt1',tem,domain_g)
+    call write_data('rgloopa','prsdt1',p,domain_g)
 
     call do_implicit(satm(1)%div, satm(1)%tem, satm(1)%prs, &
                      satm(2)%div, satm(2)%tem, satm(2)%prs, &
                      satm(3)%div, satm(3)%tem, satm(3)%prs, deltim)
 
+    call horiz_diffusion(satm(3)%tr,satm(3)%vor,satm(3)%div,satm(3)%tem,satm(1)%prs(1,:,:))
+
     call spherical_to_grid(satm(3)%div,grid=div)
     call spherical_to_grid(satm(3)%tem,grid=tem)
     call spherical_to_grid(satm(3)%prs,grid=p)
 
-    call write_griddata('rgloopa','divdt',div)
-    call write_griddata('rgloopa','temdt',tem)
-    call write_griddata('rgloopa','prsdt',p)
+    call write_data('rgloopa','divdt',div,domain_g)
+    call write_data('rgloopa','temdt',tem,domain_g)
+    call write_data('rgloopa','prsdt',p,domain_g)
 
     call fms_io_exit()
     call mpp_exit()

@@ -5,13 +5,16 @@ use fms_io_mod, only : read_data
 implicit none
 private
 
-public :: init_vertical_levels
+public :: init_vertical_levels, get_ak_bk
 
-real, allocatable, public :: ak(:), bk(:)
-real, allocatable, public :: ck(:), dbk(:)
-real, allocatable, public :: bkl(:)
+real, allocatable :: ak(:), bk(:)
+real, allocatable :: ck(:), dbk(:)
+real, allocatable :: bkl(:), si(:)
+real, allocatable :: sl(:)
 
 integer :: nlevs
+
+logical :: initialized=.false.
 
 contains
 
@@ -20,6 +23,8 @@ subroutine  init_vertical_levels(nlevs_in)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: nlevs_in
     integer :: k
+    real :: psurff = 101.3
+
     nlevs = nlevs_in
 
     call set_ak_bk(nlevs_in)
@@ -28,14 +33,46 @@ subroutine  init_vertical_levels(nlevs_in)
     call read_data('implicit','bk',bk)
 
     allocate(dbk(nlevs),bkl(nlevs),ck(nlevs))
+    allocate(si(nlevs+1),sl(nlevs))
 
     do k = 1, nlevs
         dbk(k) = bk(k+1)-bk(k)
         bkl(k) = (bk(k+1)+bk(k))*0.5
         ck(k)  = ak(k+1)*bk(k)-ak(k)*bk(k+1)
     enddo
+
+    do k = 1, nlevs+1
+        si(nlevs+2-k) = ak(k)/psurff + bk(k)
+    enddo
+
+    do k = 1, nlevs
+        sl(k) = 0.5*(si(k)+si(k+1))
+    enddo
+
+    initialized = .true.
     return
 end subroutine init_vertical_levels
+
+!--------------------------------------------------------------------------------   
+subroutine get_ak_bk(ak_out,bk_out,ck_out,dbk_out,bkl_out,si_out,sl_out)
+!--------------------------------------------------------------------------------   
+    real, intent(out), optional :: ak_out(:), bk_out(:)
+    real, intent(out), optional :: ck_out(:), dbk_out(:)
+    real, intent(out), optional :: bkl_out(:), si_out(:)
+    real, intent(out), optional :: sl_out(:)
+   
+    if(.not.initialized) call mpp_error('get_ak_bk','module not initialized',fatal) 
+
+    if(present(ak_out)) ak_out(:)=ak 
+    if(present(bk_out)) bk_out(:)=bk 
+    if(present(ck_out)) ck_out(:)=ck 
+    if(present(dbk_out)) dbk_out(:)=dbk 
+    if(present(bkl_out)) bkl_out(:)=bkl 
+    if(present(si_out)) si_out(:)=si 
+    if(present(sl_out)) sl_out(:)=sl 
+
+    return
+end subroutine
 
 !--------------------------------------------------------------------------------   
 subroutine set_ak_bk(nlevs_in)

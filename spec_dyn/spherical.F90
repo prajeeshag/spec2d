@@ -32,7 +32,7 @@ private
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos, get_wdecomp
 public :: nwaves_oe, num_spherical, num_fourier, trunc, ev, od
 public :: spherical_init, compute_ucos_vcos, compute_vor_div, compute_vor
-public :: compute_div, triangle_mask, do_truncation, nnp1, spherical_wave
+public :: compute_div, triangle_mask, do_truncation, nnp1, get_spherical_wave
 
 real, dimension(:,:), allocatable :: eigen_laplacian
 real, dimension(:,:), allocatable :: epsilon
@@ -66,8 +66,22 @@ logical :: module_is_initialized = .false.
 
 contains
 
+
+!--------------------------------------------------------------------------------   
+subroutine get_spherical_wave(spherical_wave_out)
+!--------------------------------------------------------------------------------   
+    integer, intent(out) :: spherical_wave_out(:,:)
+
+    if(.not.module_is_initialized) &
+        call mpp_error('get_spherical_wave', 'module not initialized', FATAL)
+
+    spherical_wave_out = spherical_wave
+
+end subroutine get_spherical_wave
+
 !--------------------------------------------------------------------------
 subroutine spherical_init()
+!--------------------------------------------------------------------------------   
 
     real, dimension(0:num_fourier,0:num_spherical) :: leigen_laplacian, &
                                                       lepsilon, &

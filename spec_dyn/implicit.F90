@@ -2,7 +2,7 @@ module implicit_mod
 
 use, intrinsic :: iso_c_binding
 
-use spherical_mod, only : spherical_wave, nnp1
+use spherical_mod, only : get_spherical_wave, nnp1
 
 use constants_mod, only : rd => rdgas, cp => cp_air
 use constants_mod, only : rearth => radius
@@ -72,10 +72,13 @@ subroutine do_implicit(div, tem, ps, div_n, tem_n, ps_n, &
     complex, dimension(:,:,:), intent(in) :: div, tem, div_n, tem_n, ps, ps_n 
     complex, dimension(:,:,:), intent(inout) :: div_dt, tem_dt, ps_dt
     real,                      intent(in) :: dt
+    integer :: spherical_wave(size(div,2),2)
 
     integer :: i
 
     if (.not.initialized) call mpp_error('do_implicit', 'module not initialized', FATAL)
+
+    call get_spherical_wave(spherical_wave)
 
     do i = 1, 2
         call implicit_corr_drv(div(:,:,i), tem(:,:,i), ps(:,:,i), div_n(:,:,i), tem_n(:,:,i), ps_n(:,:,i), &
