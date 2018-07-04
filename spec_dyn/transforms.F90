@@ -19,13 +19,13 @@ use constants_mod, only : RADIUS
 use grid_fourier_mod, only : init_grid_fourier, fft_1dr2c_serial, fft_1dc2c_serial
 use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
 
-use fourier_spherical_mod, only : init_fourier_spherical, fourier_to_spherical
-use fourier_spherical_mod, only : spherical_to_fourier
+use spherical_mod, only : init_spherical, fourier_to_spherical
+use spherical_mod, only : spherical_to_fourier
 
 use spherical_mod, only : compute_lon_deriv_cos, compute_lat_deriv_cos
-use spherical_mod, only : compute_vor_div, compute_ucos_vcos, cosm2_lat, Pnm
-use spherical_mod, only : triangle_mask, cosm_lat, sin_lat, ev, od
-use spherical_mod, only : do_truncation, get_wdecomp, get_spherical_wave
+use spherical_mod, only : compute_vor_div, compute_ucos_vcos
+use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave
+use spherical_mod, only : get_lats
 
 
 use fms_io_mod, only : fms_io_exit 
@@ -34,8 +34,8 @@ use fms_io_mod, only : fms_io_exit
 implicit none
 private
 
-public :: compute_ucos_vcos, compute_vor_div, sin_lat
-public :: get_wdecomp, cosm_lat, cosm2_lat, get_spherical_wave
+public :: compute_ucos_vcos, compute_vor_div, get_lats
+public :: get_wdecomp, get_spherical_wave
 public :: spherical_to_grid, grid_to_spherical, init_transforms
 
 type(domain2d) :: domainf
@@ -49,12 +49,15 @@ integer, allocatable :: pelist(:), extent(:)
 integer, allocatable :: fpelist(:), fextent(:)
 integer, allocatable :: Tshuff(:)
 
+real, allocatable :: cosm_lat(:), cosm2_lat(:)
+
 integer :: comm, n
 real :: ref_temp
 integer :: isc, iec, m, l, t, i, k
 integer :: isf, ief, flen, jsc, jec, j, jsf, jef
 integer :: unit, trunc
-integer :: pe, ntrac=3, ntr
+integer :: pe
+integer :: ishuff=0
 
 public :: read_specdata
 
@@ -104,7 +107,7 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
     allocate(pelist(mpp_npes()))
     allocate(extent(mpp_npes()))
 
-    call mpp_get_compute_domain(domainl, jsc, jec, isc, iec)
+    call mpp_get_compute_domain(domainl, jsc, jec, isc, iec,ishuff=ishuff)
     call mpp_get_global_domain(domainl, jsg, jeg, isg, ieg)
 
     ilen = iec-isc+1
@@ -146,11 +149,16 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
         if(flen /= ief-isf+1) call mpp_error('gloopa', 'flen /= ief-isf+1', FATAL)
         print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(trunc-Tshuff(isf:ief)+1)
 
-        call init_fourier_spherical(trunc, nlat, nwaves_oe, domainf, Tshuff) 
+        call init_spherical(trunc, nlat, ishuff, nwaves_oe, domainf, Tshuff) 
     endif
     call mpp_set_current_pelist()
 
     nwaves = nwaves_oe
+
+    allocate(cosm_lat(nlat))
+    allocate(cosm2_lat(nlat))
+
+    call get_lats(cosmlat=cosm_lat,cosm2lat=cosm2_lat)
 
     return
 end subroutine init_transforms

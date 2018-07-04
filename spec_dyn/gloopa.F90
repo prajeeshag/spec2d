@@ -20,7 +20,7 @@ use fms_io_mod, only : fms_io_exit
 use transforms_mod, only : read_specdata, get_spherical_wave
 use transforms_mod, only : compute_ucos_vcos, compute_vor_div
 use transforms_mod, only : spherical_to_grid, grid_to_spherical
-use transforms_mod, only : cosm2_lat, sin_lat, init_transforms
+use transforms_mod, only : init_transforms, get_lats
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
 
@@ -74,10 +74,13 @@ real :: deltim=600., ref_temp
 real :: filta = 0.85 
 character(len=16) :: rfile='gloopa', wfile='rgloopa'
 character(len=8) :: fldnm
+integer :: ishuff
 
 type(domain2d) :: domain_g
 
 real, allocatable :: ak(:), bk(:), sl(:)
+real, allocatable :: sin_lat(:), cosm2_lat(:)
+
 integer, allocatable :: sph_wave(:,:)
 
 namelist/gloopa_nml/ trunc, nlon, nlat, nlev, deltim
@@ -89,7 +92,10 @@ unit = open_namelist_file()
 read(unit,nml=gloopa_nml)
 call close_file(unit)
 
-call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domain_g, kxy=1, ishuff=1)
+ishuff=1
+if(mpp_npes()==1) ishuff=0
+
+call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domain_g, kxy=1, ishuff=ishuff)
 call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
 ilen = iec-isc+1
 jlen = jec-jsc+1
@@ -103,6 +109,10 @@ call init_vertical_levels(nlev)
 allocate(ak(nlev+1),bk(nlev+1),sl(nlev))
 
 allocate(sph_wave(nwaves_oe,2))
+
+allocate(sin_lat(nlat),cosm2_lat(nlat))
+
+call get_lats(sinlat=sin_lat,cosm2lat=cosm2_lat)
 
 call get_ak_bk(ak_out=ak,bk_out=bk,sl_out=sl)
 call get_spherical_wave(sph_wave)

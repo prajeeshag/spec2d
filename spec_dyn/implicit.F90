@@ -2,7 +2,7 @@ module implicit_mod
 
 use, intrinsic :: iso_c_binding
 
-use spherical_mod, only : get_spherical_wave, nnp1
+use spherical_mod, only : get_spherical_wave
 
 use constants_mod, only : rd => rdgas, cp => cp_air
 use constants_mod, only : rearth => radius
@@ -72,13 +72,13 @@ subroutine do_implicit(div, tem, ps, div_n, tem_n, ps_n, &
     complex, dimension(:,:,:), intent(in) :: div, tem, div_n, tem_n, ps, ps_n 
     complex, dimension(:,:,:), intent(inout) :: div_dt, tem_dt, ps_dt
     real,                      intent(in) :: dt
-    integer :: spherical_wave(size(div,2),2)
+    integer :: spherical_wave(size(div,2),2), nnp1(size(div,2),2)
 
     integer :: i
 
     if (.not.initialized) call mpp_error('do_implicit', 'module not initialized', FATAL)
 
-    call get_spherical_wave(spherical_wave)
+    call get_spherical_wave(spherical_wave,nnp1_out=nnp1)
 
     do i = 1, 2
         call implicit_corr_drv(div(:,:,i), tem(:,:,i), ps(:,:,i), div_n(:,:,i), tem_n(:,:,i), ps_n(:,:,i), &
@@ -96,7 +96,7 @@ subroutine implicit_corr_drv(div, tem, ps, div_n, tem_n, ps_n, &
     complex, dimension(:,:), intent(in) :: div, tem, div_n, tem_n
     complex, dimension(:,:), intent(in) :: ps, ps_n
     integer, dimension(:),   intent(in) :: ndexev
-    real,    dimension(:),   intent(in) :: snnp1ev 
+    integer, dimension(:),   intent(in) :: snnp1ev 
     real,                    intent(in) :: dt
     complex, dimension(:,:), intent(inout) :: div_dt, tem_dt
     complex, dimension(:,:), intent(inout) :: ps_dt
@@ -171,7 +171,7 @@ subroutine implicit_corr(de,te,qe,de_n,te_n,qe_n,xe,ye,ze,snnp1ev,ndexev,nwaves,
     real, dimension(nwaves,2,levs), intent(in) :: de,te,de_n,te_n
     real, dimension(nwaves,2),      intent(in) :: qe,qe_n
     integer, dimension(nwaves),     intent(in) :: ndexev
-    real, dimension(nwaves),        intent(in) :: snnp1ev 
+    integer, dimension(nwaves),        intent(in) :: snnp1ev 
     real,                           intent(in) :: dt
     integer,                        intent(in) :: nwaves
     real, dimension(nwaves,2,levs), intent(inout) :: xe,ye

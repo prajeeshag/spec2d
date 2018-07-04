@@ -8,12 +8,12 @@ nlon=192
 /
 
 &spherical_nml
-  debug = .false.
+  debug = .true.
 /
 
 &grid_fourier_nml
   plan_level = 1
-  debug = .false.
+  debug = .true.
 /
  
 

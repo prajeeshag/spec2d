@@ -167,9 +167,9 @@
 
   !#####################################################################
   subroutine mpp_get_compute_domain2D( domain, xbegin, xend, ybegin, yend, xsize, xmax_size, ysize, ymax_size, &
-       x_is_global, y_is_global, tile_count, position, kxy)
+       x_is_global, y_is_global, tile_count, position, kxy, ishuff)
     type(domain2D),     intent(in) :: domain
-    integer, intent(out), optional :: xbegin, xend, ybegin, yend, xsize, xmax_size, ysize, ymax_size, kxy
+    integer, intent(out), optional :: xbegin, xend, ybegin, yend, xsize, xmax_size, ysize, ymax_size, kxy, ishuff
     logical, intent(out), optional :: x_is_global, y_is_global
     integer, intent(in),  optional :: tile_count, position
     integer                        :: tile, ishift, jshift
@@ -187,6 +187,7 @@
     if(PRESENT(xmax_size))xmax_size = xmax_size + ishift
     if(PRESENT(ymax_size))ymax_size = ymax_size + jshift
 	if(PRESENT(kxy)) kxy = domain%kxy
+	if(PRESENT(ishuff)) ishuff = domain%ishuff
     return
   end subroutine mpp_get_compute_domain2D
 

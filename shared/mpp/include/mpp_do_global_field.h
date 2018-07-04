@@ -9,7 +9,7 @@
 
       integer :: i, j, k, m, n, nd, nwords, lpos, rpos, ioff, joff, from_pe, root_pe, tile_id
       integer :: ke, isc, iec, jsc, jec, is, ie, js, je, nword_me
-      integer :: ipos, jpos, ig
+      integer :: ipos, jpos, ig, iec2
       logical :: xonly, yonly, root_only, global_on_this_pe, kxy, ishuff
       MPP_TYPE_ :: clocal ((domain%x(1)%compute%size+ishift) * (domain%y(1)%compute%size+jshift) * size(local,domain%kxy))
       MPP_TYPE_ :: cremote((domain%x(1)%compute%max_size+ishift) * (domain%y(1)%compute%max_size+jshift) * size(local,domain%kxy))
@@ -131,7 +131,7 @@
       jsc = domain%y(tile)%compute%begin; jec = domain%y(tile)%compute%end+jshift
 
       nword_me = (iec-isc+1)*(jec-jsc+1)*ke
-
+      iec2 = isc+(iec-isc+1)/2-1
 
 	if (kxy==1) then
 ! make contiguous array from compute domain
@@ -146,6 +146,12 @@
 				if (ishuff==1) then
 					ig = (i-1)/2 + 1
 					if (mod(i,2)==0) ig = size(global,2)-ig+1
+				else if (ishuff==2) then
+					ig = i
+					if (ig>iec2) then
+						ig = ig-iec2
+						ig = size(global,2)-ig+1
+					endif
 				endif
          	   do k = 1, ke
                   m = m + 1
@@ -194,6 +200,12 @@
 					if (ishuff==1) then
 						ig = (i-1)/2 + 1
 						if (mod(i,2)==0) ig = size(global,2)-ig+1
+					else if (ishuff==2) then
+						ig = i
+						if (ig>iec2) then
+							ig = ig-iec2
+							ig = size(global,2)-ig+1
+						endif
 					endif
              		do k = 1, ke
                       m = m + 1
@@ -223,6 +235,12 @@
 					if (ishuff==1) then
 						ig = (i-1)/2 + 1
 						if (mod(i,2)==0) ig = size(global,2)-ig+1
+					else if (ishuff==2) then
+						ig = i
+						if (ig>iec2) then
+							ig = ig-iec2
+							ig = size(global,2)-ig+1
+						endif
 					endif
              		do k = 1,ke
                       m = m + 1
@@ -254,6 +272,12 @@
 						if (ishuff==1) then
 							ig = (i-1)/2 + 1
 							if (mod(i,2)==0) ig = size(global,2)-ig+1
+						else if (ishuff==2) then
+							ig = i
+							if (ig>iec2) then
+								ig = ig-iec2
+								ig = size(global,2)-ig+1
+							endif
 						endif
                   		do k = 1,ke
                            m = m + 1
@@ -284,6 +308,12 @@
 					if (ishuff==1) then
 						ig = (i-1)/2 + 1
 						if (mod(i,2)==0) ig = size(global,2)-ig+1
+					else if (ishuff==2) then
+						ig = i
+						if (ig>iec2) then
+							ig = ig-iec2
+							ig = size(global,2)-ig+1
+						endif
 					endif
                		 do k = 1, ke
                         m = m + 1

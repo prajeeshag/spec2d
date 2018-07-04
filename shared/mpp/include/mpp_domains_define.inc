@@ -749,10 +749,10 @@
 
 	domain%ishuff = 0
 	if(present(ishuff)) then
-		if (ishuff==0.or.ishuff==1) then
+		if (ishuff>=0.or.ishuff<=2) then
 			domain%ishuff = ishuff
 		else
-			call mpp_error(FATAL,"mpp_define_domains2D: ishuff should either 1 or 0")
+			call mpp_error(FATAL,"mpp_define_domains2D: ishuff should either 0, 1 or 2")
 		endif
 	endif
 
