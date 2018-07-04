@@ -341,11 +341,11 @@ subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
     if(.not.initialized) &
         call mpp_error('get_lats', 'module not initialized', FATAL)
 
-    if(present(sinlat)) sinlat=sin_lat 
-    if(present(coslat)) coslat=cos_lat 
-    if(present(cosmlat)) cosmlat=cosm_lat 
-    if(present(cosm2lat)) cosm2lat=cosm2_lat 
-    if(present(deglat)) deglat=deg_lat 
+    if(present(sinlat)) sinlat(js:je)=sin_lat(js:je)
+    if(present(coslat)) coslat(js:je)=cos_lat(js:je)
+    if(present(cosmlat)) cosmlat(js:je)=cosm_lat(js:je)
+    if(present(cosm2lat)) cosm2lat(js:je)=cosm2_lat(js:je)
+    if(present(deglat)) deglat(js:je)=deg_lat(js:je)
 
     return
 end subroutine get_lats
@@ -561,11 +561,11 @@ subroutine define_gaussian
 
     call compute_gaussian(sin_hem, wts_hem, nlat/2)
 
-    sin_lat(jss:jes:jks) = -sin_hem !Southern hemisphere
-    sin_lat(jsn:jen:jkn) = sin_hem !Northern hemisphere
+    sin_lat(jss:jes:jks) = -sin_hem(js_hem:je_hem) !Southern hemisphere
+    sin_lat(jsn:jen:jkn) = sin_hem(js_hem:je_hem) !Northern hemisphere
 
-    wts_lat(jss:jes:jks) = wts_hem
-    wts_lat(jsn:jen:jkn) = wts_hem
+    wts_lat(jss:jes:jks) = wts_hem(js_hem:je_hem)
+    wts_lat(jsn:jen:jkn) = wts_hem(js_hem:je_hem)
 
     cos_lat = sqrt(1-sin_lat*sin_lat)
     cosm_lat = 1./cos_lat

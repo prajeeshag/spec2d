@@ -61,8 +61,6 @@ subroutine init_horiz_diffusion(jcap,deltim,sl,sph_wave,bk5)
 
     call mpp_broadcast(coef_from_pe,mpp_root_pe())
 
-    print *, 'coef_from_pe=', coef_from_pe
-
     allocate(bkly(levs),sf(levs)) 
     allocate(rfact(levs,size(sph_wave,1),2))
     allocate(rrfact(levs,size(sph_wave,1),2))
@@ -163,8 +161,6 @@ subroutine horiz_diffusion(rte,we,xe,ye,qme)
 
     call mpp_broadcast(coef00,size(coef00),coef_from_pe)
     call updown(coef00)
-
-    print *, 'coef00=', coef00
 
     we(:,:,:) = we(:,:,:)*rfactrd(:,:,:)
     xe(:,:,:) = xe(:,:,:)*rfactrd(:,:,:)

@@ -155,8 +155,8 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
 
     nwaves = nwaves_oe
 
-    allocate(cosm_lat(nlat))
-    allocate(cosm2_lat(nlat))
+    allocate(cosm_lat(jsc:jec))
+    allocate(cosm2_lat(jsc:jec))
 
     call get_lats(cosmlat=cosm_lat,cosm2lat=cosm2_lat)
 
