@@ -3,7 +3,8 @@ module spherical_mod
 use, intrinsic :: iso_c_binding
 
 use mpp_mod, only : mpp_error, FATAL, WARNING, NOTE, mpp_init, mpp_pe
-use mpp_mod, only : mpp_root_pe, mpp_sync
+use mpp_mod, only : mpp_root_pe, mpp_sync, mpp_clock_id, mpp_clock_begin
+use mpp_mod, only : mpp_clock_end
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_layout
 
@@ -100,6 +101,8 @@ integer, allocatable :: tshuffle(:)
 integer :: ishuff = 1
 
 logical :: debug
+
+integer :: clck_f2s, clck_s2f
 
 integer, parameter, public :: ev=1, od=2
 
@@ -329,6 +332,9 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
 
     call spherical_init()
 
+    clck_f2s = mpp_clock_id('fourier2spherical')
+    clck_s2f = mpp_clock_id('spherical2fourier')
+
     initialized = .true.
 
 end subroutine init_spherical
@@ -336,7 +342,7 @@ end subroutine init_spherical
 !--------------------------------------------------------------------------------   
 subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
 !--------------------------------------------------------------------------------
-    real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, cosm2lat, deglat
+    real, intent(out), optional, dimension(js:je) :: sinlat, coslat, cosmlat, cosm2lat, deglat
 
     if(.not.initialized) &
         call mpp_error('get_lats', 'module not initialized', FATAL)
@@ -618,12 +624,12 @@ subroutine define_legendre(lepsilon,lspherical_wave)
             w = w + 1
             if (iseven(w)) then
                 we = we + 1
-                Pnm(:,we,1) = Pnm_global(mshuff,n,js_hem:je_hem)
-                Hnm(:,we,1) = Hnm_global(mshuff,n,js_hem:je_hem)
+                Pnm(:,we,1) = Pnm_global(mshuff,n,js_hem:je_hem) 
+                Hnm(:,we,1) = Hnm_global(mshuff,n,js_hem:je_hem) 
             else
                 wo = wo + 1
-                Pnm(:,wo,2) = Pnm_global(mshuff,n,js_hem:je_hem)
-                Hnm(:,wo,2) = Hnm_global(mshuff,n,js_hem:je_hem)
+                Pnm(:,wo,2) = Pnm_global(mshuff,n,js_hem:je_hem) 
+                Hnm(:,wo,2) = Hnm_global(mshuff,n,js_hem:je_hem) 
             endif
         enddo
     enddo
@@ -910,6 +916,8 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
     integer :: ks, ke, ews, ewe, ows, owe, m, nj
     logical :: deriv
 
+    call mpp_clock_begin(clck_s2f)
+
     deriv = .false.
     
     if (present(useHnm)) deriv = useHnm
@@ -960,6 +968,8 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
 
     endif
    
+    call mpp_clock_end(clck_s2f)
+
     return 
 end subroutine spherical_to_fourier
 
@@ -976,6 +986,8 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 
     logical :: useHnm1, do_trunc1
     integer :: ks, ke, ews, ewe, ows, owe, m, k, nj
+
+    call mpp_clock_begin(clck_f2s)
 
     useHnm1 = .false.
     if(present(useHnm)) useHnm1=useHnm
@@ -1029,6 +1041,7 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 
     call do_truncation(waves,do_trunc1)
 
+    call mpp_clock_end(clck_f2s)
     return 
 end subroutine fourier_to_spherical
 
@@ -1072,6 +1085,26 @@ subroutine do_matmul(A,B,C,TRANSB)
     return
 end subroutine do_matmul
 
+!--------------------------------------------------------------------------------
+subroutine get_lonsperlat(nlat_in,lonslat_lcl)
+!--------------------------------------------------------------------------------
+    integer, intent(in) :: nlat_in
+    integer, intent(out) :: lonslat_lcl(js_hem:je_hem)
+    integer :: lonslat(nlat_in/2)
+
+    select case(nlat)
+    case (94)
+        lonslat = [30,  30,  30,  40,  48,  56,  60,  72,  72,  80,  90, 90,    &
+                   96, 110, 110, 120, 120, 128, 144, 144, 144, 144, 154, 160,   &
+                   160, 168, 168, 180, 180, 180, 180, 180, 180, 192, 192, 192,  &
+                   192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192]
+    case default
+        call mpp_error(FATAL,'NLAT not defined for lonsperlat')
+    end select
+
+    lonslat_lcl(:) = lonslat(js_hem:je_hem)
+
+end subroutine get_lonsperlat
 
 end module spherical_mod
 

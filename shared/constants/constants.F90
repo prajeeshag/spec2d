@@ -57,7 +57,7 @@ real :: realnumber
 
 real, public, parameter :: RADIUS = 6371.2e3   
 real, public, parameter :: OMEGA  = 7.292e-5 
-real, public, parameter :: GRAV   = 9.80    
+real, public, parameter :: GRAV   = 9.80665
 real, public, parameter :: RDGAS  = 287.05
 real, public, parameter :: KAPPA  = 2./7.  
 real, public, parameter :: CP_AIR = 1004.6
@@ -107,6 +107,9 @@ real, public, parameter :: TFREEZE = 273.16
 ! <DATA NAME="WTMAIR" UNITS="AMU" TYPE="real" DEFAULT="2.896440E+01">
 !  molecular weight of air 
 ! </DATA>
+! <DATA NAME="WTMVAP" UNITS="AMU" TYPE="real" DEFAULT="2.896440E+01">
+!  molecular weight of water vapor
+! </DATA>
 ! <DATA NAME="WTMH2O" UNITS="AMU" TYPE="real" DEFAULT="1.801534E+01">
 !  molecular weight of water
 ! </DATA>
@@ -141,6 +144,7 @@ real, public, parameter :: TFREEZE = 273.16
 ! </DATA>
 
 real, public, parameter :: WTMAIR = 2.896440E+01
+real, public, parameter :: WTMVAP = 18.0154
 real, public, parameter :: WTMH2O = WTMAIR*(RDGAS/RVGAS) !pjp OK to change value because not used yet.
 !real, public, parameter :: WTMO3  = 47.99820E+01
 real, public, parameter :: WTMOZONE =  47.99820
@@ -151,7 +155,7 @@ real, public, parameter :: WTMCFC11 = 137.3681
 real, public, parameter :: WTMCFC12 = 120.9135
 real, public, parameter :: DIFFAC = 1.660000E+00
 real, public, parameter :: SECONDS_PER_DAY  = 8.640000E+04, SECONDS_PER_HOUR = 3600., SECONDS_PER_MINUTE=60.
-real, public, parameter :: AVOGNO = 6.023000E+23
+real, public, parameter :: AVOGNO = 6.0221415E+23
 real, public, parameter :: PSTD   = 1.013250E+06
 real, public, parameter :: PSTD_MKS    = 101325.0
 !real, public, parameter :: REARTH  = 6.356766E+08 !pjp Not used anywhere. 

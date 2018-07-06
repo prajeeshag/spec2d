@@ -19,7 +19,7 @@ mkmf="$thisdir/bin/mkmf"
 mkmftemplate="$thisdir/bin/mkmf.template.debug"
 #mkmftemplate="$thisdir/bin/mkmf.template"
 
-paths="$thisdir/spec_dyn"
+paths="$thisdir/spec_dyn $thisdir/rad"
 
 libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
        $thisdir/shared/mpp/include \
