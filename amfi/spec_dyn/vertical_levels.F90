@@ -2,10 +2,15 @@ module vertical_levels_mod
 
 use mpp_mod, only : mpp_error, FATAL, NOTE, WARNING
 use fms_io_mod, only : read_data
+use constants_mod, only : RDGAS, CP_AIR
+
 implicit none
 private
 
-public :: init_vertical_levels, get_ak_bk
+public :: init_vertical_levels, get_ak_bk, get_pressure_at_levels
+
+real, parameter :: rk = RDGAS/CP_AIR
+real, parameter :: rk1 = rk + 1.0, rkr = 1.0/rk, r100=100.0, pt01=0.01
 
 real, allocatable :: ak(:), bk(:)
 real, allocatable :: ck(:), dbk(:)
@@ -54,6 +59,56 @@ subroutine  init_vertical_levels(nlevs_in)
 end subroutine init_vertical_levels
 
 !--------------------------------------------------------------------------------   
+subroutine get_pressure_at_levels(pgr,prsi,prsl,prsik,prslk)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, intent(in)  :: pgr(:,:)
+    real, intent(out), optional :: prsi(:,:,:), prsik(:,:,:)
+    real, intent(out), optional :: prsl(:,:,:), prslk(:,:,:)
+
+    real, dimension(nlevs+1,size(pgr,1),size(pgr,2)) :: prsi1, prsi1k
+    real, dimension(nlevs  ,size(pgr,1),size(pgr,2)) :: prsl1, prsl1k
+    real :: tem(size(pgr,1),size(pgr,2))
+    integer :: k
+
+    if(.not.initialized) call mpp_error('vertical_levels_mod','module not initialized',fatal)
+
+    if(.not.present(prsi).and. &
+       .not.present(prsl).and. &
+       .not.present(prsik).and. &
+       .not.present(prslk)) return
+
+    do k=1,nlevs+1
+        prsi1(nlevs+2-k,:,:) = ak(k) + bk(k) * pgr(:,:)
+    enddo
+
+    if (present(prsi)) prsi = prsi1
+
+    if(.not.present(prsl).and. &
+       .not.present(prsik).and. &
+       .not.present(prslk)) return
+    
+    prsi1k(:,:,:) = (prsi1(:,:,:)*pt01) ** rk
+
+    if (present(prsik)) prsik = prsi1k
+   
+    if(.not.present(prsl).and. &
+       .not.present(prslk)) return
+    
+    do k=1,nlevs
+        tem(:,:) = rk1 * (prsi1(k,:,:) - prsi1(k+1,:,:))
+        prsl1k(k,:,:) = (prsi1k(k,:,:)*prsi1(k,:,:)-prsi1k(k+1,:,:)*prsi1(k+1,:,:))/tem
+        prsl1(k,:,:)    = r100 * prsl1k(k,:,:) ** rkr
+    enddo
+
+    if(present(prsl)) prsl = prsl1
+    if(present(prslk)) prslk = prsl1k
+    
+    return
+end subroutine get_pressure_at_levels
+
+
+!--------------------------------------------------------------------------------   
 subroutine get_ak_bk(ak_out,bk_out,ck_out,dbk_out,bkl_out,si_out,sl_out)
 !--------------------------------------------------------------------------------   
     real, intent(out), optional :: ak_out(:), bk_out(:)
@@ -73,6 +128,7 @@ subroutine get_ak_bk(ak_out,bk_out,ck_out,dbk_out,bkl_out,si_out,sl_out)
 
     return
 end subroutine
+
 
 !--------------------------------------------------------------------------------   
 subroutine set_ak_bk(nlevs_in)
@@ -126,3 +182,4 @@ subroutine set_ak_bk(nlevs_in)
 end subroutine set_ak_bk
 
 end module vertical_levels_mod
+

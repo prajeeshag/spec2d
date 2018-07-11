@@ -11,6 +11,8 @@ use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
 
 use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
+use constants_mod, only : RVGAS, RDGAS
+
 use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
 
 use fms_io_mod, only : fms_io_exit 
@@ -76,6 +78,8 @@ real :: filta = 0.85
 type(domain2d), pointer :: domain_g => NULL()
 
 real, allocatable :: sin_lat(:), cosm2_lat(:), deg_lat(:), cosm_lat(:)
+
+real, parameter :: fv = RVGAS/RDGAS-1.
 
 contains
 
@@ -294,16 +298,21 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
         u(1:nlev,j,isc:iec) = gatm(1)%u(1:nlev,j,isc:iec) * cosm_lat(j)
         v(1:nlev,j,isc:iec) = gatm(1)%v(1:nlev,j,isc:iec) * cosm_lat(j)
     enddo
-    tem(1:nlev,jsc:jec,isc:iec) = gatm(1)%tem(1:nlev,jsc:jec,isc:iec)
+
     tr(1:nlev,jsc:jec,isc:iec,1:ntrac) = gatm(1)%tr(1:nlev,jsc:jec,isc:iec,1:ntrac)
+    where(tr<0.) tr=0.
+
+    tem(1:nlev,jsc:jec,isc:iec) = gatm(1)%tem(1:nlev,jsc:jec,isc:iec)/(1.0+fv*tr(:,:,:,1))
     
     p1(jsc:jec,isc:iec) = exp(gatm(2)%prs(1,jsc:jec,isc:iec))
     do j = jsc, jec
         u1(1:nlev,j,isc:iec) = gatm(2)%u(1:nlev,j,isc:iec) * cosm_lat(j)
         v1(1:nlev,j,isc:iec) = gatm(2)%v(1:nlev,j,isc:iec) * cosm_lat(j)
     enddo
-    tem1(1:nlev,jsc:jec,isc:iec) = gatm(2)%tem(1:nlev,jsc:jec,isc:iec)
     tr1(1:nlev,jsc:jec,isc:iec,1:ntrac) = gatm(2)%tr(1:nlev,jsc:jec,isc:iec,1:ntrac)
+    where(tr1<0.) tr1=0.
+    
+    tem1(1:nlev,jsc:jec,isc:iec) = gatm(2)%tem(1:nlev,jsc:jec,isc:iec)/(1.0+fv*tr1(:,:,:,1))
     
 end subroutine spectral_dynamics
 

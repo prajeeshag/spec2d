@@ -19,13 +19,18 @@ mkmf="$thisdir/bin/mkmf"
 mkmftemplate="$thisdir/bin/mkmf.template.debug"
 #mkmftemplate="$thisdir/bin/mkmf.template"
 
-paths="$thisdir/spec_dyn $thisdir/rad"
+amfi="$thisdir/amfi"
+
+paths="$amfi/model $amfi/driver $amfi/radiation $amfi/spec_dyn"
 
 libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
        $thisdir/shared/mpp/include \
        $thisdir/shared/fms $thisdir/shared/platform \
        $thisdir/shared/memutils $thisdir/shared/constants \
-       $thisdir/shared/horiz_interp $thisdir/shared/mosaic"
+       $thisdir/shared/horiz_interp $thisdir/shared/mosaic \
+	   $thisdir/shared/time_manager $thisdir/shared/data_override \
+       $thisdir/shared/time_interp $thisdir/shared/axis_utils \
+       $thisdir/shared/astronomy $thisdir/shared/diag_manager"
 
 
 #FFTW
@@ -55,8 +60,8 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 
 make $@
 
-cd $thisdir
+cd $thisdir/work
 
-mpirun -np 1 -prepend-rank exec/spec2d/spec2d.exe
+mpirun -np 1 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 
