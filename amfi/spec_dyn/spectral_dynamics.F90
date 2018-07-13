@@ -21,6 +21,7 @@ use transforms_mod, only : read_specdata, get_spherical_wave
 use transforms_mod, only : compute_ucos_vcos, compute_vor_div
 use transforms_mod, only : spherical_to_grid, grid_to_spherical
 use transforms_mod, only : init_transforms, get_lats
+use transforms_mod, only : register_spec_restart, restore_spec_state, save_spec_restart
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
 
@@ -59,6 +60,7 @@ type(gatm_type) :: gatm(2), dphi, dlam, dt
 
 complex, dimension(:,:,:),   allocatable :: sucos, svcos
 complex, dimension(:,:,:),   allocatable :: stopo
+
 real, allocatable, dimension(:,:,:) :: div, vor
 real, allocatable, dimension(:,:) :: gtopo
 
@@ -84,7 +86,8 @@ real, parameter :: fv = RVGAS/RDGAS-1.
 contains
 
 !--------------------------------------------------------------------------------
-subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in,ntrac_in,domain,deltim_in)
+subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
+                                  ntrac_in,domain,deltim_in)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: nlon_in, nlat_in, nlev_in, trunc_in, ntrac_in
     real, intent(in) :: deltim_in
@@ -95,7 +98,8 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in,ntrac_in,doma
     real :: ref_temp
     integer, allocatable :: sph_wave(:,:)
     real, allocatable :: ak(:), bk(:), sl(:)
-
+    character(len=2) :: nm
+    integer :: idx, tr
     
     call mpp_init()
     call fms_init()
@@ -186,25 +190,43 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in,ntrac_in,doma
     
     deallocate(ak,bk,sl)
     deallocate(sph_wave)
-    call read_specdata('specdata','topo',stopo)
-    
-    call read_specdata('specdata','lnp_1',satm(1)%prs)
-    call read_specdata('specdata','lnp_2',satm(2)%prs)
-    
-    call read_specdata('specdata','vor_1',satm(1)%vor)
-    call read_specdata('specdata','vor_2',satm(2)%vor)
-    
-    call read_specdata('specdata','div_1',satm(1)%div)
-    call read_specdata('specdata','div_2',satm(2)%div)
-    
-    call read_specdata('specdata','tem_1',satm(1)%tem)
-    call read_specdata('specdata','tem_2',satm(2)%tem)
-    
-    do ntr = 1, ntrac
-        write(fldnm,'(A,I1)') 'tr',ntr
-        call read_specdata('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
-        call read_specdata('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
+
+    idx=register_spec_restart('spec_res','topo',stopo,.false.,0.)
+    do i = 1, 2
+        nm='_m'
+        if (i==2) nm='_n'
+        idx=register_spec_restart('spec_res','vor'//nm,satm(i)%vor,.false.,0.)
+        idx=register_spec_restart('spec_res','div'//nm,satm(i)%div,.false.,0.)
+        idx=register_spec_restart('spec_res','tem'//nm,satm(i)%tem,.true.,273.15)
+        idx=register_spec_restart('spec_res','prs'//nm,satm(i)%prs,.false.,0.)
+        do tr = 1, ntrac
+            write(fldnm,'(A,I3.3,A)') 'tr',tr,nm
+            idx=register_spec_restart('spec_res',fldnm,satm(i)%tr(:,:,:,tr),.false.,0.)
+        enddo
     enddo
+            
+    !call read_specdata('specdata','topo',stopo)
+    !
+    !call read_specdata('specdata','lnp_1',satm(1)%prs)
+    !call read_specdata('specdata','lnp_2',satm(2)%prs)
+    !
+    !call read_specdata('specdata','vor_1',satm(1)%vor)
+    !call read_specdata('specdata','vor_2',satm(2)%vor)
+    !
+    !call read_specdata('specdata','div_1',satm(1)%div)
+    !call read_specdata('specdata','div_2',satm(2)%div)
+    !
+    !call read_specdata('specdata','tem_1',satm(1)%tem)
+    !call read_specdata('specdata','tem_2',satm(2)%tem)
+    !
+    !do ntr = 1, ntrac
+    !    write(fldnm,'(A,I1)') 'tr',ntr
+    !    call read_specdata('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
+    !    call read_specdata('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
+    !enddo
+
+    call restore_spec_state()
+    call save_spec_restart('init')
 
 end subroutine init_spectral_dynamics
 

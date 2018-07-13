@@ -143,6 +143,7 @@
 
       integer :: i, error, is, ie, js, je, isg, ieg, jsg, jeg
       type(domain2d), pointer :: io_domain=>NULL()
+	  integer :: naxis, kxy
 
       if (.not.PRESENT(time_level)) then
           tlevel = 0
@@ -183,38 +184,70 @@
 ! NOTE: passing of subdomains will fail for multi-PE single-threaded I/O,
 !       since that attempts to gather all data on PE 0.
           start = 1
+	      naxis = 0
           do i = 1,size(field%axes(:))
              axsiz(i) = field%size(i)
-             if( field%axes(i)%did.EQ.field%time_axis_index .AND. field%time_axis_index >0 )start(i) = tlevel
-
+             if( field%axes(i)%did.EQ.field%time_axis_index .AND. field%time_axis_index >0 ) then
+                start(i) = tlevel
+		     else
+	            naxis = naxis + 1
+             endif
           end do
+          kxy = 3
           if( PRESENT(domain) )then
-              call mpp_get_compute_domain( domain, is,  ie,  js,  je, tile_count=tile_count, position=position  )
+              call mpp_get_compute_domain( domain, is,  ie,  js,  je, tile_count=tile_count, position=position, kxy=kxy )
               call mpp_get_global_domain ( domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
-              axsiz(1) = ie-is+1
-              axsiz(2) = je-js+1
-              if( mpp_file(unit)%fileset.EQ.MPP_SINGLE )then
-                 if( npes.GT.1 )then
-                    start(1) = is - isg + 1
-                    start(2) = js - jsg + 1
-                 else   !--- z1l fix a problem related obc when npes = 1
-                    if( ie-is+1.NE.ieg-isg+1 )then
-                       start(1) = is - isg + 1
-                       axsiz(1) = ie - is + 1 
-                    end if
-                    if( je-js+1.NE.jeg-jsg+1 )then
-                       start(2) = js - jsg + 1
-                       axsiz(2) = je - js + 1 
-                    end if
-                 end if
-              else if( mpp_file(unit)%io_domain_exist ) then
-                 io_domain=>mpp_get_io_domain(domain)
-                 call mpp_get_compute_domain( io_domain, is,  ie,  js,  je, tile_count=tile_count, position=position  )
-                 call mpp_get_global_domain ( io_domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
-                 start(1) = is - isg + 1
-                 start(2) = js - jsg + 1
-                 io_domain => NULL()
-              end if
+              if (kxy==1.and.naxis>2) then
+              	axsiz(2) = ie-is+1
+              	axsiz(3) = je-js+1
+              	if( mpp_file(unit)%fileset.EQ.MPP_SINGLE )then
+              	   if( npes.GT.1 )then
+              	      start(2) = is - isg + 1
+              	      start(3) = js - jsg + 1
+              	   else   !--- z1l fix a problem related obc when npes = 1
+              	      if( ie-is+1.NE.ieg-isg+1 )then
+              	         start(2) = is - isg + 1
+              	         axsiz(2) = ie - is + 1 
+              	      end if
+              	      if( je-js+1.NE.jeg-jsg+1 )then
+              	         start(3) = js - jsg + 1
+              	         axsiz(3) = je - js + 1 
+              	      end if
+              	   end if
+              	else if( mpp_file(unit)%io_domain_exist ) then
+              	   io_domain=>mpp_get_io_domain(domain)
+              	   call mpp_get_compute_domain( io_domain, is,  ie,  js,  je, tile_count=tile_count, position=position  )
+              	   call mpp_get_global_domain ( io_domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
+              	   start(2) = is - isg + 1
+              	   start(3) = js - jsg + 1
+              	   io_domain => NULL()
+              	end if
+		      else
+              	axsiz(1) = ie-is+1
+              	axsiz(2) = je-js+1
+              	if( mpp_file(unit)%fileset.EQ.MPP_SINGLE )then
+              	   if( npes.GT.1 )then
+              	      start(1) = is - isg + 1
+              	      start(2) = js - jsg + 1
+              	   else   !--- z1l fix a problem related obc when npes = 1
+              	      if( ie-is+1.NE.ieg-isg+1 )then
+              	         start(1) = is - isg + 1
+              	         axsiz(1) = ie - is + 1 
+              	      end if
+              	      if( je-js+1.NE.jeg-jsg+1 )then
+              	         start(2) = js - jsg + 1
+              	         axsiz(2) = je - js + 1 
+              	      end if
+              	   end if
+              	else if( mpp_file(unit)%io_domain_exist ) then
+              	   io_domain=>mpp_get_io_domain(domain)
+              	   call mpp_get_compute_domain( io_domain, is,  ie,  js,  je, tile_count=tile_count, position=position  )
+              	   call mpp_get_global_domain ( io_domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
+              	   start(1) = is - isg + 1
+              	   start(2) = js - jsg + 1
+              	   io_domain => NULL()
+              	end if
+              endif 
           end if  
               
           if( verbose )print '(a,2i6,i6,12i4)', 'READ_RECORD: PE, unit, nwords, start, axsiz=', pe, unit, nwords, start, axsiz

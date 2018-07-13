@@ -119,29 +119,23 @@ module grid_fourier_mod
 
         if (present(Tshuff)) then
             allocate(Tshuffle(FTRUNC))
-            
-            if (mpp_npes() > 1) then
-                if (mod(FTRUNC,2)==0) then
-                    k = FTRUNC + 1
-                    do i = 1, FTRUNC/2
-                        k = k - 1 
-                        Tshuffle(2*(i-1)+1) = i
-                        Tshuffle(2*i) = k
-                    enddo
-                else
-                    Tshuffle(FTRUNC) = 1
-                    k = FTRUNC + 1
-                    do i = 1, (FTRUNC-1)/2
-                        k = k - 1 
-                        Tshuffle(2*(i-1)+1) = i + 1
-                        Tshuffle(2*i) = k
-                    enddo 
-                endif
-                shuffle=.true.
-            else 
-                shuffle=.false.
-                forall(i=1:FTRUNC) Tshuffle(i) = i
+            if (mod(FTRUNC,2)==0) then
+                k = FTRUNC + 1
+                do i = 1, FTRUNC/2
+                    k = k - 1 
+                    Tshuffle(2*(i-1)+1) = i
+                    Tshuffle(2*i) = k
+                enddo
+            else
+                Tshuffle(FTRUNC) = 1
+                k = FTRUNC + 1
+                do i = 1, (FTRUNC-1)/2
+                    k = k - 1 
+                    Tshuffle(2*(i-1)+1) = i + 1
+                    Tshuffle(2*i) = k
+                enddo 
             endif
+            shuffle=.true.
 
             Tshuff = Tshuffle-1
             

@@ -777,7 +777,6 @@ subroutine write_data_3d_new(filename, fieldname, data, domain, no_domain, scala
 ! Initialize files to default values
   if(.not.module_is_initialized) call mpp_error(FATAL,'fms_io(write_data_3d_new): need to call fms_io_init')  
 
-
   if(PRESENT(data_default))then
      default_data=data_default
   else
@@ -1073,6 +1072,7 @@ function register_restart_field_r2d(fileObj, filename, fieldname, data, domain, 
   integer                                        :: register_restart_field_r2d
 
   if(.not.module_is_initialized) call mpp_error(FATAL,'fms_io(register_restart_field_r2d): need to call fms_io_init')  
+
   call setup_one_field(fileObj, filename, fieldname, (/size(data,1), size(data,2), 1, 1/), &
                        index_field, domain, mandatory, no_domain, .false., &
                        position, tile_count, data_default, longname, units)
@@ -2395,11 +2395,13 @@ subroutine setup_one_field(fileObj, filename, fieldname, field_siz, index_field,
   type(domain2d), pointer, save   :: d_ptr   =>NULL()
   type(var_type), pointer, save   :: cur_var =>NULL()
   type(domain2d), pointer, save   :: io_domain =>NULL()
-  integer                         :: length
+  integer                         :: length, kxy
 
   if(ANY(field_siz < 1)) then
      call mpp_error(FATAL, "fms_io(setup_one_field): each entry of field_size should be a positive integer")
   end if
+
+  kxy = 3
 
   if(PRESENT(data_default))then
      default_data=data_default
@@ -2560,28 +2562,47 @@ subroutine setup_one_field(fileObj, filename, fieldname, field_siz, index_field,
            call mpp_get_domain_components(array_domain(domain_idx), domain_x(domain_idx), domain_y(domain_idx), &
                 tile_count=tile_count)
         endif
+
         cur_var%domain_idx = domain_idx
         call mpp_get_domain_shift ( array_domain(domain_idx), ishift, jshift, position)
         call mpp_get_global_domain(array_domain(domain_idx), xsize=gxsize,ysize=gysize,tile_count=tile_count)
-        call mpp_get_compute_domain(array_domain(domain_idx), xsize = cxsize, ysize = cysize, tile_count=tile_count)
+        call mpp_get_compute_domain(array_domain(domain_idx), xsize = cxsize, ysize = cysize, tile_count=tile_count, kxy=kxy)
         call mpp_get_data_domain   (array_domain(domain_idx), xsize = dxsize, ysize = dysize, tile_count=tile_count)
+
         if (ishift .NE. 0) then
            cxsize = cxsize+ishift; dxsize = dxsize+ishift; gxsize = gxsize + ishift
         end if
         if (jshift .NE. 0) then
            cysize = cysize+jshift; dysize = dysize+jshift; gysize = gysize + jshift
         endif
-        if( (cur_var%siz(1) .NE. cxsize .AND. cur_var%siz(1) .NE. dxsize ) .OR. &
-            (cur_var%siz(2) .NE. cysize .AND. cur_var%siz(2) .NE. dysize ) ) then
-            call mpp_error(FATAL, 'fms_io(setup_one_field): data should be on either computer domain '//&
-              'or data domain when domain is present for field '//trim(fieldname)//' of file '//trim(filename) )
+
+        if (kxy==3.or.cur_var%siz(3)==1) then
+            if( (cur_var%siz(1) .NE. cxsize .AND. cur_var%siz(1) .NE. dxsize ) .OR. &
+                (cur_var%siz(2) .NE. cysize .AND. cur_var%siz(2) .NE. dysize ) ) then
+                call mpp_error(FATAL, 'fms_io(setup_one_field): data should be on either computer domain '//&
+                  'or data domain when domain is present for field '//trim(fieldname)//' of file '//trim(filename) )
+            end if
+            cur_var%is   = 1 + (cur_var%siz(1) - cxsize)/2
+            cur_var%ie   = cur_var%is + cxsize - 1;
+            cur_var%js   = 1 + (cur_var%siz(2) - cysize)/2
+            cur_var%je   = cur_var%js + cysize - 1;
+            cur_var%gsiz(1)   = gxsize
+            cur_var%gsiz(2)   = gysize
+        else
+            if( (cur_var%siz(2) .NE. cxsize .AND. cur_var%siz(2) .NE. dxsize ) .OR. &
+                (cur_var%siz(3) .NE. cysize .AND. cur_var%siz(3) .NE. dysize ) ) then
+                call mpp_error(FATAL, 'fms_io(setup_one_field): data should be on either computer domain '//&
+                  'or data domain when domain is present for field '//trim(fieldname)//' of file '//trim(filename) )
+            end if
+            cur_var%is   = 1 + (cur_var%siz(2) - cxsize)/2
+            cur_var%ie   = cur_var%is + cxsize - 1;
+            cur_var%js   = 1 + (cur_var%siz(3) - cysize)/2
+            cur_var%je   = cur_var%js + cysize - 1;
+            cur_var%gsiz(2)   = gxsize
+            cur_var%gsiz(3)   = gysize
+            cur_var%gsiz(1)   = cur_var%siz(1)
         end if
-        cur_var%is   = 1 + (cur_var%siz(1) - cxsize)/2
-        cur_var%ie   = cur_var%is + cxsize - 1;
-        cur_var%js   = 1 + (cur_var%siz(2) - cysize)/2
-        cur_var%je   = cur_var%js + cysize - 1;
-        cur_var%gsiz(1)   = gxsize
-        cur_var%gsiz(2)   = gysize
+
         io_domain => mpp_get_io_domain(array_domain(domain_idx))
         if(associated(io_domain)) then
            call mpp_get_global_domain( io_domain, xsize=cxsize, ysize=cysize,tile_count=tile_count)
@@ -2999,6 +3020,7 @@ subroutine read_data_3d_new(filename,fieldname,data,domain,timelevel, &
 
 ! Initialize files to default values
   if(.not.module_is_initialized) call mpp_error(FATAL,'fms_io(read_data_3d_new):  module not initialized')  
+
   is_no_domain = .false.
   if (PRESENT(no_domain)) THEN
      if(PRESENT(domain) .AND. no_domain) &
@@ -3191,6 +3213,7 @@ subroutine read_data_2d_new(filename,fieldname,data,domain,timelevel,&
   character(len=*), intent(in)                 :: filename, fieldname
   real, dimension(:,:), intent(inout)          :: data     !2 dimensional data 
   real, dimension(size(data,1),size(data,2),1) :: data_3d
+  real, dimension(1,size(data,1),size(data,2)) :: data_3d1
   type(domain2d), intent(in), optional         :: domain
   integer, intent(in) , optional               :: timelevel
   logical, intent(in), optional                ::  no_domain
@@ -3204,7 +3227,7 @@ subroutine read_data_2d_new(filename,fieldname,data,domain,timelevel,&
 !  pointer( p, data_3d )
 !  p = LOC(data)
 !#endif
-  call read_data_3d_new(filename,fieldname,data_3d,domain,timelevel,&
+    call read_data_3d_new(filename,fieldname,data_3d,domain,timelevel,&
         no_domain,.false., position,tile_count)
 
   if(PRESENT(domain)) then

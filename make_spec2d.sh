@@ -21,7 +21,9 @@ mkmftemplate="$thisdir/bin/mkmf.template.debug"
 
 amfi="$thisdir/amfi"
 
-paths="$amfi/model $amfi/driver $amfi/radiation $amfi/spec_dyn"
+#paths="$amfi/model $amfi/driver $amfi/radiation $amfi/spec_dyn"
+paths=$(find $amfi -type d)
+echo $paths
 
 libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
        $thisdir/shared/mpp/include \
@@ -62,6 +64,6 @@ make $@
 
 cd $thisdir/work
 
-mpirun -np 1 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 

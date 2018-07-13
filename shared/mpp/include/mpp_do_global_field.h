@@ -57,7 +57,7 @@
       global_on_this_pe =  .NOT. root_only .OR. domain%pe == domain%tile_root_pe
       ipos = 0; jpos = 0
 	  
-    if (kxy==1) then
+    if (kxy==1.and.size(local,3)/=1) then
       	if(global_on_this_pe ) then
       	   if(size(local,1).NE.size(global,1) ) call mpp_error( FATAL, &
       	        'MPP_GLOBAL_FIELD: mismatch of first dimension size of global and local')
@@ -87,13 +87,16 @@
       	   ioff = -domain%x(tile)%data%begin + 1
       	   joff = -domain%y(tile)%data%begin + 1
       	else
-      	   call mpp_error( FATAL, 'MPP_GLOBAL_FIELD_: incoming field array must match either compute domain or memory domain.' )
+      	   call mpp_error( FATAL, 'MPP_GLOBAL_FIELD_: incoming field array must match either compute domain or memory domain.(kxy=1)' )
       	end if
       	ke  = size(local,1)
 	else      
       if(global_on_this_pe ) then
-         if(size(local,3).NE.size(global,3) ) call mpp_error( FATAL, &
+         if(size(local,3).NE.size(global,3) ) then
+			print *, shape(local), shape(global)
+			call mpp_error( FATAL, &
               'MPP_GLOBAL_FIELD: mismatch of third dimension size of global and local')
+		 endif
          if( size(global,1).NE.(domain%x(tile)%global%size+ishift) .OR. size(global,2).NE.(domain%y(tile)%global%size+jshift))then
             if(xonly) then
                if(size(global,1).NE.(domain%x(tile)%global%size+ishift) .OR. &
@@ -133,7 +136,7 @@
       nword_me = (iec-isc+1)*(jec-jsc+1)*ke
       iec2 = isc+(iec-isc+1)/2-1
 
-	if (kxy==1) then
+	if (kxy==1.and.size(local,3)/=1) then
 ! make contiguous array from compute domain
       m = 0
       if(global_on_this_pe) then

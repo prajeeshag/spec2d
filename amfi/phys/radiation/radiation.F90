@@ -12,11 +12,11 @@ use data_override_mod, only : data_override
 
 use swrad_mod, only : init_swrad, swrad, NBDSW
 
-use albedo_mod, only : init_albedo, setalb_lnd, setalb_sice, setalb_ocean
-
 use vertical_levels_mod, only : get_pressure_at_levels
 
 use astronomy_mod, only : astronomy_init, diurnal_solar
+
+use sfc_mod, only : get_albedo
 
 implicit none
 private
@@ -43,16 +43,14 @@ integer, parameter :: NF_AESW=3, NF_AELW=3
 integer, parameter :: NF_CLDS=9, NF_VGAS=9
 integer, parameter :: NF_ALBD=4
 
-
-real, allocatable :: hprif(:,:)
-
 logical :: initialized=.true.
 
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_radiation(deltim_in,domain_in,ntrac_in,nlev_in)
+subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in)
 !--------------------------------------------------------------------------------   
+    type(time_type), intent(in) :: Time
     real, intent(in) :: deltim_in
     type(domain2D), target :: domain_in
     integer, intent(in) :: nlev_in, ntrac_in
@@ -86,14 +84,6 @@ subroutine init_radiation(deltim_in,domain_in,ntrac_in,nlev_in)
     jlen = je - js + 1
     ilen = ie - is + 1
     imax = jlen*ilen
-
-    call init_albedo()
-    
-    allocate(hprif(js:je,is:ie))
-
-    call read_data('INPUT/mtn.nc','mtn0',hprif,domain=domain)
-
-    call write_data('check_read.nc','hprif',hprif,domain=domain)
 
     call astronomy_init()
 
@@ -195,13 +185,7 @@ subroutine radiation(Time, tlyr, tr, p, tslnd, tsocn, tsice, lfrac, &
     solcon = con_solr * rrsun
     coszdg = coszen * coszdg
 
-    call setalb_lnd(imax, lmask, snowf, zorl, coszen, hprif, &
-                   alvsf, alnsf, alvwf, alnwf, facsf, facwf, &
-                   sfcalblnd)
-
-    call setalb_sice(imax, imask, hsnow, hice, tsice, sfcalbice)
-    
-    call setalb_ocean(imax, omask, coszen, sfcalbocn)  
+    call get_albedo(Time,sfcalb)
 
     faersw = 0.
 

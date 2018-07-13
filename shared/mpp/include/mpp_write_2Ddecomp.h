@@ -46,7 +46,7 @@
                                    y_is_global=y_is_global, tile_count=tile_count, position=position )
       call mpp_get_memory_domain ( domain, ism, iem, jsm, jem, position=position )
 
-	  if (kxy==1) then
+	  if (kxy==1.and.size(data,3)/=1) then
       	if( size(data,2).EQ.ie-is+1 .AND. size(data,3).EQ.je-js+1 )then
       	    data_has_halos = .FALSE.
       	else if( size(data,2).EQ.iem-ism+1 .AND. size(data,3).EQ.jem-jsm+1 )then
@@ -80,7 +80,7 @@
               endif
           else
 		  
-		  	if (kxy==1) then
+		  	if (kxy==1.and.size(data,3)/=1) then
 		  	  !put field onto global domain
           	    call mpp_get_global_domain ( domain, isg, ieg, jsg, jeg, tile_count=tile_count, position=position )
           	    if(mpp_file(unit)%write_on_this_pe .OR. .NOT. global_field_on_root_pe) then

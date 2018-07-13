@@ -3,7 +3,7 @@ module transforms_mod
 use, intrinsic :: iso_c_binding
 
 use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
-use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
+use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_sum
 use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
 use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
 use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
@@ -13,6 +13,10 @@ use mpp_domains_mod, only : mpp_get_compute_domain, mpp_get_global_domain
 
 use fms_mod, only : open_namelist_file, close_file, fms_init
 use fms_mod, only : read_data, write_data
+
+use fms_io_mod, only : read_data, restart_file_type, register_restart_field
+use fms_io_mod, only : restore_state, save_restart
+use fms_io_mod, only : fms_io_exit 
 
 use constants_mod, only : RADIUS
 
@@ -28,26 +32,23 @@ use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave
 use spherical_mod, only : get_lats
 
 
-use fms_io_mod, only : fms_io_exit 
-
-
 implicit none
 private
 
 public :: compute_ucos_vcos, compute_vor_div, get_lats
 public :: get_wdecomp, get_spherical_wave
 public :: spherical_to_grid, grid_to_spherical, init_transforms
+public :: register_spec_restart, restore_spec_state, save_spec_restart
 
 type(domain2d) :: domainf
 
-logical :: fpe 
-  
 integer :: ilen, jlen
 integer :: nwaves_oe=0
-    
+integer :: nwaves_oe_total=0
+logical :: fpe=.false. 
 integer, allocatable :: pelist(:), extent(:)
 integer, allocatable :: fpelist(:), fextent(:)
-integer, allocatable :: Tshuff(:)
+integer, allocatable :: Tshuff(:), spextent(:)
 
 real, allocatable :: cosm_lat(:), cosm2_lat(:)
 
@@ -58,6 +59,13 @@ integer :: isf, ief, flen, jsc, jec, j, jsf, jef
 integer :: unit, trunc
 integer :: pe
 integer :: ishuff=0
+
+integer, parameter :: max_num_dom=10
+integer :: num_dom = 0
+type(domain2d) :: spresdom(max_num_dom)
+type(restart_file_type) :: specres
+
+logical :: initialized=.false.
 
 public :: read_specdata
 
@@ -125,6 +133,7 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
 
     allocate(fextent(count(extent>0)))
+    allocate(spextent(count(extent>0)))
     allocate(fpelist(count(extent>0)))
    
     k = 0 
@@ -142,15 +151,29 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
    
     isf = 0; ief = -1 
     jsf = 0; jef = -1 
+
     if (fpe) then
+
         call mpp_set_current_pelist(fpelist)
+
         call mpp_define_domains( [1,nlat, 0,trunc], [1,mpp_npes()], domainf, yextent=fextent)
+
         call mpp_get_compute_domain(domainf, jsf, jef, isf, ief)
+
         if(flen /= ief-isf+1) call mpp_error('gloopa', 'flen /= ief-isf+1', FATAL)
-        print *, 'pe, isf, flen, load=', mpp_pe(), isf, flen, sum(trunc-Tshuff(isf:ief)+1)
 
         call init_spherical(trunc, nlat, ishuff, nwaves_oe, domainf, Tshuff) 
+
+        nwaves_oe_total=nwaves_oe
+
+        call mpp_sum(nwaves_oe_total)
+
+        call mpp_gather([nwaves_oe], spextent)
+
+        call mpp_broadcast(spextent,size(spextent),mpp_root_pe())
+
     endif
+
     call mpp_set_current_pelist()
 
     nwaves = nwaves_oe
@@ -160,18 +183,83 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
 
     call get_lats(cosmlat=cosm_lat,cosm2lat=cosm2_lat)
 
+    initialized = .true.
+
     return
 end subroutine init_transforms
 
+!--------------------------------------------------------------------------------   
+function register_spec_restart(filename,fieldname,data,mandatory,data_default)
+!--------------------------------------------------------------------------------
+    character (len=*), intent(in) :: filename, fieldname
+    complex, intent(in) :: data(:,:,:)
+    real, optional, intent(in) :: data_default
+    logical, optional, intent(in) :: mandatory
+    integer :: register_spec_restart 
 
+    integer :: isize, jsize, idx_dom, gdom(4), layout(2)
+    type(C_PTR) :: cptr
+    real, pointer :: rdata(:,:,:) => NULL()
+   
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+
+    register_spec_restart = 0
+
+    if (.not.fpe) return
+
+    idx_dom = 0
+
+    do i = 1, num_dom
+        call mpp_get_compute_domain(spresdom(i),xsize=isize)
+        if (isize==size(data,1)*2) then
+            idx_dom = i
+            exit
+        endif
+    enddo
+
+    if (idx_dom<1) then
+        num_dom = num_dom + 1
+        if (num_dom>max_num_dom) call mpp_error(FATAL,'register_spec_restart: num_dom>max_num_dom') 
+        idx_dom = num_dom
+        gdom = [1,size(data,1)*2,1,nwaves_oe_total]
+        layout = [1,mpp_npes()]
+        call mpp_define_domains(gdom, layout, spresdom(idx_dom),yextent=spextent)
+    endif
+
+        cptr = C_LOC(data)
+        call c_f_pointer(cptr,rdata,[size(data,1)*2,size(data,2),size(data,3)])
+        register_spec_restart = &
+            register_restart_field(specres, filename, fieldname, rdata, &
+                     spresdom(idx_dom), mandatory, data_default=data_default)
+
+end function register_spec_restart
+
+!--------------------------------------------------------------------------------   
+subroutine restore_spec_state()
+!--------------------------------------------------------------------------------   
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+    call restore_state(specres)
+end subroutine restore_spec_state
+
+!--------------------------------------------------------------------------------   
+subroutine save_spec_restart(prefix)
+!--------------------------------------------------------------------------------   
+    character(len=*), optional :: prefix
+
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+    call save_restart(specres,prefix)
+end subroutine save_spec_restart 
+
+!--------------------------------------------------------------------------------   
 subroutine vor_div_to_uv_grid3d(vor,div,u,v,getcosuv)
-
+!--------------------------------------------------------------------------------   
     complex,dimension(:,:,:), intent(in) :: vor, div
     real, intent(out) :: u(:,:,:), v(:,:,:)
     logical, intent(in), optional :: getcosuv
     complex,dimension(size(vor,1),size(vor,2),2) :: sucos, svcos
     logical :: getcosuv1
 
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
     getcosuv1 = .false.
 
     if(present(getcosuv)) getcosuv1=getcosuv
@@ -203,6 +291,7 @@ subroutine vor_div_to_uv_grid2d(vor,div,u,v,getcosuv)
     real :: u3d(1,size(u,1),size(u,2))
     real :: v3d(1,size(u,1),size(u,2))
 
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
     call vor_div_to_uv_grid3d(vor, div, u3d, v3d,getcosuv)
 
     u(:,:) = u3d(1,:,:)
@@ -212,9 +301,9 @@ subroutine vor_div_to_uv_grid2d(vor,div,u,v,getcosuv)
 
 end subroutine vor_div_to_uv_grid2d
 
-
+!--------------------------------------------------------------------------------   
 subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
-
+!--------------------------------------------------------------------------------   
     real, intent(in) :: u(:,:,:), v(:,:,:)
     complex,dimension(:,:,:), intent(out) :: vor, div
     logical, optional :: uvcos_in
@@ -232,6 +321,7 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     integer :: i, j, k
     logical :: uvcos_in1
 
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
     uvcos_in1=.false.
 
     if(present(uvcos_in)) uvcos_in1=uvcos_in
@@ -287,8 +377,9 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
 
 end subroutine vor_div_from_uv_grid3D 
 
-
+!--------------------------------------------------------------------------------   
 subroutine uv_grid_to_vor_div3D(u,v,vor,div)
+!--------------------------------------------------------------------------------   
     real, intent(in) :: u(:,:,:), v(:,:,:)
     complex,dimension(:,:,:), intent(out) :: vor, div
 
@@ -303,6 +394,7 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
     integer :: nk, nj, ni, howmany
     integer :: i, j, k
 
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
     nk = size(u,1); nj = size(u,2); ni = size(u,3)
 
     howmany = nk*nj
@@ -336,7 +428,9 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
 
 end subroutine uv_grid_to_vor_div3D 
 
+!--------------------------------------------------------------------------------   
 subroutine vor_div_from_uv_grid2D(u,v,vor,div)
+!--------------------------------------------------------------------------------   
     real, intent(in) :: u(:,:), v(:,:)
     complex,dimension(:,:,:), intent(out) :: vor, div
     real :: u3d(1,size(u,1),size(u,2))
@@ -348,7 +442,9 @@ subroutine vor_div_from_uv_grid2D(u,v,vor,div)
 
 end subroutine vor_div_from_uv_grid2D
 
+!--------------------------------------------------------------------------------   
 subroutine uv_grid_to_vor_div2D(u,v,vor,div)
+!--------------------------------------------------------------------------------   
     real, intent(in) :: u(:,:), v(:,:)
     complex,dimension(:,:,:), intent(out) :: vor, div
     real :: u3d(1,size(u,1),size(u,2))
@@ -360,8 +456,9 @@ subroutine uv_grid_to_vor_div2D(u,v,vor,div)
 
 end subroutine uv_grid_to_vor_div2D
 
-
+!--------------------------------------------------------------------------------   
 subroutine grid_to_spherical3D(grid,spherical,do_trunc)
+!--------------------------------------------------------------------------------   
     real, intent(in) :: grid(:,:,:)
     complex, dimension(:,:,:), intent(out) :: spherical
     logical, intent(in), optional :: do_trunc
@@ -458,8 +555,9 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
     return
 end subroutine spherical_to_grid3D
 
-
+!--------------------------------------------------------------------------------   
 subroutine grid_to_spherical2D(grid,spherical,do_trunc)
+!--------------------------------------------------------------------------------   
     real, intent(in) :: grid(:,:)
     complex, dimension(:,:,:), intent(out) :: spherical
     logical, intent(in), optional :: do_trunc
@@ -473,8 +571,9 @@ subroutine grid_to_spherical2D(grid,spherical,do_trunc)
     return
 end subroutine grid_to_spherical2D
 
-
+!--------------------------------------------------------------------------------   
 subroutine spherical_to_grid2D(spherical,grid,lat_deriv,lon_deriv)
+!--------------------------------------------------------------------------------   
     complex,dimension(:,:), intent(in) :: spherical
     real, intent(out), optional :: grid(:,:)
     real, intent(out), optional :: lat_deriv(:,:)

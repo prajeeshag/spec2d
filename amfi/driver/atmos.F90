@@ -19,7 +19,7 @@ use time_manager_mod, only : time_type
 
 use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
 
-use radiation_mod, only : init_radiation
+use phys_mod, only : init_phys
 
 implicit none
 private
@@ -61,8 +61,12 @@ subroutine init_atmos(Time,deltim_in)
 !--------------------------------------------------------------------------------
     type(time_type), intent(in) :: Time
     real, intent(in) :: deltim_in
+    integer :: layout(2)
+
     call mpp_init()
     call fms_init()
+
+    layout = [1,mpp_npes()]
     
     unit = open_namelist_file()
     read(unit,nml=atmos_nml)
@@ -72,9 +76,9 @@ subroutine init_atmos(Time,deltim_in)
     
     ntrac = 3
     ishuff = 2
-    if(mpp_npes()==1) ishuff=0
+    if(layout(1)==1) ishuff=0
     
-    call mpp_define_domains( [1,nlat,1,nlon], [1,mpp_npes()], domain_g, kxy=1, ishuff=ishuff)
+    call mpp_define_domains( [1,nlat,1,nlon], layout, domain_g, kxy=1, ishuff=ishuff)
     call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
     ilen = iec-isc+1
     jlen = jec-jsc+1
@@ -93,7 +97,7 @@ subroutine init_atmos(Time,deltim_in)
     
     call init_spectral_dynamics(nlon,nlat,nlev,trunc,ntrac,domain_g,deltim)
     
-    call init_radiation(deltim,domain_g,ntrac,nlev)
+    call init_phys(Time,deltim,domain_g,ntrac,nlev)
 
 end subroutine init_atmos
 

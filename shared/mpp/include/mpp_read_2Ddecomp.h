@@ -25,7 +25,7 @@
 !NEW: data may be on compute OR data domain
       logical :: data_has_halos, halos_are_global, x_is_global, y_is_global
       integer :: is, ie, js, je, isd, ied, jsd, jed, isg, ieg, jsg, jeg, ism, iem, jsm, jem
-      integer :: ioff, joff, position
+      integer :: ioff, joff, position, kxy
 
       call mpp_clock_begin(mpp_read_clock)
       
@@ -35,7 +35,7 @@
       if( .NOT.module_is_initialized )call mpp_error( FATAL, 'MPP_READ: must first call mpp_io_init.' )
       if( .NOT.mpp_file(unit)%opened )call mpp_error( FATAL, 'MPP_READ: invalid unit number.' )
 
-      call mpp_get_compute_domain( domain, is,  ie,  js,  je, tile_count=tile_count )
+      call mpp_get_compute_domain( domain, is,  ie,  js,  je, tile_count=tile_count, kxy=kxy )
       call mpp_get_data_domain   ( domain, isd, ied, jsd, jed, x_is_global=x_is_global, &
                                    y_is_global=y_is_global, tile_count=tile_count )
       call mpp_get_memory_domain ( domain, ism, iem, jsm, jem )
@@ -77,13 +77,24 @@
                       //'compute domain or data domain with the consideration of shifting.' )
          end if
       else
-         if( size(data,1).EQ.ie-is+1 .AND. size(data,2).EQ.je-js+1 )then
-            data_has_halos = .FALSE.
-         else if( size(data,1).EQ.iem-ism+1 .AND. size(data,2).EQ.jem-jsm+1 )then
-            data_has_halos = .TRUE.
-         else
-            call mpp_error( FATAL, 'MPP_READ: data must be either on compute domain or data domain.' )
-         end if
+		 if (kxy==3.or.size(data,3)==1) then
+         	if( size(data,1).EQ.ie-is+1 .AND. size(data,2).EQ.je-js+1 )then
+         	   data_has_halos = .FALSE.
+         	else if( size(data,1).EQ.iem-ism+1 .AND. size(data,2).EQ.jem-jsm+1 )then
+         	   data_has_halos = .TRUE.
+         	else
+         	   call mpp_error( FATAL, 'MPP_READ: data must be either on compute domain or data domain.' )
+         	end if
+		 else 
+         	if( size(data,2).EQ.ie-is+1 .AND. size(data,3).EQ.je-js+1 )then
+         	   data_has_halos = .FALSE.
+         	else if( size(data,2).EQ.iem-ism+1 .AND. size(data,3).EQ.jem-jsm+1 )then
+         	   data_has_halos = .TRUE.
+         	else
+	           print *, shape(data)
+         	   call mpp_error( FATAL, 'MPP_READ: data must be either on compute domain or data domain (kxy=1).' )
+         	end if
+		  endif 
       endif
       halos_are_global = x_is_global .AND. y_is_global
       if( npes.GT.1 .AND. mpp_file(unit)%threading.EQ.MPP_SINGLE )then
