@@ -18,8 +18,8 @@ use time_manager_mod, only : time_type, set_calendar_type, operator(-)
 use time_manager_mod, only : operator(+), set_date, set_time, days_in_month
 use time_manager_mod, only : operator(/), operator(>)
 
-use diag_manager_mod, only: diag_manager_init, diag_manager_end, diag_grid_end
-use diag_manager_mod, only: get_base_date
+use diag_manager_mod, only: diag_manager_init, diag_manager_end
+use diag_manager_mod, only: get_base_date, DIAG_OTHER
 
 use atmos_mod, only : init_atmos, update_atmos, end_atmos
 
@@ -38,7 +38,7 @@ namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos
 
 call mpp_init()
 call fms_init()
-call diag_manager_init()
+call diag_manager_init(DIAG_OTHER)
 
 unit = open_namelist_file()
 read(unit,nml=amfi_nml)
@@ -93,6 +93,8 @@ do n = 1, num_atmos_calls
     Time = Time + time_step
     call update_atmos(Time)
 enddo
+
+call diag_manager_end(Time)
 
 call end_atmos(Time)
 

@@ -157,6 +157,7 @@ CONTAINS
     INTEGER              :: calendar, id_axis, id_time_axis
     INTEGER              :: i, index, num, length, edges_index
     INTEGER              :: gbegin, gend, gsize, ndivs
+    INTEGER              :: domain_decomp(4)
     LOGICAL              :: time_ops1
 
     IF ( PRESENT(time_ops) ) THEN 
@@ -193,8 +194,9 @@ CONTAINS
        length = get_axis_global_length(id_axis)
        ALLOCATE(axis_data(length))
 
-       CALL get_diag_axis(id_axis, axis_name, axis_units, axis_long_name,&
-            & axis_cart_name, axis_direction, axis_edges, Domain, axis_data)
+       CALL get_diag_axis(id_axis, axis_name, axis_units, axis_long_name, &
+            axis_cart_name, axis_direction, axis_edges, Domain, axis_data, &
+            domain_decomp)
 
        IF ( Domain .NE. null_domain1d ) THEN
           IF ( length > 0 ) THEN
@@ -208,10 +210,12 @@ CONTAINS
        ELSE
           IF ( length > 0 ) THEN
              CALL mpp_write_meta(file_unit, Axis_types(num_axis_in_file), axis_name,&
-                  & axis_units, axis_long_name, axis_cart_name, axis_direction, DATA=axis_data)
+                  & axis_units, axis_long_name, axis_cart_name, axis_direction, &
+                    DATA=axis_data,domain_decomp=domain_decomp)
           ELSE
              CALL mpp_write_meta(file_unit, Axis_types(num_axis_in_file), axis_name,&
-                  & axis_units, axis_long_name, axis_cart_name, axis_direction)
+                  & axis_units, axis_long_name, axis_cart_name, axis_direction, &
+                    domain_decomp=domain_decomp)
           END IF
        END IF
 

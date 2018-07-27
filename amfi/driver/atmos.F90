@@ -15,11 +15,14 @@ use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_i
 use fms_mod, only : file_exist
 use fms_io_mod, only : fms_io_exit 
 
+use data_override_mod, only : data_override_init
+
 use time_manager_mod, only : time_type
 
 use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
+use spectral_dynamics_mod, only : get_lats, get_lons
 
-use phys_mod, only : init_phys
+use phys_mod, only : init_phys, phys
 
 implicit none
 private
@@ -45,6 +48,8 @@ real, allocatable :: tem(:,:,:)
 real, allocatable :: tem1(:,:,:)
 real, allocatable :: tr(:,:,:,:)
 real, allocatable :: tr1(:,:,:,:)
+
+real, allocatable :: lat_deg(:), lon_deg(:)
 
 integer :: ntr
 character(len=8) :: fldnm
@@ -82,7 +87,9 @@ subroutine init_atmos(Time,deltim_in)
     call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
     ilen = iec-isc+1
     jlen = jec-jsc+1
-    
+
+    call data_override_init(Atm_domain_in=domain_g)   
+ 
     allocate(u(nlev,jsc:jec,isc:iec))
     allocate(v(nlev,jsc:jec,isc:iec))
     allocate(tem(nlev,jsc:jec,isc:iec))
@@ -94,10 +101,15 @@ subroutine init_atmos(Time,deltim_in)
     allocate(tem1(nlev,jsc:jec,isc:iec))
     allocate(tr1(nlev,jsc:jec,isc:iec,ntrac))
     allocate(p1(jsc:jec,isc:iec))
-    
+
+    allocate(lat_deg(nlat), lon_deg(nlon))
+
     call init_spectral_dynamics(nlon,nlat,nlev,trunc,ntrac,domain_g,deltim)
+
+    call get_lons(deglon=lon_deg)
+    call get_lats(deglat=lat_deg)
     
-    call init_phys(Time,deltim,domain_g,ntrac,nlev)
+    call init_phys(Time,deltim,domain_g,ntrac,nlev,lat_deg,lon_deg)
 
 end subroutine init_atmos
 
@@ -108,6 +120,8 @@ subroutine update_atmos(Time)
     type(time_type), intent(in) :: Time
 
     call spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
+
+    call phys(Time,tem,tr,p)
     
     call write_data('rgloopa','u',u,domain_g)
     call write_data('rgloopa','v',v,domain_g)

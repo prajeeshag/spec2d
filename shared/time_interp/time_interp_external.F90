@@ -243,7 +243,7 @@ module time_interp_external_mod
       type(time_type) :: tdiff
       integer :: yr, mon, day, hr, minu, sec
       integer :: len, nfile, nfields_orig, nbuf, nx,ny
-      integer :: numwindows
+      integer :: numwindows, kxy, kxy3
 
       if (.not. module_initialized) call mpp_error(FATAL,'Must call time_interp_external_init first')
       if(present(ierr)) ierr = SUCCESS
@@ -317,8 +317,9 @@ module time_interp_external_mod
       gxsize=1; gysize=1
       siz_in = 1
 
+       kxy = 3
       if (PRESENT(domain)) then
-         call mpp_get_compute_domain(domain,iscomp,iecomp,jscomp,jecomp)
+         call mpp_get_compute_domain(domain,iscomp,iecomp,jscomp,jecomp,kxy=kxy)
          nx = iecomp-iscomp+1; ny = jecomp-jscomp+1
          call mpp_get_data_domain(domain,isdata,iedata,jsdata,jedata,dxsize,dxsize_max,dysize,dysize_max)
          call mpp_get_global_domain(domain,isglobal,ieglobal,jsglobal,jeglobal,gxsize,gxsize_max,gysize,gysize_max)
@@ -381,6 +382,17 @@ module time_interp_external_mod
          field(num_fields)%siz = 1
          field(num_fields)%ndim = ndim
          field(num_fields)%tdim = 4
+
+         kxy3 = 3
+         if(ndim>2.and.kxy==1) kxy3=1
+         do j=1,field(num_fields)%ndim
+            call get_axis_cart(fld_axes(j), cart)
+            if (trim(cart)=='T') then
+                kxy3 = 3
+                if(ndim>3.and.kxy==1) kxy3=1
+            endif
+         enddo
+                
          do j=1,field(num_fields)%ndim
             cart = 'N'
             call get_axis_cart(fld_axes(j), cart)
@@ -392,51 +404,99 @@ module time_interp_external_mod
             endif
             select case (cart)
             case ('X')
-               if (j.eq.2) transpose_xy = .true.
-               if (.not.PRESENT(domain) .and. .not.PRESENT(override)) then
-                  isdata=1;iedata=len
-                  iscomp=1;iecomp=len
-                  gxsize = len
-                  dxsize = len
-                  field(num_fields)%isc=iscomp;field(num_fields)%iec=iecomp
-               elseif (PRESENT(override)) then
-                  gxsize = len
-                  if (PRESENT(axis_sizes)) axis_sizes(1) = len
-               endif
-               field(num_fields)%axes(1) = fld_axes(j)
-               if(use_comp_domain1) then
-                  field(num_fields)%siz(1) = nx
-               else
-                  field(num_fields)%siz(1) = dxsize
-               endif
-               if (len /= gxsize) then
-                  write(msg,'(a,"/",a)')  trim(file),trim(fieldname)
-                  call mpp_error(FATAL,'time_interp_ext, file/field '//trim(msg)//' x dim doesnt match model')
-               endif
+               if (kxy==3) then 
+                if (j.eq.2) transpose_xy = .true.
+                if (.not.PRESENT(domain) .and. .not.PRESENT(override)) then
+                   isdata=1;iedata=len
+                   iscomp=1;iecomp=len
+                   gxsize = len
+                   dxsize = len
+                   field(num_fields)%isc=iscomp;field(num_fields)%iec=iecomp
+                elseif (PRESENT(override)) then
+                   gxsize = len
+                   if (PRESENT(axis_sizes)) axis_sizes(1) = len
+                endif
+                field(num_fields)%axes(1) = fld_axes(j)
+                if(use_comp_domain1) then
+                   field(num_fields)%siz(1) = nx
+                else
+                   field(num_fields)%siz(1) = dxsize
+                endif
+                if (len /= gxsize) then
+                   write(msg,'(a,"/",a)')  trim(file),trim(fieldname)
+                   call mpp_error(FATAL,'time_interp_ext, file/field '//trim(msg)//' x dim doesnt match model')
+                endif
+               elseif (kxy==1) then
+                if (j.eq.1) transpose_xy = .true.
+                if (.not.PRESENT(domain) .and. .not.PRESENT(override)) then
+                   jsdata=1;jedata=len
+                   jscomp=1;jecomp=len
+                   gysize = len
+                   dysize = len
+                   field(num_fields)%jsc=jscomp;field(num_fields)%jec=jecomp
+                elseif (PRESENT(override)) then
+                   gysize = len
+                   if (PRESENT(axis_sizes)) axis_sizes(j) = len
+                endif
+                field(num_fields)%axes(j) = fld_axes(j)
+                if(use_comp_domain1) then
+                   field(num_fields)%siz(j) = ny
+                else
+                   field(num_fields)%siz(j) = dysize
+                endif
+                if (len /= gysize) then
+                   write(msg,'(a,"/",a)')  trim(file),trim(fieldname)
+                   call mpp_error(FATAL,'time_interp_ext, file/field '//trim(msg)//' y dim doesnt match model')
+                endif
+               endif 
             case ('Y')
-               field(num_fields)%axes(2) = fld_axes(j)
-               if (.not.PRESENT(domain) .and. .not.PRESENT(override)) then
-                  jsdata=1;jedata=len
-                  jscomp=1;jecomp=len
-                  gysize = len
-                  dysize = len
-                  field(num_fields)%jsc=jscomp;field(num_fields)%jec=jecomp
-               elseif (PRESENT(override)) then
-                  gysize = len 
-                  if (PRESENT(axis_sizes)) axis_sizes(2) = len
-               endif
-               if(use_comp_domain1) then
-                  field(num_fields)%siz(2) = ny
-               else
-                  field(num_fields)%siz(2) = dysize
-               endif
-               if (len /= gysize) then
-                  write(msg,'(a,"/",a)')  trim(file),trim(fieldname)
-                  call mpp_error(FATAL,'time_interp_ext, file/field '//trim(msg)//' y dim doesnt match model')
+               field(num_fields)%axes(j) = fld_axes(j)
+               if (kxy==3) then 
+                if (.not.PRESENT(domain) .and. .not.PRESENT(override)) then
+                   jsdata=1;jedata=len
+                   jscomp=1;jecomp=len
+                   gysize = len
+                   dysize = len
+                   field(num_fields)%jsc=jscomp;field(num_fields)%jec=jecomp
+                elseif (PRESENT(override)) then
+                   gysize = len 
+                   if (PRESENT(axis_sizes)) axis_sizes(2) = len
+                endif
+                if(use_comp_domain1) then
+                   field(num_fields)%siz(2) = ny
+                else
+                   field(num_fields)%siz(2) = dysize
+                endif
+                if (len /= gysize) then
+                   print *, 'time_interp_external: j=', j, len, gysize 
+                   write(msg,'(a,"/",a)')  trim(file),trim(fieldname)
+                   call mpp_error(FATAL,'time_interp_ext, file/field '//trim(msg)//' y dim doesnt match model')
+                endif
+               elseif(kxy==1) then
+                if (.not.PRESENT(domain) .and. .not.PRESENT(override)) then
+                   isdata=1;iedata=len
+                   iscomp=1;iecomp=len
+                   gxsize = len
+                   dxsize = len
+                   field(num_fields)%isc=iscomp;field(num_fields)%iec=iecomp
+                elseif (PRESENT(override)) then
+                   gxsize = len 
+                   if (PRESENT(axis_sizes)) axis_sizes(j) = len
+                endif
+                if(use_comp_domain1) then
+                   field(num_fields)%siz(j) = nx
+                else
+                   field(num_fields)%siz(j) = dxsize
+                endif
+                if (len /= gxsize) then
+                   print *, 'time_interp_external: j=', j, len, gxsize 
+                   write(msg,'(a,"/",a)')  trim(file),trim(fieldname)
+                   call mpp_error(FATAL,'time_interp_ext, file/field '//trim(msg)//' x dim doesnt match model')
+                endif
                endif
             case ('Z')
-               field(num_fields)%axes(3) = fld_axes(j)
-               field(num_fields)%siz(3) = siz_in(3)
+               field(num_fields)%axes(j) = fld_axes(j)
+               field(num_fields)%siz(j) = siz_in(j)
             case ('T')
                field(num_fields)%axes(4) = fld_axes(j)
                field(num_fields)%siz(4) = ntime
@@ -464,8 +524,13 @@ module time_interp_external_mod
          allocate(field(num_fields)%need_compute(nbuf, numwindows))
          field(num_fields)%need_compute = .true.
 
-         allocate(field(num_fields)%data(isdata:iedata,jsdata:jedata,siz(3),nbuf),&
+         if (kxy3==3) then
+            allocate(field(num_fields)%data(isdata:iedata,jsdata:jedata,siz(3),nbuf),&
               field(num_fields)%mask(isdata:iedata,jsdata:jedata,siz(3),nbuf) )
+         else
+            allocate(field(num_fields)%data(siz(1),isdata:iedata,jsdata:jedata,nbuf),&
+              field(num_fields)%mask(siz(1),isdata:iedata,jsdata:jedata,nbuf))
+         endif
             field(num_fields)%mask = .false.
             field(num_fields)%data = 0.0
          slope=1.0;intercept=0.0
@@ -484,13 +549,21 @@ module time_interp_external_mod
             field(num_fields)%ie_src = gxsize
             field(num_fields)%js_src = 1
             field(num_fields)%je_src = gysize
-            allocate(field(num_fields)%src_data(gxsize,gysize,siz(3),nbuf))
+            if (kxy3==3) then
+                allocate(field(num_fields)%src_data(gxsize,gysize,siz(3),nbuf))
+            else
+                allocate(field(num_fields)%src_data(siz(1),gxsize,gysize,nbuf))
+            endif    
          else
             field(num_fields)%is_src = isdata
             field(num_fields)%ie_src = iedata
             field(num_fields)%js_src = jsdata
             field(num_fields)%je_src = jedata
-            allocate(field(num_fields)%src_data(isdata:iedata,jsdata:jedata,siz(3),nbuf))
+            if (kxy3==3) then
+                allocate(field(num_fields)%src_data(isdata:iedata,jsdata:jedata,siz(3),nbuf))
+            else
+                allocate(field(num_fields)%src_data(siz(1),isdata:iedata,jsdata:jedata,nbuf))
+            endif
          endif
          
          allocate(field(num_fields)%time(ntime))
@@ -670,7 +743,7 @@ module time_interp_external_mod
 ! verbose flag for debugging (optional).
 !</IN>
 
-    subroutine time_interp_external_3d(index, time, data, interp,verbose,horz_interp, mask_out, is_in, ie_in, js_in, je_in, window_id)
+    subroutine time_interp_external_3d(index, time, data, interp,verbose,horz_interp, mask_out, is_in, ie_in, js_in, je_in, window_id, kxy)
 
       integer,                    intent(in)           :: index
       type(time_type),            intent(in)           :: time
@@ -680,14 +753,14 @@ module time_interp_external_mod
       type(horiz_interp_type),    intent(in), optional :: horz_interp
       logical, dimension(:,:,:), intent(out), optional :: mask_out ! set to true where output data is valid 
       integer,                    intent(in), optional :: is_in, ie_in, js_in, je_in
-      integer,                    intent(in), optional :: window_id
+      integer,                    intent(in), optional :: window_id, kxy
 
       integer :: nx, ny, nz, interp_method, t1, t2
       integer :: i1, i2, isc, iec, jsc, jec, mod_time, outunit
       integer :: yy, mm, dd, hh, min, ss
       character(len=256) :: err_msg, filename
 
-      integer :: isw, iew, jsw, jew, nxw, nyw
+      integer :: isw, iew, jsw, jew, nxw, nyw, kxy1
           ! these are boundaries of the updated portion of the "data" argument
           ! they are calculated using sizes of the "data" and isc,iec,jsc,jsc
           ! fileds from respective input field, to center the updated portion
@@ -697,9 +770,19 @@ module time_interp_external_mod
       logical :: verb
       character(len=16) :: message1, message2
 
+      kxy1 = 3
+      if (present(kxy)) kxy1 = kxy     
+
       nx = size(data,1)
       ny = size(data,2)
       nz = size(data,3)
+
+      if (kxy1==1) then
+        nx = size(data,2)
+        ny = size(data,3)
+        nz = size(data,1)
+      endif
+
       outunit = stdout()
 
       interp_method = LINEAR_TIME_INTERP
@@ -707,7 +790,8 @@ module time_interp_external_mod
       verb=.false.
       if (PRESENT(verbose)) verb=verbose
       if (debug_this_module) verb = .true.
-      
+
+ 
       if (index < 1.or.index > num_fields) &
            call mpp_error(FATAL,'invalid index in call to time_interp_ext -- field was not initialized or failed to initialize')
 
@@ -733,11 +817,15 @@ module time_interp_external_mod
       isw = (nx-nxw)/2+1; iew = isw+nxw-1
       jsw = (ny-nyw)/2+1; jew = jsw+nyw-1
 
-      if (nx < nxw .or. ny < nyw .or. nz < field(index)%siz(3)) then
+      print *, trim(field(index)%name), isw, iew, nxw, jsw, jew, nyw
+
+      if (nx < nxw .or. ny < nyw .or. nz < field(index)%siz(kxy1)) then
          write(message1,'(i6,2i5)') nx,ny,nz
+         write(*,*) 'time_interp_external =', nxw,nyw,field(index)%siz(3)
          call mpp_error(FATAL,'field '//trim(field(index)%name)//' Array size mismatch in time_interp_external.'// &
          ' Array "data" is too small. shape(data)='//message1)
       endif
+
       if(PRESENT(mask_out)) then
         if (size(mask_out,1) /= nx .or. size(mask_out,2) /= ny .or. size(mask_out,3) /= nz) then
           write(message1,'(i6,2i5)') nx,ny,nz
@@ -750,7 +838,7 @@ module time_interp_external_mod
 
       if (field(index)%siz(4) == 1) then
          ! only one record in the file => time-independent field
-         call load_record(field(index),1,horz_interp, is_in, ie_in ,js_in, je_in,window_id)
+         call load_record(field(index),1,horz_interp, is_in, ie_in ,js_in, je_in,window_id,kxy=kxy)
          i1 = find_buf_index(1,field(index)%ibuf)
          if( field(index)%region_type == NO_REGION ) then
             where(field(index)%mask(isc:iec,jsc:jec,:,i1))
@@ -795,8 +883,8 @@ module time_interp_external_mod
             write(outunit,*) 't1, t2, w1, w2= ', t1, t2, w1, w2
          endif
 
-         call load_record(field(index),t1,horz_interp, is_in, ie_in ,js_in, je_in, window_id)
-         call load_record(field(index),t2,horz_interp, is_in, ie_in ,js_in, je_in, window_id)
+         call load_record(field(index),t1,horz_interp, is_in, ie_in ,js_in, je_in, window_id,kxy=kxy)
+         call load_record(field(index),t2,horz_interp, is_in, ie_in ,js_in, je_in, window_id,kxy=kxy)
          i1 = find_buf_index(t1,field(index)%ibuf)
          i2 = find_buf_index(t2,field(index)%ibuf)
          if(i1<0.or.i2<0) &
@@ -808,12 +896,21 @@ module time_interp_external_mod
          endif
 
          if( field(index)%region_type == NO_REGION ) then
-            where(field(index)%mask(isc:iec,jsc:jec,:,i1).and.field(index)%mask(isc:iec,jsc:jec,:,i2))
-               data(isw:iew,jsw:jew,:) = field(index)%data(isc:iec,jsc:jec,:,i1)*w1 + &
-                    field(index)%data(isc:iec,jsc:jec,:,i2)*w2
-            elsewhere
-               data(isw:iew,jsw:jew,:) = time_interp_missing !field(index)%missing? Balaji
-            end where
+            if (kxy1==3) then
+                where(field(index)%mask(isc:iec,jsc:jec,:,i1).and.field(index)%mask(isc:iec,jsc:jec,:,i2))
+                   data(isw:iew,jsw:jew,:) = field(index)%data(isc:iec,jsc:jec,:,i1)*w1 + &
+                        field(index)%data(isc:iec,jsc:jec,:,i2)*w2
+                elsewhere
+                   data(isw:iew,jsw:jew,:) = time_interp_missing !field(index)%missing? Balaji
+                end where
+            else
+                where(field(index)%mask(:,isc:iec,jsc:jec,i1).and.field(index)%mask(:,isc:iec,jsc:jec,i2))
+                   data(:,isw:iew,jsw:jew) = field(index)%data(:,isc:iec,jsc:jec,i1)*w1 + &
+                        field(index)%data(:,isc:iec,jsc:jec,i2)*w2
+                elsewhere
+                   data(:,isw:iew,jsw:jew) = time_interp_missing !field(index)%missing? Balaji
+                end where
+            endif
          else
             where(field(index)%mask(isc:iec,jsc:jec,:,i1).and.field(index)%mask(isc:iec,jsc:jec,:,i2))
                data(isw:iew,jsw:jew,:) = field(index)%data(isc:iec,jsc:jec,:,i1)*w1 + &
@@ -922,12 +1019,12 @@ module time_interp_external_mod
 
 ! ============================================================================
 ! load specified record from file  
-subroutine load_record(field, rec, interp, is_in, ie_in, js_in, je_in, window_id_in)
+subroutine load_record(field, rec, interp, is_in, ie_in, js_in, je_in, window_id_in, kxy)
   type(ext_fieldtype),     intent(inout)        :: field
   integer            ,     intent(in)           :: rec    ! record number
   type(horiz_interp_type), intent(in), optional :: interp
   integer,                 intent(in), optional :: is_in, ie_in, js_in, je_in
-  integer,                 intent(in), optional :: window_id_in
+  integer,                 intent(in), optional :: window_id_in, kxy
 
   ! ---- local vars 
   integer :: ib ! index in the array of input buffers
@@ -1025,12 +1122,22 @@ subroutine load_record(field, rec, interp, is_in, ie_in, js_in, je_in, window_id
         if ( field%region_type .NE. NO_REGION ) then
            call mpp_error(FATAL, "time_interp_external: region_type should be NO_REGION when interp is not present") 
         endif
-        field%data(isw:iew,jsw:jew,:,ib) = field%src_data(isw:iew,jsw:jew,:,ib)
-        field%mask(isw:iew,jsw:jew,:,ib) = mpp_is_valid(field%data(isw:iew,jsw:jew,:,ib),field%valid)
+        if (present(kxy).and.kxy==1) then
+            field%data(:,isw:iew,jsw:jew,ib) = field%src_data(:,isw:iew,jsw:jew,ib)
+            field%mask(:,isw:iew,jsw:jew,ib) = mpp_is_valid(field%data(:,isw:iew,jsw:jew,ib),field%valid)
+        else
+            field%data(isw:iew,jsw:jew,:,ib) = field%src_data(isw:iew,jsw:jew,:,ib)
+            field%mask(isw:iew,jsw:jew,:,ib) = mpp_is_valid(field%data(isw:iew,jsw:jew,:,ib),field%valid)
+        endif
      endif
      ! convert units
-     where(field%mask(isw:iew,jsw:jew,:,ib)) field%data(isw:iew,jsw:jew,:,ib) = &
+     if (present(kxy).and.kxy==1) then
+        where(field%mask(:,isw:iew,jsw:jew,ib)) field%data(:,isw:iew,jsw:jew,ib) = &
+          field%data(:,isw:iew,jsw:jew,ib)*field%slope + field%intercept
+     else
+        where(field%mask(isw:iew,jsw:jew,:,ib)) field%data(isw:iew,jsw:jew,:,ib) = &
           field%data(isw:iew,jsw:jew,:,ib)*field%slope + field%intercept
+     endif
   endif
 
 end subroutine load_record

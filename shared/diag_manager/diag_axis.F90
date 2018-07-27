@@ -91,7 +91,7 @@ CONTAINS
   !   </IN>
   !   <IN NAME="tile_count" TYPE="INTEGER, OPTIONAL" />
   INTEGER FUNCTION diag_axis_init(name, DATA, units, cart_name, long_name, direction,&
-       & set_name, edges, Domain, Domain2, aux, tile_count)
+       & set_name, edges, Domain, Domain2, aux, tile_count,domain_decomp)
     CHARACTER(len=*), INTENT(in) :: name
     REAL, DIMENSION(:), INTENT(in) :: DATA
     CHARACTER(len=*), INTENT(in) :: units
@@ -102,9 +102,10 @@ CONTAINS
     TYPE(domain2d), INTENT(in), OPTIONAL :: Domain2
     CHARACTER(len=*), INTENT(in), OPTIONAL :: aux
     INTEGER, INTENT(in), OPTIONAL :: tile_count
+    INTEGER, INTENT(in), OPTIONAL :: domain_decomp(:)
 
     TYPE(domain1d) :: domain_x, domain_y
-    INTEGER :: ierr, axlen
+    INTEGER :: ierr, axlen, kxy
     INTEGER :: i, set, tile
     INTEGER :: isc, iec, isg, ieg
     CHARACTER(len=128) :: emsg
@@ -194,6 +195,15 @@ CONTAINS
        CALL error_mesg('diag_axis_mod::diag_axis_init', 'Invalid cart_name name.', FATAL)
     END IF
 
+    Axes(diag_axis_init)%domain_decomp = 0
+    IF (PRESENT(domain_decomp)) THEN
+        if (present(Domain2).or.present(Domain)) &
+            call error_mesg('diag_axis_mod::diag_axis_init', &
+                'Domain2 or Domain cannot be present when ' &
+                //'domain_decomp is present', FATAL)
+        Axes(diag_axis_init)%domain_decomp = domain_decomp
+    ENDIF
+
     !---- allocate storage for coordinate values of axis ----
     IF ( Axes(diag_axis_init)%cart_name == 'T' ) THEN 
        axlen = 0
@@ -254,8 +264,14 @@ CONTAINS
     IF ( PRESENT(Domain2) ) THEN
        Axes(diag_axis_init)%Domain2 = Domain2
        CALL mpp_get_domain_components(Domain2, domain_x, domain_y, tile_count=tile_count)
-       IF ( Axes(diag_axis_init)%cart_name == 'X' ) Axes(diag_axis_init)%Domain = domain_x
-       IF ( Axes(diag_axis_init)%cart_name == 'Y' ) Axes(diag_axis_init)%Domain = domain_y
+       CALL mpp_get_compute_domain(Domain2, kxy=kxy)
+       if (kxy==3) then
+        IF ( Axes(diag_axis_init)%cart_name == 'X' ) Axes(diag_axis_init)%Domain = domain_x
+        IF ( Axes(diag_axis_init)%cart_name == 'Y' ) Axes(diag_axis_init)%Domain = domain_y
+       elseif (kxy==1) then
+        IF ( Axes(diag_axis_init)%cart_name == 'Y' ) Axes(diag_axis_init)%Domain = domain_x
+        IF ( Axes(diag_axis_init)%cart_name == 'X' ) Axes(diag_axis_init)%Domain = domain_y
+       endif 
     ELSE IF ( PRESENT(Domain)) THEN
        !---- domain1d type ----     
        Axes(diag_axis_init)%Domain2 = null_domain2d ! needed since not 2-D domain
@@ -437,12 +453,13 @@ CONTAINS
   !     Array of coordinate values for this axis.
   !   </OUT>
   SUBROUTINE get_diag_axis(id, name, units, long_name, cart_name,&
-       & direction, edges, Domain, DATA)
+       & direction, edges, Domain, DATA, domain_decomp)
     CHARACTER(len=*), INTENT(out) :: name, units, long_name, cart_name
     INTEGER, INTENT(in) :: id
     TYPE(domain1d), INTENT(out) :: Domain
     INTEGER, INTENT(out) :: direction, edges
     REAL, DIMENSION(:), INTENT(out) :: DATA
+    integer, intent(out), optional :: domain_decomp(:)
 
     CALL valid_id_check(id, 'get_diag_axis')
     name      = Axes(id)%name
@@ -458,6 +475,13 @@ CONTAINS
     ELSE
        DATA(1:Axes(id)%length) = Axes(id)%data
     END IF
+
+    if (.not.present(domain_decomp)) return
+    if (size(domain_decomp,1)<4) then
+        call error_mesg('diag_axis_mod::get_diag_axis', 'array domain_decomp is too small', FATAL)
+    else
+        domain_decomp(1:4) = Axes(id)%domain_decomp
+    endif
   END SUBROUTINE get_diag_axis
   ! </SUBROUTINE>
 

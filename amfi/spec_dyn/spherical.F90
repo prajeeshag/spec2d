@@ -339,22 +339,69 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
 
 end subroutine init_spherical
 
+
 !--------------------------------------------------------------------------------   
 subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
 !--------------------------------------------------------------------------------
-    real, intent(out), optional, dimension(js:je) :: sinlat, coslat, cosmlat, cosm2lat, deglat
+    real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, cosm2lat, deglat
 
     if(.not.initialized) &
         call mpp_error('get_lats', 'module not initialized', FATAL)
 
-    if(present(sinlat)) sinlat(js:je)=sin_lat(js:je)
-    if(present(coslat)) coslat(js:je)=cos_lat(js:je)
-    if(present(cosmlat)) cosmlat(js:je)=cosm_lat(js:je)
-    if(present(cosm2lat)) cosm2lat(js:je)=cosm2_lat(js:je)
-    if(present(deglat)) deglat(js:je)=deg_lat(js:je)
+    if(present(sinlat)) then
+        if (size(sinlat,1)==nlat) then
+            sinlat = sin_lat
+        elseif (size(sinlat,1)==jlen) then
+            sinlat = sin_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
+
+    if(present(coslat)) then
+        if (size(coslat,1)==nlat) then
+            coslat = cos_lat
+        elseif (size(coslat,1)==jlen) then
+            coslat = cos_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
+
+    if(present(cosmlat)) then
+        if (size(cosmlat,1)==nlat) then
+            cosmlat = cosm_lat
+        elseif (size(cosmlat,1)==jlen) then
+            cosmlat = cosm_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
+
+    if(present(cosm2lat)) then
+        if (size(cosm2lat,1)==nlat) then
+            cosm2lat = cosm2_lat
+        elseif (size(cosm2lat,1)==jlen) then
+            cosm2lat = cosm2_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
+
+    if(present(deglat)) then
+        if (size(deglat,1)==nlat) then
+            deglat = deg_lat
+        elseif (size(deglat,1)==jlen) then
+            deglat = deg_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
 
     return
 end subroutine get_lats
+
+
 
 !--------------------------------------------------------------------------------   
 subroutine get_wdecomp(wdom,neven_global,nodd_global)

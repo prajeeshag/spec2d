@@ -186,6 +186,8 @@ subroutine data_override_init(Atm_domain_in, Ocean_domain_in, Ice_domain_in, Lan
 
   type(data_type)  :: data_entry
 
+  integer :: kxy
+
   debug_data_override = .false.
 
 #ifdef INTERNAL_FILE_NML
@@ -372,10 +374,14 @@ subroutine data_override_init(Atm_domain_in, Ocean_domain_in, Ice_domain_in, Lan
 
  if(field_exist(grid_file, "x_T" ) .OR. field_exist(grid_file, "geolon_t" ) ) then
     if (atm_on) then
-       call mpp_get_compute_domain( atm_domain,is,ie,js,je) 
+       call mpp_get_compute_domain( atm_domain,is,ie,js,je,kxy=kxy)
        allocate(lon_local_atm(is:ie,js:je), lat_local_atm(is:ie,js:je))
-       call get_grid_version_1(grid_file, 'atm', atm_domain, is, ie, js, je, lon_local_atm, lat_local_atm, &
-            min_glo_lon_atm, max_glo_lon_atm )
+       if (kxy==3) then 
+            call get_grid_version_1(grid_file, 'atm', atm_domain, is, ie, js, je, &
+                 lon_local_atm, lat_local_atm, min_glo_lon_atm, max_glo_lon_atm )
+       elseif(kxy==1) then
+            lon_local_atm = 0. ; lat_local_atm = 0.
+       endif
     endif
     if (ocn_on) then
        call mpp_get_compute_domain( ocn_domain,is,ie,js,je) 
@@ -505,6 +511,9 @@ subroutine data_override_2d(gridname,fieldname,data_2D,time,override, is_in, ie_
   integer       :: index1
   integer       :: i
 
+  if(.not.module_is_initialized) &
+       call mpp_error(FATAL,'Error: need to call data_override_init first')
+
 !1  Look  for the data file in data_table 
   if(PRESENT(override)) override = .false.
   index1 = -1
@@ -552,14 +561,14 @@ end subroutine data_override_2d
 !   </OUT>
 !   <IN NAME="data_index" TYPE="integer">
 !   </IN>
-subroutine data_override_3d(gridname,fieldname_code,data,time,override,data_index, is_in, ie_in, js_in, je_in)
+subroutine data_override_3d(gridname,fieldname_code,data,time,override,data_index, is_in, ie_in, js_in, je_in,kxy)
   character(len=3),             intent(in) :: gridname ! model grid ID
   character(len=*),             intent(in) :: fieldname_code ! field name as used in the model
   logical,           optional, intent(out) :: override ! true if the field has been overriden succesfully
   type(time_type),              intent(in) :: time !(target) model time
   integer,           optional,  intent(in) :: data_index
   real, dimension(:,:,:),    intent(inout) :: data !data returned by this call
-  integer,           optional,  intent(in) :: is_in, ie_in, js_in, je_in
+  integer,           optional,  intent(in) :: is_in, ie_in, js_in, je_in, kxy
   logical, dimension(:,:,:),   allocatable :: mask_out
 
   character(len=512) :: filename !file containing source data
@@ -587,11 +596,14 @@ subroutine data_override_3d(gridname,fieldname_code,data,time,override,data_inde
   integer :: omp_get_num_threads, omp_get_thread_num, thread_id, window_id
   logical :: need_compute
   real    :: lat_min, lat_max
-  integer :: is_src, ie_src, js_src, je_src
+  integer :: is_src, ie_src, js_src, je_src, kxy1
 
   use_comp_domain = .false.
   if(.not.module_is_initialized) &
        call mpp_error(FATAL,'Error: need to call data_override_init first')
+
+    kxy1 = 3
+  if (PRESENT(kxy)) kxy1 = kxy
 
 !1  Look  for the data file in data_table 
   if(PRESENT(override)) override = .false.
@@ -664,22 +676,37 @@ subroutine data_override_3d(gridname,fieldname_code,data,time,override,data_inde
 !---    The another restrition is that size(data,1) == ie_in - is_in + 1,
 !---                                   size(data,2) == je_in - js_in + 1            
      nwindows = 1
-     if( nxd == size(data,1) .AND. nyd == size(data,2) ) then  ! 
-        use_comp_domain = .false.
-     else if ( mod(nxc, size(data,1)) ==0 .AND. mod(nyc, size(data,2)) ==0 ) then
-        use_comp_domain = .true.
-        nwindows = (nxc/size(data,1))*(nyc/size(data,2))
+     if (kxy1==3) then
+        if( nxd == size(data,1) .AND. nyd == size(data,2) ) then  ! 
+           use_comp_domain = .false.
+        else if ( mod(nxc, size(data,1)) ==0 .AND. mod(nyc, size(data,2)) ==0 ) then
+           use_comp_domain = .true.
+           nwindows = (nxc/size(data,1))*(nyc/size(data,2))
+        else
+           call mpp_error(FATAL, "data_override: data is not on data domain and compute domain is not divisible by size(data)")
+        endif
+        override_array(curr_position)%window_size(1) = size(data,1)
+        override_array(curr_position)%window_size(2) = size(data,2)
      else
-        call mpp_error(FATAL, "data_override: data is not on data domain and compute domain is not divisible by size(data)")
+        if( nxd == size(data,2) .AND. nyd == size(data,3) ) then  ! 
+           use_comp_domain = .false.
+        else if ( mod(nxc, size(data,2)) ==0 .AND. mod(nyc, size(data,3)) ==0 ) then
+           use_comp_domain = .true.
+           nwindows = (nxc/size(data,2))*(nyc/size(data,3))
+        else
+           call mpp_error(FATAL, "data_override: data is not on data domain and compute domain is not divisible by size(data)")
+        endif
+        override_array(curr_position)%window_size(1) = size(data,2)
+        override_array(curr_position)%window_size(2) = size(data,3)
      endif
-     override_array(curr_position)%window_size(1) = size(data,1)
-     override_array(curr_position)%window_size(2) = size(data,2)
 
      window_size = override_array(curr_position)%window_size
      override_array(curr_position)%numwindows = nwindows
+
      if( mod(nwindows, override_array(curr_position)%numthreads) .NE. 0 ) then
         call mpp_error(FATAL, "data_override: nwindow is not divisible by nthreads")
      endif
+
      allocate(override_array(curr_position)%need_compute(nwindows))
      override_array(curr_position)%need_compute = .true.
 
@@ -891,7 +918,7 @@ subroutine data_override_3d(gridname,fieldname_code,data,time,override,data_inde
         enddo
      else
         call time_interp_external(id_time,time,data,verbose=.false., &
-                                  is_in=is_in,ie_in=ie_in,js_in=js_in,je_in=je_in,window_id=window_id)
+                                  is_in=is_in,ie_in=ie_in,js_in=js_in,je_in=je_in,window_id=window_id,kxy=kxy)
         data = data*factor
      endif    
   else  ! off grid case

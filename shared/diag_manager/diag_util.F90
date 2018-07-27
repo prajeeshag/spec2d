@@ -1611,16 +1611,17 @@ CONTAINS
           ! <ERROR STATUS="FATAL">
           !   Domain not defined through set_domain interface; cannot retrieve tile info
           ! </ERROR>
-          CALL error_mesg('diag_util_mod::opening_file',&
-               & 'Domain not defined through set_domain interface; cannot retrieve tile info', FATAL)
-       END IF
-       IF ( mpp_get_ntile_count(domain2) > 1 ) THEN
-          ntileMe = mpp_get_current_ntile(domain2)
-          ALLOCATE(tile_id(ntileMe))
-          tile_id = mpp_get_tile_id(domain2)
-          fname = TRIM(filename)
-          CALL get_tile_string(filename, TRIM(fname)//'.tile' , tile_id(files(file)%tile_count))
-          DEALLOCATE(tile_id)
+          !CALL error_mesg('diag_util_mod::opening_file',&
+          !     & 'Domain not defined through set_domain interface; cannot retrieve tile info', FATAL)
+       ELSE
+        IF ( mpp_get_ntile_count(domain2) > 1 ) THEN
+           ntileMe = mpp_get_current_ntile(domain2)
+           ALLOCATE(tile_id(ntileMe))
+           tile_id = mpp_get_tile_id(domain2)
+           fname = TRIM(filename)
+           CALL get_tile_string(filename, TRIM(fname)//'.tile' , tile_id(files(file)%tile_count))
+           DEALLOCATE(tile_id)
+        END IF
        END IF
     END IF
 

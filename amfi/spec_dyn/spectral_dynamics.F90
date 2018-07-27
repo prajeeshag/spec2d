@@ -17,10 +17,10 @@ use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_i
 
 use fms_io_mod, only : fms_io_exit 
 
-use transforms_mod, only : read_specdata, get_spherical_wave
+use transforms_mod, only : get_spherical_wave
 use transforms_mod, only : compute_ucos_vcos, compute_vor_div
 use transforms_mod, only : spherical_to_grid, grid_to_spherical
-use transforms_mod, only : init_transforms, get_lats
+use transforms_mod, only : init_transforms, get_lats, get_lons
 use transforms_mod, only : register_spec_restart, restore_spec_state, save_spec_restart
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
@@ -35,6 +35,7 @@ implicit none
 private
 
 public :: init_spectral_dynamics, spectral_dynamics
+public :: get_lats, get_lons
 
 type satm_type
     complex, dimension(:,:,:),   allocatable :: vor

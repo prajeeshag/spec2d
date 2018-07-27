@@ -36,7 +36,7 @@ implicit none
 private
 
 public :: compute_ucos_vcos, compute_vor_div, get_lats
-public :: get_wdecomp, get_spherical_wave
+public :: get_wdecomp, get_spherical_wave, get_lons
 public :: spherical_to_grid, grid_to_spherical, init_transforms
 public :: register_spec_restart, restore_spec_state, save_spec_restart
 
@@ -45,18 +45,24 @@ type(domain2d) :: domainf
 integer :: ilen, jlen
 integer :: nwaves_oe=0
 integer :: nwaves_oe_total=0
+
 logical :: fpe=.false. 
+
 integer, allocatable :: pelist(:), extent(:)
 integer, allocatable :: fpelist(:), fextent(:)
 integer, allocatable :: Tshuff(:), spextent(:)
 
 real, allocatable :: cosm_lat(:), cosm2_lat(:)
+real, allocatable :: deg_lat(:), deg_lon(:)
+
+real :: lon_start = 0.
+real :: dlon = 0.
 
 integer :: comm, n
 real :: ref_temp
 integer :: isc, iec, m, l, t, i, k
 integer :: isf, ief, flen, jsc, jec, j, jsf, jef
-integer :: unit, trunc
+integer :: trunc, nlon, nlat
 integer :: pe
 integer :: ishuff=0
 
@@ -66,8 +72,6 @@ type(domain2d) :: spresdom(max_num_dom)
 type(restart_file_type) :: specres
 
 logical :: initialized=.false.
-
-public :: read_specdata
 
 interface vor_div_to_uv_grid
     module procedure vor_div_to_uv_grid3d
@@ -103,7 +107,7 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
     type(domain2d) :: domainl
     integer, intent(in) :: trunc_in
     integer, intent(out) :: nwaves
-    integer :: isg, ieg, jsg, jeg, nlon, nlat
+    integer :: isg, ieg, jsg, jeg
 
     call mpp_init() 
     call fms_init()
@@ -180,13 +184,42 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
 
     allocate(cosm_lat(jsc:jec))
     allocate(cosm2_lat(jsc:jec))
+    allocate(deg_lat(nlat))
+    allocate(deg_lon(nlon))
 
-    call get_lats(cosmlat=cosm_lat,cosm2lat=cosm2_lat)
+    call get_lats(cosmlat=cosm_lat,cosm2lat=cosm2_lat,deglat=deg_lat)
+
+    dlon = 360./nlon
+    deg_lon(1) = lon_start
+    do i = 2, nlon
+       deg_lon(i) = deg_lon(i-1) + dlon
+    enddo 
 
     initialized = .true.
 
     return
 end subroutine init_transforms
+
+
+!--------------------------------------------------------------------------------   
+subroutine get_lons(deglon)
+!--------------------------------------------------------------------------------   
+    real, intent(out) :: deglon(:)
+
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+
+    if (size(deglon,1)==nlon) then
+        deglon = deg_lon
+    elseif (size(deglon,1)==ilen) then
+        deglon = deg_lon(isc:iec)
+    else
+        call mpp_error(FATAL,'get_lons: Wrong size, deglon should either be on' &
+                             //' compute domain or global domain.')
+
+    endif
+
+end subroutine get_lons
+    
 
 !--------------------------------------------------------------------------------   
 function register_spec_restart(filename,fieldname,data,mandatory,data_default)

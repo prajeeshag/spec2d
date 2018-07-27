@@ -2225,6 +2225,7 @@ CONTAINS
                    END IF
                 END IF
              END IF
+
              output_fields(out_num)%buffer(is-hi:ie-hi,js-hj:je-hj,ks:ke,sample) = field(f1:f2,f3:f4,ks:ke)
           END IF
                

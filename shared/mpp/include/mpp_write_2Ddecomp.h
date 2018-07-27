@@ -198,8 +198,8 @@
           data_has_halos = .TRUE.
       else
           write( errunit,'(a,10i5)' )'MPP_WRITE_2DDECOMP fails on field '//trim(field%name)// &
-               ': is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2)=', &
-               is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2)
+               ': is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2), size(data,3)=', &
+               is,ie,js,je, ism,iem,jsm,jem, size(data,1), size(data,2), size(data,3)
           call mpp_error( FATAL, 'MPP_WRITE: data must be either on compute domain or data domain.' )
       end if
       halos_are_global = x_is_global .AND. y_is_global

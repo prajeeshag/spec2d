@@ -497,6 +497,7 @@ MODULE diag_data_mod
      TYPE(domain2d), dimension(MAX_SUBAXES) :: subaxis_domain2
      CHARACTER(len=128) :: aux
      INTEGER :: tile_count
+     INTEGER :: domain_decomp(4)=0
   END TYPE diag_axis_type
   ! </TYPE>
 

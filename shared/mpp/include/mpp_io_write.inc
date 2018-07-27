@@ -222,7 +222,8 @@
       return
     end subroutine mpp_write_meta_scalar_i
       
-    subroutine mpp_write_meta_axis( unit, axis, name, units, longname, cartesian, sense, domain, data)
+    subroutine mpp_write_meta_axis( unit, axis, name, units, longname, cartesian, sense, &
+                                    domain, data, domain_decomp)
 !load the values in an axistype (still need to call mpp_write)
 !write metadata attributes for axis
 !it is declared intent(inout) so you can nullify pointers in the incoming object if needed
@@ -234,6 +235,7 @@
       integer, intent(in), optional :: sense
       type(domain1D), intent(in), optional :: domain
       real, intent(in), optional :: data(:)
+      integer, intent(in), optional :: domain_decomp(:)
       integer :: is, ie, isg, ieg
       integer :: istat      
       logical :: domain_exist
@@ -363,6 +365,13 @@
           end if
 !silently ignore values of sense other than +/-1.
       end if
+
+	  if(PRESENT(domain_decomp)) then
+		if (sum(domain_decomp)>0) then
+			call mpp_write_meta(unit,axis%id,'domain_decomposition',ival=domain_decomp)
+		endif
+	  endif
+
       if( mpp_file(unit)%threading.EQ.MPP_MULTI .AND. mpp_file(unit)%fileset.EQ.MPP_MULTI .AND. domain_exist )then
           call mpp_write_meta( unit, axis%id, 'domain_decomposition', ival=(/isg,ieg,is,ie/))
       end if
