@@ -10,9 +10,8 @@ use time_manager_mod, only : time_type, set_time, get_date
 
 use data_override_mod, only : data_override
 
-use diag_manager_mod, only : diag_axis_init, register_diag_field, send_data
+use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
 
-use swrad_mod, only : init_swrad, swrad, NBDSW
 
 use vertical_levels_mod, only : get_pressure_at_levels
 
@@ -23,6 +22,9 @@ use constants_mod, only : PI
 use mersenne_twister, only : random_setseed, random_index, random_stat
 
 use module_radiation_clouds, only : progcld1
+
+use module_radsw_main, only : init_swrad, swrad, NBDSW
+use module_radlw_main, only : init_lwrad, lwrad, NBDLW=>nbands
 
 implicit none
 private
@@ -62,12 +64,13 @@ real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lat_deg, lon_deg
 real, allocatable, dimension(:,:) :: fland
 
 integer :: id_plvl, id_plyr, id_tskin, id_albedo, id_tlyr, id_tlvl, id_coszen, &
-           id_coszdg, id_ozone
+           id_fracday, id_ozone, id_qlyr, id_clw, id_clouds(NF_CLDS), id_htlw
+integer :: id_htsw, id_rsdt, id_rsut, id_rsutc, id_rsds, id_rsdsc, id_rsus, id_rsusc, &
+           id_ruvds, id_ruvdsc, id_rnirdsbm, id_rnirdsbf, id_rvisdsbm, id_rvisdsdf 
 
 logical :: initialized=.true.
 
-namelist/radiation_nml/icwp, iovr, isubc, co2vmr, n2ovmr, ch4vmr, &
-                       o2vmr, covmr, f11vmr, f12vmr, f22vmr, cl4vmr, f113vmr
+namelist/radiation_nml/icwp, iovr, isubc 
 
 contains
 
@@ -84,7 +87,7 @@ subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
     real, intent(in) :: fland_in(:,:)
     integer, intent(in) :: axes_in(:)
     integer, intent(in), optional :: ind_q_in, ind_oz_in, ind_clw_in
-    integer :: unit, i, j
+    integer :: unit, i, j, me
   
     unit = open_namelist_file()
 
@@ -129,14 +132,18 @@ subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
         lon_rad(j,is:ie) = lon_deg_in(is:ie)*PI/180.
     enddo
 
-    call init_swrad(icwp,iovr,isubc)
+
+    me = 1
+    if (mpp_pe()==mpp_root_pe()) me = 0
+
+    call init_swrad(icwp,me,iovr,isubc)
+    call init_lwrad(icwp,me,iovr,isubc)
 
     call rad_diag_init(Time,axes_in)
 
     initialized = .true.
 
 end subroutine init_radiation
-
 
 !--------------------------------------------------------------------------------   
 subroutine rad_diag_init(Time,axes_in)
@@ -147,6 +154,7 @@ subroutine rad_diag_init(Time,axes_in)
     integer :: id_lev, id_levp, id_lat, id_lon
     integer :: axes(3), axesp(3), i
     real, allocatable :: ilevs(:), ilevsp(:)
+    character(len=8) :: fldnm, rou='am_rad'
 
     allocate(ilevs(nlev)) 
     allocate(ilevsp(nlev+1)) 
@@ -156,34 +164,76 @@ subroutine rad_diag_init(Time,axes_in)
 
     id_lat = axes_in(1) 
     id_lon = axes_in(2) 
-    id_lev = diag_axis_init('lev',ilevs,'','Z',long_name='')
-    id_levp = diag_axis_init('levp',ilevsp,'','Z',long_name='')
+    id_lev = axes_in(3)
+    id_levp = axes_in(4) 
 
     axes = [id_lev,id_lat,id_lon] 
     axesp = [id_levp,id_lat,id_lon] 
 
-    id_plvl = register_diag_field('amfi_rad','plvl',axesp,Time,'Pressure','mb')
-    id_plyr = register_diag_field('amfi_rad','plyr',axes,Time,'Pressure','mb')
-    id_tskin = register_diag_field('amfi_rad','tskin',axes(2:3),Time,'Surface Temperature','K')
-    id_albedo = register_diag_field('amfi_rad','albedo',axes(2:3),Time,'Surface Albedo 1','1')
-    id_tlyr = register_diag_field('amfi_rad','tlyr',axes,Time,'Temperature','K')
-    id_tlvl = register_diag_field('amfi_rad','tlvl',axesp,Time,'Temperature','K')
-    id_coszen = register_diag_field('amfi_rad','coszen',axes(2:3),Time,'coszen','1')
-    id_coszdg = register_diag_field('amfi_rad','coszdg',axes(2:3),Time,'coszdg','1')
-    id_ozone = register_diag_field('amfi_rad','ozone',axes,Time,'Ozone','1')
+    id_plvl = reg_df(rou,'plvl',axesp,Time,'Pressure','mb')
+    id_plyr = reg_df(rou,'plyr',axes,Time,'Pressure','mb')
+    id_tskin = reg_df(rou,'tskin',axes(2:3),Time,'Surface Temperature','K')
+    id_albedo = reg_df(rou,'albedo',axes(2:3),Time,'Surface Albedo 1','1')
+    id_tlyr = reg_df(rou,'tlyr',axes,Time,'Temperature','K')
+    id_tlvl = reg_df(rou,'tlvl',axesp,Time,'Temperature','K')
+    id_coszen = reg_df(rou,'coszen',axes(2:3),Time,'coszen','1')
+    id_fracday = reg_df(rou,'fracday',axes(2:3),Time,'fracday','1')
+    id_ozone = reg_df(rou,'ozone',axes,Time,'Ozone','?')
+    id_qlyr = reg_df(rou,'qlyr',axes,Time,'Sp Humidity','?')
+    id_clw = reg_df(rou,'clw',axes,Time,'Cloud Condensate','?')
+    id_htlw = reg_df(rou,'htlw',axes,Time,'LW Heating Rate','?')
+    do i = 1, NF_CLDS
+        write(fldnm,'(A,I2.2)') 'clouds',i
+        id_clouds(i) = reg_df(rou,fldnm,axes,Time,fldnm,'?')
+    enddo
 
+    !Shortwave ----------------------------------------------    
+    id_htsw = reg_df(rou, 'htsw', axes, Time,  &
+              'Shortwave Heating Rate', '?')
+    id_rsdt = reg_df(rou, 'rsdt', axes(2:3), Time,  &
+              'TOA Incident Shortwave Radiation',  'W m-2')
+    id_rsut = reg_df(rou, 'rsut', axes(2:3), Time,  &
+              'TOA Upward Shortwave',  'W m-2')
+    id_rsutc = reg_df(rou, 'rsutc', axes(2:3), Time, &
+              'TOA Upward Shortwave (Clear)',  'W m-2')
+    id_rsds = reg_df(rou, 'rsds', axes(2:3), Time, &
+              'Surface Downwelling Shortwave',  'W m-2')
+    id_rsdsc = reg_df(rou, 'rsdsc', axes(2:3), Time, &
+              'Surface Downwelling Shortwave (Clear)',  'W m-2')
+    id_rsus = reg_df(rou, 'rsus', axes(2:3), Time, &
+              'Surface Upwelling Shortwave',  'W m-2')
+    id_rsusc = reg_df(rou, 'rsusc', axes(2:3), Time, &
+              'Surface Upwelling Shortwave (Clear)',  'W m-2')
+    id_ruvds = reg_df(rou, 'ruvds', axes(2:3), Time, &
+              'Surface Downwelling UV',  'W m-2')
+    id_ruvdsc = reg_df(rou, 'ruvdsc', axes(2:3), Time, &
+              'Surface Downwelling UV (Clear)',  'W m-2')
+    id_rnirdsbm = reg_df(rou, 'rnirdsbm', axes(2:3), Time, &
+              'Surface Downwelling Near-IR (dir)',  'W m-2')
+    id_rnirdsbf = reg_df(rou, 'rnirdsdf', axes(2:3), Time, &
+              'Surface Downwelling Near-IR (dif)',  'W m-2')
+    id_rvisdsbm = reg_df(rou, 'rvisdsbm', axes(2:3), Time, &
+              'Surface Downwelling visible (dir)',  'W m-2')
+    id_rvisdsdf = reg_df(rou, 'rvisdsdf ', axes(2:3), Time, &
+              'Surface Downwelling visible (dif)',  'W m-2')
+    !-----------------------------------------------------------
+    
 end subroutine rad_diag_init
 
 !--------------------------------------------------------------------------------   
-subroutine radiation(Time, tlyr, tr, p, tskin, coszen, coszdg, sfcalb, solcon)
+subroutine radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, solcon, &
+                     hswc, rsds, rsus)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     real, intent(in) :: tlyr(1:nlev,js:je,is:ie)
     real, intent(in) :: tr(1:nlev,js:je,is:ie,1:ntrac)
     real, intent(in), dimension(js:je,is:ie) :: p   !-> is in cb, should be converted to mb
-    real, intent(in), dimension(js:je,is:ie) :: tskin, coszen, coszdg
+    real, intent(in), dimension(js:je,is:ie) :: tskin, coszen, fracday
     real, intent(in), dimension(NF_ALBD,js:je,is:ie) :: sfcalb
     real, intent(in) :: solcon
+
+    real, intent(out), dimension(1:nlev,js:je,is:ie) :: hswc
+    real, intent(out), dimension(js:je,is:ie) :: rsds, rsus
 
     real, dimension(1:nlev,js:je,is:ie) :: plyr, qlyr, olyr, clw
     real, dimension(1:nlevp1,js:je,is:ie) :: plvl, tlvl
@@ -192,11 +242,10 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, coszdg, sfcalb, solcon)
     real, dimension(1:nlev,js:je,is:ie,NF_VGAS) :: gasvmr
     real, dimension(1:nlev,NBDSW,NF_AESW,js:je,is:ie) :: faersw
 
-    real, dimension(1:nlev,js:je,is:ie) :: hswc
     real, dimension(1:nlev,js:je,is:ie) :: hlwc
 
     real, dimension(js:je,is:ie) :: rsdt, rsut, rsutc
-    real, dimension(js:je,is:ie) :: rsds, rsdsc, rsus, rsusc
+    real, dimension(js:je,is:ie) :: rsdsc, rsusc
     real, dimension(js:je,is:ie) :: ruvds, ruvdsc
     real, dimension(js:je,is:ie) :: rnirdsbm, rnirdsdf
     real, dimension(js:je,is:ie) :: rvisdsbm, rvisdsdf
@@ -206,7 +255,7 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, coszdg, sfcalb, solcon)
     real :: tem2db(nlevp1,js:je,is:ie), tem2da(nlev,js:je,is:ie)
 
     logical :: used
-    integer :: k
+    integer :: k, i
 
     if(.not.initialized) call mpp_error(FATAL,'radiation_mod: module not initialized')
     
@@ -214,14 +263,6 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, coszdg, sfcalb, solcon)
 
     plvl = plvl * 10.0 !cb to mb
     plyr = plyr * 10.0 !cb to mb
-
-    used = send_data(id_plvl,plvl,Time)
-    used = send_data(id_plyr,plyr,Time)
-    used = send_data(id_tskin,tskin,Time)
-    used = send_data(id_albedo,sum(sfcalb,1)/NF_ALBD,Time)
-    used = send_data(id_tlyr,tlyr,Time)
-    used = send_data(id_coszen,coszen,Time)
-    used = send_data(id_coszdg,coszdg,Time)
 
     tlvl(nlevp1,:,:) = tlyr(nlev,:,:)
 
@@ -237,31 +278,59 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, coszdg, sfcalb, solcon)
                                     / (tem2da(k+1,:,:) - tem2da(k,:,:))
     enddo
 
-    used = send_data(id_tlvl,tlvl,Time)
-
     qlyr = 0.
     olyr = 0.
     clw = 0.
+
+    call data_override('ATM','ozone',olyr,Time,kxy=1)
+
     if (ind_q>0) qlyr = tr(:,:,:,ind_q)
     if (ind_oz>0) olyr = tr(:,:,:,ind_oz)
     if (ind_clw>0) clw = tr(:,:,:,ind_clw)
 
     faersw = 0.
 
-    call data_override('ATM','ozone',olyr,Time,kxy=1)
+    call get_gases(Time,gasvmr)
 
-    used = send_data(id_ozone,olyr,Time)
+    call get_clouds(plyr,plvl,tlyr,qlyr,clw,clouds,Time)
 
-    !call get_gases(Time,gasvmr)
+    if (isubc==2) call get_icseed(Time,icseed) 
 
-    !call get_clouds(plyr,plvl,tlyr,qlyr,clw,clouds,Time)
+    call swrad_drv(plyr,plvl,tlyr,tlvl,qlyr, &
+                   olyr,gasvmr,clouds,icseed(:,:,1),faersw,sfcalb,coszen,solcon, &
+                   hswc,rsdt,rsut,rsutc,rsds,rsdsc,rsus,rsusc, &
+                   ruvds,ruvdsc,rnirdsbm,rnirdsdf,rvisdsbm,rvisdsdf)
 
-    !if (isubc==2) call get_icseed(Time,icseed) 
-
-    !call swrad_drv(plyr,plvl,tlyr,tlvl,qlyr, &
-    !               olyr,gasvmr,clouds,icseed(:,:,1),faersw,sfcalb,coszen,solcon, &
-    !               hswc,rsdt,rsut,rsutc,rsds,rsdsc,rsus,rsusc,ruvds, &
-    !               ruvdsc,rnirdsbm,rnirdsdf,rvisdsbm,rvisdsdf)
+    used = send_data(id_ozone,   olyr, Time)
+    used = send_data(id_tlvl,    tlvl, Time)
+    used = send_data(id_plvl,    plvl, Time)
+    used = send_data(id_plyr,    plyr, Time)
+    used = send_data(id_tskin,   tskin, Time)
+    if (id_albedo>0) used = send_data(id_albedo,  sum(sfcalb,1)/NF_ALBD, Time)
+    used = send_data(id_tlyr,    tlyr, Time)
+    used = send_data(id_coszen,  coszen, Time)
+    used = send_data(id_fracday, fracday, Time)
+    used = send_data(id_qlyr,    qlyr, Time)
+    used = send_data(id_clw,     clw, Time)
+    ! Shortwave ------------------------------
+    if (id_htsw > 0)     used = send_data(id_htsw,     hswc,             Time)
+    if (id_rsdt > 0)     used = send_data(id_rsdt,     fracday*rsdt,     Time)
+    if (id_rsut > 0)     used = send_data(id_rsut,     fracday*rsut,     Time)
+    if (id_rsutc > 0)    used = send_data(id_rsutc,    fracday*rsutc,    Time)
+    if (id_rsds > 0)     used = send_data(id_rsds,     fracday*rsds,     Time)
+    if (id_rsdsc > 0)    used = send_data(id_rsdsc,    fracday*rsdsc,    Time)
+    if (id_rsus > 0)     used = send_data(id_rsus,     fracday*rsus,     Time)
+    if (id_rsusc > 0)    used = send_data(id_rsusc,    fracday*rsusc,    Time)
+    if (id_ruvds > 0)    used = send_data(id_ruvds,    fracday*ruvds,    Time)
+    if (id_ruvdsc > 0)   used = send_data(id_ruvdsc,   fracday*ruvdsc,   Time)
+    if (id_rnirdsbm > 0) used = send_data(id_rnirdsbm, fracday*rnirdsbm, Time)
+    if (id_rnirdsbf > 0) used = send_data(id_rnirdsbf, fracday*rnirdsdf, Time)
+    if (id_rvisdsbm > 0) used = send_data(id_rvisdsbm, fracday*rvisdsbm, Time)
+    if (id_rvisdsdf > 0) used = send_data(id_rvisdsdf, fracday*rvisdsdf, Time) 
+    !------------------------------------------
+    do i = 1, NF_CLDS
+        if(id_clouds(i) > 0) used = send_data(id_clouds(i), clouds(:,i,:,:), Time)
+    enddo
 
 end subroutine radiation
 
@@ -354,10 +423,8 @@ end subroutine get_gases
 !--------------------------------------------------------------------------------   
 subroutine swrad_drv(plyr,plvl,tlyr,tlvl,qlyr,olyr,gasvmr, &
                      clouds,icseed,aerosols,sfcalb,cosz,solcon, &
-                     hswc,topdnfxc,topupfxc,topupfx0, &
-                     sfcdnfxc,sfcdnfx0,sfcupfxc,sfcupfx0, &
-                     sfcuvbfc,sfcuvbf0,sfcnirbm,sfcnirdf, &
-                     sfcvisbm,sfcvisdf)
+                     hswc,rsdt,rsut,rsutc,rsds,rsdsc,rsus,rsusc, &
+                     ruvds,ruvdsc,rnirbm,rnirdf,rvisbm,rvisdf)
 !--------------------------------------------------------------------------------   
 
     real, dimension(nlev,imax), intent(in) :: plyr, tlyr, qlyr, olyr 
@@ -367,25 +434,21 @@ subroutine swrad_drv(plyr,plvl,tlyr,tlvl,qlyr,olyr,gasvmr, &
     real, intent(in) :: aerosols(nlev,NBDSW,NF_AESW,imax)
     real, intent(in) :: sfcalb(NF_ALBD,imax), cosz(imax), solcon
     real, intent(out) :: hswc(nlev,imax)
-    real, dimension(imax), intent(out) :: topdnfxc,topupfxc,topupfx0
-    real, dimension(imax), intent(out) :: sfcdnfxc,sfcdnfx0,sfcupfxc,sfcupfx0
-    real, dimension(imax), intent(out) :: sfcuvbfc,sfcuvbf0,sfcnirbm,sfcnirdf
-    real, dimension(imax), intent(out) :: sfcvisbm,sfcvisdf
+    real, dimension(imax), intent(out) :: rsdt, rsut, rsutc, rsds, rsdsc, rsus, rsusc
+    real, dimension(imax), intent(out) :: ruvds, ruvdsc, rnirbm, rnirdf, rvisbm, rvisdf
+
+    real :: fac(imax)
 
     integer :: i
 
-
     do i = 1, imax
-        call swrad(nlev, nlevp1, plyr(:,i), plvl(:,i), tlyr(:,i), tlvl(:,i), &
+        call swrad(plyr(:,i), plvl(:,i), tlyr(:,i), tlvl(:,i), &
                 qlyr(:,i), olyr(:,i), gasvmr(:,:,i), clouds(:,:,i), icseed(i), &
                 aerosols(:,:,:,i), sfcalb(:,i), cosz(i), solcon, &
-                hswc(:,i), topdnfxc(i), topupfxc(i), topupfx0(i), &
-                sfcdnfxc(i), sfcdnfx0(i), sfcupfxc(i), sfcupfx0(i), &
-                sfcuvbfc(i), sfcuvbf0(i), sfcnirbm(i), sfcnirdf(i), &
-                sfcvisbm(i), sfcvisdf(i))
-
+                nlev, nlevp1, NF_VGAS, NF_CLDS, NF_AESW, NF_ALBD, &
+                hswc(:,i),rsdt(i),rsut(i),rsutc(i),rsds(i),rsdsc(i),rsus(i),rsusc(i), &
+                ruvds(i),ruvdsc(i),rnirbm(i),rnirdf(i),rvisbm(i),rvisdf(i))
     enddo
-
 
 end subroutine swrad_drv
 

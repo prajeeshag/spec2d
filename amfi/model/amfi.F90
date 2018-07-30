@@ -90,8 +90,8 @@ num_atmos_calls = Run_length / time_step
 call init_atmos(Time,real(dt_atmos))
 
 do n = 1, num_atmos_calls
-    Time = Time + time_step
     call update_atmos(Time)
+    Time = Time + time_step
 enddo
 
 call diag_manager_end(Time)

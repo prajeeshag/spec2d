@@ -68,12 +68,12 @@ logical :: initialized=.false.
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_sfc(Time,deltim_in,domain_in,axes)
+subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     type(domain2D), target :: domain_in
     real, intent(in) :: deltim_in
-    integer, intent(in) :: axes(2)
+    integer, intent(in) :: axes_in(:)
 
     deltim = deltim_in 
     
@@ -83,7 +83,7 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes)
     ilen = ie-is+1
     jlen = je-js+1
 
-    call sfc_diag_init(axes,Time)
+    call sfc_diag_init(axes_in,Time)
   
     allocate( cellarea(js:je,is:ie) )
     allocate( fland(js:je,is:ie) )

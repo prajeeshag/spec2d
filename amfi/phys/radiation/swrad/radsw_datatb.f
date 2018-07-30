@@ -65,8 +65,8 @@
       public
 
 !  ---  reference pressure and temperature
-!     real , dimension(59) :: pref, preflog, tref
-      real , dimension(59) :: preflog, tref
+!     real, dimension(59) :: pref, preflog, tref
+      real, dimension(59) :: preflog, tref
 
 !  ...  these pressures are chosen such that the ln of the first pressure
 !       has only a few non-zero digits (i.e. ln(pref(1)) = 6.96000) and
@@ -175,13 +175,13 @@
 
 ! === everything below is for iflagliq >= 1.
 
-      real , dimension(58,nblow:nbhgh), public ::       
+      real, dimension(58,nblow:nbhgh), public ::       
      &       extliq1, ssaliq1, asyliq1
-      real , dimension(43,nblow:nbhgh), public ::       
+      real, dimension(43,nblow:nbhgh), public ::       
      &       extice2, ssaice2, asyice2
-      real , dimension(46,nblow:nbhgh), public ::       
+      real, dimension(46,nblow:nbhgh), public ::       
      &       extice3, ssaice3, asyice3, fdlice3
-      real , dimension(5), public ::                    
+      real, dimension(5), public ::                    
      &       abari, bbari, cbari, dbari, ebari, fbari
 
 !  --- ...  coefficients from ebert and curry method
@@ -1798,10 +1798,10 @@
 
 !  --- ...  coefficients to compute tau, ssa, asy for rain drop and
 !           (chou 1999), and snowflake (fu 2001 private communication)
-      real , public  :: a0r, a1r, a0s, a1s
+      real, public  :: a0r, a1r, a0s, a1s
       data a0r,a1r / 3.07e-3, 0.0 /,    a0s,a1s / 0.0,     1.5 /  ! fu's coeff
 
-      real , dimension(nblow:nbhgh), public ::          
+      real, dimension(nblow:nbhgh), public ::          
      &       b0r, b0s, b1s, c0r, c0s
       data b0r  / 0.466, 0.437, 0.416, 0.391, 0.374, 0.352, 0.183,      
      &            0.048, 0.012, 0.000, 0.000, 0.000, 0.000, 0.496 /
@@ -1850,7 +1850,7 @@
       integer, parameter :: MFB02 = 2      !
       integer, parameter :: MFB03 = 5      !
 !
-      real , dimension(nblow:nbhgh), public ::          
+      real, dimension(nblow:nbhgh), public ::          
      &       strrat, specwt
 
 !  ---  original strrat
@@ -1871,9 +1871,9 @@
       data  ix2     /  5, 2, 5, 2, 0, 2, 6, 0, 6, 0, 0, 0, 6, 0 /
       data  ibx     /  1, 1, 1, 2, 2, 3, 4, 3, 5, 4, 5, 6, 2, 7 /
 
-      real , parameter, public :: scalekur=50.15/48.37
+      real, parameter, public :: scalekur=50.15/48.37
 !
-      real , target, public ::                          
+      real, target, public ::                          
      &       sfluxref01(NGMAX,MFS01,MFB01),                             
      &       sfluxref02(NGMAX,MFS02,MFB02),                             
      &       sfluxref03(NGMAX,MFS03,MFB03)
@@ -2158,11 +2158,11 @@
       integer,  public :: MSA16, MSB16, MSF16, MFR16
       parameter (MSA16=585, MSB16=235, MSF16=10, MFR16=3)
 
-      real , public ::           selfref(MSF16,NG16),   
+      real, public ::           selfref(MSF16,NG16),   
      &       absa(MSA16,NG16), absb(MSB16,NG16), forref(MFR16,NG16)
 
 !  ---  rayleigh extinction coefficient at v = 2925 cm-1.
-      real , parameter, public :: rayl = 2.91e-10
+      real, parameter, public :: rayl = 2.91e-10
 
 !     the array absa(585,NG16) (ka(9,5,13,NG16)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -3306,11 +3306,11 @@
       integer,  public :: MSA17, MSB17, MSF17, MFR17
       parameter (MSA17=585, MSB17=1175, MSF17=10, MFR17=4)
 
-      real , public ::           selfref(MSF17,NG17),   
+      real, public ::           selfref(MSF17,NG17),   
      &       absa(MSA17,NG17), absb(MSB17,NG17), forref(MFR17,NG17)
 
 !  ---  rayleigh extinction coefficient at v = 3625 cm-1.
-      real , parameter, public :: rayl = 6.86e-10
+      real, parameter, public :: rayl = 6.86e-10
 
 !     the array absa(585,NG17) (ka((9,5,13,NG17)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -7905,11 +7905,11 @@
       integer,  public :: MSA18, MSB18, MSF18, MFR18
       parameter (MSA18=585, MSB18=235, MSF18=10, MFR18=3)
 
-      real , public ::           selfref(MSF18,NG18),   
+      real, public ::           selfref(MSF18,NG18),   
      &       absa(MSA18,NG18), absb(MSB18,NG18), forref(MFR18,NG18)
 
 !  ---  rayleigh extinction coefficient at v = 4325 cm-1.
-      real , parameter, public :: rayl = 1.39e-09
+      real, parameter, public :: rayl = 1.39e-09
 
 !     the array absa(585,NG18) (ka(9,5,13,NG18)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -9410,11 +9410,11 @@
       integer,  public :: MSA19, MSB19, MSF19, MFR19
       parameter (MSA19=585, MSB19=235, MSF19=10, MFR19=3)
 
-      real , public ::           selfref(MSF19,NG19),   
+      real, public ::           selfref(MSF19,NG19),   
      &       absa(MSA19,NG19), absb(MSB19,NG19), forref(MFR19,NG19)
 
 !  ---  rayleigh extinction coefficient at v = 4900 cm-1.
-      real , parameter, public :: rayl = 2.29e-09
+      real, parameter, public :: rayl = 2.29e-09
 
 !     the array absa(585,NG19) (ka(9,5,13,NG19)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -10916,11 +10916,11 @@
       integer,  public :: MSA20, MSB20, MSF20, MFR20
       parameter (MSA20=65, MSB20=235, MSF20=10, MFR20=4)
 
-      real , public :: forref(MFR20,NG20), absch4(NG20),
+      real, public :: forref(MFR20,NG20), absch4(NG20),
      &       absa(MSA20,NG20), absb(MSB20,NG20), selfref(MSF20,NG20)
 
 !  ---  rayleigh extinction coefficient at v = 5670 cm-1.
-      real , parameter, public :: rayl = 4.12e-09
+      real, parameter, public :: rayl = 4.12e-09
 
 !     the array absa(65,NG20) (ka(5,13,NG20)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -11685,11 +11685,11 @@
       integer,  public :: MSA21, MSB21, MSF21, MFR21
       parameter (MSA21=585, MSB21=1175, MSF21=10, MFR21=4)
 
-      real , public ::           forref(MFR21,NG21),    
+      real, public ::           forref(MFR21,NG21),    
      &       absa(MSA21,NG21), absb(MSB21,NG21), selfref(MSF21,NG21)
 
 !  ---  rayleigh extinction coefficient at v = 6925 cm-1.
-      real , parameter, public :: rayl = 9.41e-09
+      real, parameter, public :: rayl = 9.41e-09
 
 !     the array absa(585,NG21) (ka((9,5,13,NG21)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -15529,12 +15529,12 @@
       integer,  public :: MSA22, MSB22, MSF22, MFR22
       parameter (MSA22=585, MSB22=235, MSF22=10, MFR22=3)
 
-      real , public ::           forref(MFR22,NG22),    
+      real, public ::           forref(MFR22,NG22),    
      &       absa(MSA22,NG22), absb(MSB22,NG22), selfref(MSF22,NG22),   
      &       sfluxref(NG22,9)
 
 !  ---  rayleigh extinction coefficient at v = 8000 cm-1.
-      real , parameter, public :: rayl = 1.54e-08
+      real, parameter, public :: rayl = 1.54e-08
 
 !     the array absa(585,NG22) (ka(9,5,13,NG22)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -15963,11 +15963,11 @@
       integer,  public :: MSA23, MSF23, MFR23
       parameter (MSA23=65, MSF23=10, MFR23=3)
 
-      real , public ::              forref(MFR23,NG23), 
+      real, public ::              forref(MFR23,NG23), 
      &       absa(MSA23,NG23), selfref(MSF23,NG23), rayl(NG23)
 
 !  ---  average giver et al. correction factor for this band.
-      real , parameter, public :: givfac = 1.029
+      real, parameter, public :: givfac = 1.029
 
 !  ---  rayleigh extinction coefficient at all v
       data   rayl (1:10)         /                                      
@@ -16208,7 +16208,7 @@
       integer,  public :: MSA24, MSB24, MSF24, MFR24, MFX24
       parameter (MSA24=585, MSB24=235, MSF24=10, MFR24=3, MFX24=9)
 
-      real , public ::           forref(MFR24,NG24),    
+      real, public ::           forref(MFR24,NG24),    
      &       absa(MSA24,NG24), absb(MSB24,NG24), selfref(MSF24,NG24),   
      &       abso3a(NG24), abso3b(NG24), rayla(NG24,MFX24), raylb(NG24)
 
@@ -17738,7 +17738,7 @@
       integer,  public :: MSA25
       parameter (MSA25=65)
 
-      real , public ::                                  
+      real, public ::                                  
      &       absa(MSA25,NG25), rayl(NG25), abso3a(NG25), abso3b(NG25)
 
 !  ---  rayleigh extinction coefficient at v =      cm-1.
@@ -17886,7 +17886,7 @@
 !
       private
 !
-      real , public ::  rayl(NG26)
+      real, public ::  rayl(NG26)
 
 !  ---  rayleigh extinction coefficient at all v
       data   rayl  (1: 6)        /                         .1212630E-05,
@@ -17923,7 +17923,7 @@
       integer,  public :: MSA27, MSB27
       parameter (MSA27=65, MSB27=235)
 
-      real , public ::                                  
+      real, public ::                                  
      &       absa(MSA27,NG27), absb(MSB27,NG27), rayl(NG27)
 
 !  ---  rayleigh extinction coefficient at v =      cm-1.
@@ -18518,11 +18518,11 @@
       parameter (MSA28=585, MSB28=1175)
 
 
-      real , public ::                                  
+      real, public ::                                  
      &       absa(MSA28,NG28), absb(MSB28,NG28), sfluxref(NG28,5)
 
 !  ---  rayleigh extinction coefficient at v =      cm-1.
-      real , parameter, public :: rayl = 2.02e-05
+      real, parameter, public :: rayl = 2.02e-05
 
 !     the array absa(585,NG28) (ka((9,5,13,NG28)) contains absorption coefs at
 !     the 16 chosen g-values for a range of pressure levels> ~100mb,
@@ -20827,12 +20827,12 @@
       integer,  public :: MSA29, MSB29, MSF29, MFR29
       parameter (MSA29=65, MSB29=235, MSF29=10, MFR29=4)
 
-      real , public ::           forref(MFR29,NG29),    
+      real, public ::           forref(MFR29,NG29),    
      &       absa(MSA29,NG29), absb(MSB29,NG29), selfref(MSF29,NG29),   
      &       absh2o(NG29), absco2(NG29)
 
 !  ---  rayleigh extinction coefficient at v = 2200 cm-1.
-      real , parameter, public :: rayl = 9.30e-11
+      real, parameter, public :: rayl = 9.30e-11
 
 !  --- h2o
       data   absh2o (1:12)       /            .2995080E-03,.3950120E-02,

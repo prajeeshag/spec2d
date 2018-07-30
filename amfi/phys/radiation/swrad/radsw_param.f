@@ -107,6 +107,7 @@
       module module_radsw_parameters     !
 !........................................!
 
+
       implicit   none
 !
       public
@@ -205,7 +206,7 @@
      &              29,29,29,29,29,29,29,29,29,29,29,29 /                 ! band 29
 
 !  ---  band wavenumber intervals
-      real , dimension(NBANDS):: wvnum1, wvnum2
+      real, dimension(NBANDS):: wvnum1, wvnum2
       data wvnum1(:)    /                                               &
      &         2600.0, 3251.0, 4001.0, 4651.0, 5151.0, 6151.0, 7701.0,  &
      &         8051.0,12851.0,16001.0,22651.0,29001.0,38001.0,  820.0 /

@@ -817,8 +817,6 @@ module time_interp_external_mod
       isw = (nx-nxw)/2+1; iew = isw+nxw-1
       jsw = (ny-nyw)/2+1; jew = jsw+nyw-1
 
-      print *, trim(field(index)%name), isw, iew, nxw, jsw, jew, nyw
-
       if (nx < nxw .or. ny < nyw .or. nz < field(index)%siz(kxy1)) then
          write(message1,'(i6,2i5)') nx,ny,nz
          write(*,*) 'time_interp_external =', nxw,nyw,field(index)%siz(3)

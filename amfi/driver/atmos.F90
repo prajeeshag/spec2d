@@ -32,7 +32,7 @@ public :: init_atmos, update_atmos, end_atmos
 integer :: nlon=192, nlat=94, nlev=64
 integer :: isc, iec, ilen
 integer :: jsc, jec, jlen
-integer :: ishuff, ntrac=3
+integer :: ishuff, ntrac=2
 integer :: unit, trunc=62
 real :: deltim=600.
 

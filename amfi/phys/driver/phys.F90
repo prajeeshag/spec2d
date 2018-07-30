@@ -14,9 +14,9 @@ use fms_mod, only : file_exist
 
 use constants_mod, only : PI
 
-use time_manager_mod, only : time_type, set_time
+use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=)
 
-use diag_manager_mod, only : diag_axis_init
+use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
 
 use radiation_mod, only : init_radiation, con_solr, radiation, NF_ALBD
 
@@ -36,9 +36,13 @@ integer :: nlon, nlat
 
 integer :: dt_rad
 real :: deltim, deltimr
-type(time_type) :: rad_dt
+type(time_type) :: time_step_rad, rad_time, time_step
 
 real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lat_deg, lon_deg
+real, allocatable, dimension(:,:) :: rsds, rsus, rsns
+real, allocatable, dimension(:,:,:) :: htsw
+
+integer :: id_rsds, id_rsus, id_rsns, id_htsw
 
 logical :: initialized=.false.
 
@@ -56,9 +60,10 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     integer, intent(in) :: ntrac_in, nlev_in
     real, intent(in) :: lat_deg_in(:), lon_deg_in(:)
     
-    real, allocatable :: fland(:,:)
-    integer :: axes(2), id_lev, unit, i, j
+    real, allocatable :: fland(:,:), ilevs(:), ilevsp(:)
+    integer :: axes(4), id_lev, unit, i, j
     integer :: jsg,jeg,isg,ieg
+    character (len=8) :: rou='am_phys'
 
     unit = open_namelist_file()
 
@@ -73,7 +78,9 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     if (mod(deltimr,deltim)/=0.) call mpp_error('phys_mod', 'deltim for radiation ' &
                                         //'should be a multiple of model timestep', FATAL)
 
-    rad_dt = set_time(dt_rad)
+    time_step_rad = set_time(dt_rad)
+    time_step = set_time(int(dt_rad))
+    rad_time = Time
 
     domain => domain_in
 
@@ -87,12 +94,20 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     jlen = je - js + 1
     ilen = ie - is + 1
 
-    !axes(1) = diag_axis_init('lat',lat_deg_in(js:je),'degrees_N','Y',long_name='latitude',domain2=domain)
+    allocate(ilevs(nlev))
+    allocate(ilevsp(nlev+1))
+
+    forall(i=1:nlev) ilevs(i) = i
+    forall(i=1:nlev+1) ilevsp(i) = i
+
     axes(1) = diag_axis_init('lat',lat_deg_in(js:je),'degrees_N','Y', & 
               long_name='latitude',domain_decomp=[jsg,jeg,js,je])
-    !axes(2) = diag_axis_init('lon',lon_deg_in(is:ie),'degrees_E','X',long_name='longitude',domain2=domain)
     axes(2) = diag_axis_init('lon',lon_deg_in(is:ie),'degrees_E','X', &
               long_name='longitude',domain_decomp=[isg,ieg,is,ie])
+    axes(3) = diag_axis_init('lev',ilevs,'','Z',long_name='')
+    axes(4) = diag_axis_init('levp',ilevsp,'','Z',long_name='')
+
+    deallocate(ilevs,ilevsp)
 
     call init_sfc(Time,deltim,domain,axes(1:2))
 
@@ -104,6 +119,10 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     allocate(lat_deg(js:je,is:ie))
     allocate(lon_rad(js:je,is:ie))
     allocate(lon_deg(js:je,is:ie))
+    allocate(htsw(nlev,js:je,is:ie))
+    allocate(rsds(js:je,is:ie))
+    allocate(rsus(js:je,is:ie))
+    allocate(rsns(js:je,is:ie))
 
     do i = is, ie
         lat_deg(js:je,i) = lat_deg_in(js:je)
@@ -119,9 +138,25 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     call init_radiation(Time, deltim, domain, ntrac, nlev, lat_deg_in, &
                         lon_deg_in, fland, axes, ind_q_in=1, ind_clw_in=2) 
 
-    initialized = .true.
 
     deallocate(fland)
+
+    ! Diag out
+    ! -------------------------------------------------------------------------------- 
+    
+    id_rsds = reg_df(rou, 'rsds', axes(1:2), Time, 'Surface Downwelling Shortwave',  'W m-2')
+
+    id_rsus = reg_df(rou, 'rsus', axes(1:2), Time, 'Surface Upwelling Shortwave',  'W m-2')
+
+    id_rsns = reg_df(rou, 'rsns', axes(1:2), Time, 'Surface Net Shortwave',  'W m-2')
+
+    id_htsw = reg_df(rou, 'htsw', [axes(3),axes(1),axes(2)], Time, 'Shortwave Heating Rate',  '?')
+
+    !--------------------------------------------------------------------------------    
+
+
+    initialized = .true.
+
 
 end subroutine init_phys
 
@@ -134,21 +169,45 @@ subroutine phys(Time,tlyr,tr,p)
     real, intent(in) :: tr(1:nlev,js:je,is:ie,1:ntrac)
     real, intent(in) :: p(js:je,is:ie) 
 
-    real, dimension(js:je,is:ie) :: tskin, coszen, coszdg
+    real, dimension(js:je,is:ie) :: tskin, fracday, coszen, rcoszen
+    real, dimension(js:je,is:ie) :: rsdsz, rsusz, rsnsz
+    real, dimension(nlev,js:je,is:ie) :: htswz
     real, dimension(NF_ALBD,js:je,is:ie) :: sfcalb
     real :: solcon, rrsun
+    integer :: k
+    logical :: used
 
-    coszen(:,:) = 0.0
-    coszdg(:,:) = 0.0
-    call diurnal_solar(lat_rad, lon_rad, Time, coszen, coszdg, rrsun, rad_dt)
-    solcon = con_solr * rrsun
-    coszdg = coszen * coszdg
+    if (rad_time==Time) then
+        coszen(:,:) = 0.0
+        rcoszen(:,:) = 0.0
+        call diurnal_solar(lat_rad, lon_rad, Time, coszen, fracday, rrsun, time_step_rad)
+        solcon = con_solr * rrsun
+        where(coszen>0.) rcoszen = 1./coszen 
+        call get_tskin(Time,tskin)
+        call get_albedo(Time,coszen,sfcalb)
+        call radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, solcon, &
+                       htsw, rsds, rsus)
+        do k = 1, size(htsw,1)
+            htsw(k,:,:) = htsw(k,:,:) * rcoszen
+        enddo
+        rsds = rsds * rcoszen
+        rsus = rsus * rcoszen
+        rad_time = rad_time + time_step_rad
+    endif
 
-    call get_tskin(Time,tskin)
+    call diurnal_solar(lat_rad, lon_rad, Time, coszen, fracday, rrsun, time_step)
+    coszen = coszen * fracday
+    do k = 1, size(htsw,1)
+        htswz(k,:,:) = htsw(k,:,:) * coszen
+    enddo
+    rsdsz = rsds * coszen
+    rsusz = rsus * coszen
+    rsnsz = rsdsz - rsusz
 
-    call get_albedo(Time,coszen,sfcalb)
-
-    call radiation(Time, tlyr, tr, p, tskin, coszen, coszdg, sfcalb, solcon)
+    used = send_data(id_rsds, rsdsz, Time) 
+    used = send_data(id_rsus, rsusz, Time) 
+    used = send_data(id_rsns, rsnsz, Time) 
+    used = send_data(id_htsw, htswz, Time) 
 
 end subroutine phys
 
