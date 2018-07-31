@@ -29,7 +29,7 @@ use albedo_mod, only : init_albedo, setalb_lnd, setalb_sice, setalb_ocean
 implicit none
 private
 
-public :: init_sfc, get_albedo, get_tskin, get_land_frac
+public :: init_sfc, get_albedo, get_tskin, get_land_frac, get_emis
 
 real, allocatable, dimension(:,:)   :: fland, focn, fice, cellarea
 real, allocatable, dimension(:,:)   :: tslnd, sst, tsice
@@ -37,7 +37,7 @@ real, allocatable, dimension(:,:,:) :: smc, stc, slc
 real, allocatable, dimension(:,:)   :: vegfrac, tg3, sheleg, snwdph
 real, allocatable, dimension(:,:)   :: canopy, trans, sncovr, zorl
 real, allocatable, dimension(:,:)   :: alvsf, alvwf, alnsf, alnwf, facsf, facwf
-real, allocatable, dimension(:,:)   :: hprif
+real, allocatable, dimension(:,:)   :: hprif, emis_ref
 real, allocatable, dimension(:,:)   :: hsnow_sice, hice
 
 integer, allocatable, dimension(:,:) :: soiltype, vegtype, slopetype
@@ -119,6 +119,7 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
     allocate( hprif(js:je,is:ie) )
     allocate( hsnow_sice(js:je,is:ie) )
     allocate( hice(js:je,is:ie) )
+    allocate( emis_ref(js:je,is:ie) )
    
     call init_land(Time)
     call init_albedo() 
@@ -202,6 +203,15 @@ subroutine init_land(Time)
         call data_override('ATM','facwf',facwf,Time,ov)
         if(.not.ov) facwf = 1. - facsf
         used = send_data(id_facwf,facwf)
+    endif
+
+    if (file_exist('INPUT/emis_ref.nc')) then
+        call read_data('INPUT/emis_ref.nc','emis',tmpt)
+        emis_ref(js:je,is:ie) = tmpt(js:je,is:ie)
+        call mpp_error(NOTE,'Using background land emissivity from emis_ref.nc')
+    else
+        emis_ref = 0.95
+        call mpp_error(NOTE,'Using constant land emissivity = 0.95')
     endif
 
     indx = register_restart_field(sfcres, 'sfc_res', 'sheleg', sheleg, &
@@ -327,4 +337,25 @@ subroutine get_albedo(Time,coszen,sfcalb)
 
 end subroutine get_albedo
 
+!--------------------------------------------------------------------------------   
+subroutine get_emis(sfcemis)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, dimension(:,:), intent(out) :: sfcemis
+    real :: fsno1(size(fland,1),size(fland,2))
+    real, parameter ::  emsref(8) = [0.97, 0.95, 0.94, 0.90, 0.93, 0.96, 0.96, 0.99]
+
+    fsno1 = 1.0 - sncovr
+    sfcemis = emis_ref*fsno1 + emsref(8)*sncovr ! land
+
+    fsno1 = 1.0 - fland
+
+    sfcemis = sfcemis * fland  &
+            + fsno1 * (1.-fice) * emsref(1) & ! sea point
+            + fsno1 * fice * emsref(7) ! sea-ice
+
+    return
+end subroutine get_emis
+
 end module sfc_mod
+

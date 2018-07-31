@@ -540,7 +540,7 @@
 !  ======================    end of definitions    ===================  !
 
 !  ---  inputs:
-      integer, intent(in) :: nlay, nlp1, nf_vgas, nf_clds, icseed(:)
+      integer, intent(in) :: nlay, nlp1, nf_vgas, nf_clds, icseed(npts)
       integer, intent(in) :: nf_aelw
 
       real, dimension(npts,nlp1), intent(in) :: plev, tlev

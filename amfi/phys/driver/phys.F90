@@ -20,7 +20,7 @@ use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_d
 
 use radiation_mod, only : init_radiation, con_solr, radiation, NF_ALBD
 
-use sfc_mod, only : init_sfc, get_land_frac, get_albedo, get_tskin
+use sfc_mod, only : init_sfc, get_land_frac, get_albedo, get_tskin, get_emis
 
 use astronomy_mod, only : astronomy_init, diurnal_solar
 
@@ -41,6 +41,8 @@ type(time_type) :: time_step_rad, rad_time, time_step
 real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lat_deg, lon_deg
 real, allocatable, dimension(:,:) :: rsds, rsus, rsns
 real, allocatable, dimension(:,:,:) :: htsw
+real, allocatable, dimension(:,:) :: rlds, rlus
+real, allocatable, dimension(:,:,:) :: htlw
 
 integer :: id_rsds, id_rsus, id_rsns, id_htsw
 
@@ -123,6 +125,9 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     allocate(rsds(js:je,is:ie))
     allocate(rsus(js:je,is:ie))
     allocate(rsns(js:je,is:ie))
+    allocate(htlw(nlev,js:je,is:ie))
+    allocate(rlds(js:je,is:ie))
+    allocate(rlus(js:je,is:ie))
 
     do i = is, ie
         lat_deg(js:je,i) = lat_deg_in(js:je)
@@ -173,6 +178,7 @@ subroutine phys(Time,tlyr,tr,p)
     real, dimension(js:je,is:ie) :: rsdsz, rsusz, rsnsz
     real, dimension(nlev,js:je,is:ie) :: htswz
     real, dimension(NF_ALBD,js:je,is:ie) :: sfcalb
+    real, dimension(js:je,is:ie) :: sfcemis
     real :: solcon, rrsun
     integer :: k
     logical :: used
@@ -185,8 +191,9 @@ subroutine phys(Time,tlyr,tr,p)
         where(coszen>0.) rcoszen = 1./coszen 
         call get_tskin(Time,tskin)
         call get_albedo(Time,coszen,sfcalb)
-        call radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, solcon, &
-                       htsw, rsds, rsus)
+        call get_emis(sfcemis)
+        call radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis, solcon, htsw, &
+                       rsds, rsus, htlw, rlds, rlus)
         do k = 1, size(htsw,1)
             htsw(k,:,:) = htsw(k,:,:) * rcoszen
         enddo
@@ -203,6 +210,8 @@ subroutine phys(Time,tlyr,tr,p)
     rsdsz = rsds * coszen
     rsusz = rsus * coszen
     rsnsz = rsdsz - rsusz
+
+    
 
     used = send_data(id_rsds, rsdsz, Time) 
     used = send_data(id_rsus, rsusz, Time) 
