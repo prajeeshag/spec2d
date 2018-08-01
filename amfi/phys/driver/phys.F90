@@ -20,7 +20,7 @@ use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_d
 
 use radiation_mod, only : init_radiation, con_solr, radiation, NF_ALBD
 
-use sfc_mod, only : init_sfc, get_land_frac, get_albedo, get_tskin, get_emis
+use sfc_mod, only : init_sfc, get_land_frac, set_surface
 
 use astronomy_mod, only : astronomy_init, diurnal_solar
 
@@ -183,23 +183,24 @@ subroutine phys(Time,tlyr,tr,p)
     integer :: k
     logical :: used
 
+
     if (rad_time==Time) then
         coszen(:,:) = 0.0
         rcoszen(:,:) = 0.0
         call diurnal_solar(lat_rad, lon_rad, Time, coszen, fracday, rrsun, time_step_rad)
+        call set_surface(Time,tskin,coszen,sfcalb,sfcemis)
         solcon = con_solr * rrsun
         where(coszen>0.) rcoszen = 1./coszen 
-        call get_tskin(Time,tskin)
-        call get_albedo(Time,coszen,sfcalb)
-        call get_emis(sfcemis)
-        call radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis, solcon, htsw, &
-                       rsds, rsus, htlw, rlds, rlus)
+        call radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis, &
+                       solcon, htsw, rsds, rsus, htlw, rlds, rlus)
         do k = 1, size(htsw,1)
             htsw(k,:,:) = htsw(k,:,:) * rcoszen
         enddo
         rsds = rsds * rcoszen
         rsus = rsus * rcoszen
         rad_time = rad_time + time_step_rad
+    else
+        call set_surface(Time,tskin)
     endif
 
     call diurnal_solar(lat_rad, lon_rad, Time, coszen, fracday, rrsun, time_step)
@@ -211,7 +212,6 @@ subroutine phys(Time,tlyr,tr,p)
     rsusz = rsus * coszen
     rsnsz = rsdsz - rsusz
 
-    
 
     used = send_data(id_rsds, rsdsz, Time) 
     used = send_data(id_rsus, rsusz, Time) 

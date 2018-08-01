@@ -26,19 +26,29 @@ use diag_manager_mod, only : diag_axis_init, send_data
 
 use albedo_mod, only : init_albedo, setalb_lnd, setalb_sice, setalb_ocean
 
+use seaice_mod, only : sfc_sice_drv, kmi, tgice, himin
+
+use sfc_ocean_mod, only : sfc_ocean
+
+use sfc_diff_mod, only : sfc_diff
+
 implicit none
 private
 
-public :: init_sfc, get_albedo, get_tskin, get_land_frac, get_emis
+public :: init_sfc, get_land_frac, set_surface
 
-real, allocatable, dimension(:,:)   :: fland, focn, fice, cellarea
-real, allocatable, dimension(:,:)   :: tslnd, sst, tsice
+real, allocatable, dimension(:,:)   :: fland, cellarea
+real, allocatable, dimension(:,:)   :: tslnd
 real, allocatable, dimension(:,:,:) :: smc, stc, slc
 real, allocatable, dimension(:,:)   :: vegfrac, tg3, sheleg, snwdph
-real, allocatable, dimension(:,:)   :: canopy, trans, sncovr, zorl
+real, allocatable, dimension(:,:)   :: canopy, trans, sncovr, zorl, zorlocn
 real, allocatable, dimension(:,:)   :: alvsf, alvwf, alnsf, alnwf, facsf, facwf
 real, allocatable, dimension(:,:)   :: hprif, emis_ref
-real, allocatable, dimension(:,:)   :: hsnow_sice, hice
+
+real, allocatable, dimension(:,:)   :: hsnow_sice, hice, tsice, fice
+real, allocatable, dimension(:,:,:)   :: tice
+
+real, allocatable, dimension(:,:)   :: sst, focn
 
 integer, allocatable, dimension(:,:) :: soiltype, vegtype, slopetype
 
@@ -50,7 +60,7 @@ real :: deltim=0.
 
 integer :: is, ie, ilen
 integer :: js, je, jlen
-integer, parameter :: nllnd=4, nlice=2
+integer, parameter :: nllnd=4
 
 type(restart_file_type) :: sfcres 
 
@@ -103,6 +113,7 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
     allocate( trans(js:je,is:ie) )
     allocate( sncovr(js:je,is:ie) )
     allocate( zorl(js:je,is:ie) )
+    allocate( zorlocn(js:je,is:ie) )
     allocate( alvsf(js:je,is:ie) )
     allocate( alvwf(js:je,is:ie) )
     allocate( alnsf(js:je,is:ie) )
@@ -122,14 +133,21 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
     allocate( emis_ref(js:je,is:ie) )
    
     call init_land(Time)
+
     call init_albedo() 
+
+    call restore_state(sfcres)
+
+    call save_restart(sfcres,'init')
 
     initialized = .true.
 
 end subroutine init_sfc
 
+
 !--------------------------------------------------------------------------------   
 subroutine sfc_diag_init(axes,Time)
+!--------------------------------------------------------------------------------   
     integer, intent(in) :: axes(2)
     type(time_type), intent(in) :: Time
 
@@ -241,13 +259,92 @@ subroutine init_land(Time)
     indx = register_restart_field(sfcres, 'sfc_res', 'sncovr', sncovr, &
                     domain, mandatory=.false., data_default=0.)
 
-    call restore_state(sfcres)
+    indx = register_restart_field(sfcres, 'sfc_res', 'zorlocn', zorlocn, &
+                    domain, mandatory=.false., data_default=0.)
 
-    call save_restart(sfcres,'init')
     return
 
 end subroutine init_land
 
+
+!--------------------------------------------------------------------------------   
+subroutine do_surface(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki)
+!--------------------------------------------------------------------------------   
+    implicit none
+    type(time_type), intent(in) :: Time
+    real, intent(in), dimension(js:,is:) :: pgr, ugrs, vgrs, tgrs, qgrs, prsl
+    real, intent(in), dimension(js:,is:) :: prslki
+
+    logical, dimension(js:je,is:ie) :: mask
+
+
+end subroutine do_surface
+
+
+!--------------------------------------------------------------------------------   
+subroutine do_ocean(pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, intent(in), dimension(js:je,is:ie) :: pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki 
+   
+    real, dimension(js:je,is:ie) :: ddvel, cd, cdq, rb, stress, ffmm, ffhh, uustar, wind, fm10, fh2 
+    real, dimension(js:je,is:ie) :: qss, cmm, chh, evap, hflx, shflx, lhflx, dhdt, dedt
+
+    logical, dimension(js:je,is:ie) :: mask
+    real, dimension(js:je,is:ie) :: slimsk
+
+    integer :: im
+
+    im = size(pgr,1)*size(pgr,2)
+
+    mask = .false.
+    where (fland<1.and.fice<1.) mask = .true.
+    slimsk = 0.
+    
+    call sfc_diff(im, pgr, ugrs, vgrs, tgrs, qgrs, sst, zorlocn, cd, cdq, rb, &
+                  prsl, prslki, slimsk, stress, ffmm, ffhh, uustar, wind, &
+                  ddvel, fm10, fh2, sst, mask)
+
+    call sfc_ocean(im, pgr, wind, tgrs, qgrs, sst, cd, cdq, prsl, &
+                           prslki, mask, qss, cmm, chh, evap, hflx)
+
+end subroutine do_ocean
+
+
+!--------------------------------------------------------------------------------   
+subroutine do_seaice(pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
+                     sfcnsw, sfcdsw, fprecip)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, intent(in), dimension(js:je,is:ie) :: pgr, ugrs, vgrs, tgrs
+    real, intent(in), dimension(js:je,is:ie) :: qgrs, prsl, prslki
+    real, intent(in), dimension(js:je,is:ie) :: sfcdlw, sfcnsw, sfcdsw
+    real, intent(in), dimension(js:je,is:ie) :: fprecip
+    
+    real, dimension(js:je,is:ie) :: ddvel, cd, cdq, rb, stress, ffmm
+    real, dimension(js:je,is:ie) :: ffhh, uustar, wind, fm10, fh2 
+    real, dimension(js:je,is:ie) :: qss, cmm, chh, evap, hflx
+    real, dimension(js:je,is:ie) :: sice_snwdph, sice_snowmt, gflux, zlvl
+    logical, dimension(js:je,is:ie) :: mask
+    real, dimension(js:je,is:ie) :: slimsk
+
+    integer :: im
+
+    im = size(pgr,1)*size(pgr,2)
+
+    mask = .false.
+    where (fland<1.and.fice<1.) mask = .true.
+    slimsk = 1.
+
+    call sfc_diff(im, pgr, ugrs, vgrs, tgrs, qgrs, tsice, zorl, cd, cdq, rb, &
+                  prsl, prslki, slimsk, stress, ffmm, ffhh, uustar, wind, &
+                  ddvel, fm10, fh2, tsice, mask)
+
+    call sfc_sice_drv(im, pgr, wind, tgrs, qgrs, deltim, sfcdlw, sfcnsw, sfcdsw, cd, cdq, &
+                  prsl, prslki, hice, fice, tsice, hsnow_sice, fprecip, tice, sice_snwdph, qss, &
+                  sice_snowmt, gflux, cmm, chh, zlvl, evap, hflx)
+
+end subroutine do_seaice
 
 !--------------------------------------------------------------------------------   
 subroutine get_land_frac(frac)
@@ -260,22 +357,59 @@ subroutine get_land_frac(frac)
 
 end subroutine get_land_frac
 
-
 !--------------------------------------------------------------------------------   
-subroutine get_tskin(Time,tskin)
+subroutine set_surface(Time,tskin,coszen,sfcalb,sfcemis)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
+    real, intent(in), optional  :: coszen(:,:)
+    real, intent(out) :: tskin(:,:)
+    real, intent(out), optional :: sfcalb(:,:,:)
+    real, intent(out), optional :: sfcemis(:,:)
+
+    logical :: ov
+    integer :: k
+
+    if (any(lland)) then
+        call data_override('ATM','zorl',zorl,Time,ov)
+        if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for zorl !')
+    endif
+
+    call data_override('ATM','sst',sst,Time,ov)
+    if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for sst !')
+
+    where (fice<=0.)
+        hice = himin
+        tsice = tgice
+        hsnow_sice = 0.
+    end where
+    
+    do k = 1, size(tice,1)
+        where (fice<=0.) tice(k,:,:) = tgice
+    enddo
+
+    call data_override('ATM','fice',fice,Time,ov)
+    if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for fice !')
+
+    call get_tskin(tskin)
+  
+    if (present(sfcalb).and..not.present(coszen)) &
+       call mpp_error(FATAL, 'set_surface: sfcalb present but coszen not present')
+
+    if (present(sfcalb)) call get_albedo(Time,coszen,sfcalb)
+
+    if (present(sfcemis)) call get_emis(sfcemis)
+     
+    return
+end subroutine set_surface
+    
+
+!--------------------------------------------------------------------------------   
+subroutine get_tskin(tskin)
+!--------------------------------------------------------------------------------   
     real, intent(out) :: tskin(:,:)
     logical :: ov
 
     if (.not.initialized) call mpp_error(FATAL,'sfc_mod: not initialized')
-
-    call data_override('ATM','sst',sst,Time,ov)
-    if (.not.ov) call mpp_error(FATAL,'get_tskin: data_override failed for sst !')
-    call data_override('ATM','tsice',tsice,Time,ov)
-    if (.not.ov) call mpp_error(FATAL,'get_tskin: data_override failed for tsice !')
-    call data_override('ATM','fice',fice,Time,ov)
-    if (.not.ov) call mpp_error(FATAL,'get_tskin: data_override failed for fice !')
 
     tskin = tslnd * fland &
           + sst * focn * (1.-fice) &
@@ -306,10 +440,13 @@ subroutine get_albedo(Time,coszen,sfcalb)
     if (any(lland)) then 
         call data_override('ATM','alvsf',alvsf,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'get_albedo: data_override failed for alvsf !')
+
         call data_override('ATM','alnsf',alnsf,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'get_albedo: data_override failed for alnsf !')
+
         call data_override('ATM','alvwf',alvwf,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'get_albedo: data_override failed for alvwf !')
+
         call data_override('ATM','alnwf',alnwf,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'get_albedo: data_override failed for alnwf !')
 
@@ -318,9 +455,6 @@ subroutine get_albedo(Time,coszen,sfcalb)
                         alblnd)
     endif
 
-    call data_override('ATM','tsice',tsice,Time)
-    call data_override('ATM','hsnow_sice',hsnow_sice,Time)
-    call data_override('ATM','hice',hice,Time)
     lice = (fice>0.)
     call setalb_sice(imax,lice,hsnow_sice,hice,tsice,albsice)
 
@@ -336,6 +470,7 @@ subroutine get_albedo(Time,coszen,sfcalb)
     return
 
 end subroutine get_albedo
+
 
 !--------------------------------------------------------------------------------   
 subroutine get_emis(sfcemis)

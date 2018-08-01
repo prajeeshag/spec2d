@@ -101,12 +101,13 @@ end interface
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_transforms(domainl,trunc_in,nwaves)
+subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
 !--------------------------------------------------------------------------------
 
     type(domain2d) :: domainl
     integer, intent(in) :: trunc_in
     integer, intent(out) :: nwaves
+    logical, optional :: Tshuffle
     integer :: isg, ieg, jsg, jeg
 
     call mpp_init() 
@@ -131,7 +132,13 @@ subroutine init_transforms(domainl,trunc_in,nwaves)
     call mpp_get_current_pelist(pelist,commid=comm)
 
     allocate(Tshuff(0:trunc))
-    call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm, Tshuff)
+    forall(i=0:trunc) Tshuff(i) = i
+    
+    if (present(Tshuffle).and.(.not.Tshuffle)) then
+        call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm, Tshuff)
+    else
+        call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm, Tshuff)
+    endif
 
     call mpp_gather([flen], extent)
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
