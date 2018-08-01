@@ -15,8 +15,8 @@ EXE="perturb_ini"
 execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
 
-#mkmftemplate="$thisdir/bin/mkmf.template.debug"
-mkmftemplate="$thisdir/bin/mkmf.template"
+mkmftemplate="$thisdir/bin/mkmf.template.debug"
+#mkmftemplate="$thisdir/bin/mkmf.template"
 
 paths="$thisdir/perturb_ini $thisdir/amfi/spec_dyn"
 
@@ -98,4 +98,4 @@ make $@
 
 cd $thisdir
 
-exec/perturb_ini/perturb_ini.exe
+exec/perturb_ini/perturb_ini.exe sig_ini

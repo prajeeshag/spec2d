@@ -33,7 +33,7 @@ use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian
 implicit none
 private
 
-public :: init_spherical, get_wdecomp, get_lats
+public :: init_spherical, get_wdecomp, get_lats, get_wdecompa
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: compute_ucos_vcos, compute_vor_div, compute_vor
 public :: compute_div, do_truncation, get_spherical_wave
@@ -89,12 +89,15 @@ integer :: nwaves !Total number of waves
 integer :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
 integer :: noddwaves, nevenwaves
 integer :: noddwaves_g, nevenwaves_g, nwaves_oe_g
+integer :: nwavesglobala
 
 logical, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
 
 integer, allocatable :: ws4m(:,:), we4m(:,:), wlen4m(:,:) !starting and ending index of 
                                                                   !even & odd waves for a particular m
 integer, allocatable :: wdecomp(:,:)
+
+integer, allocatable :: wdecompa(:,:)
 
 integer, allocatable :: tshuffle(:)
 
@@ -123,7 +126,9 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
 
     integer :: m, w, n, unit, iostat, neadj
     integer :: nsf4m(0:trunc_in), nef4m(0:trunc_in), nlenf4m(0:trunc_in)
+    integer :: nsf4ma(0:trunc_in), nef4ma(0:trunc_in), nlenf4ma(0:trunc_in)
     integer, allocatable :: wsf4m(:,:), wef4m(:,:), wlenf4m(:,:)
+    integer, allocatable :: wsf4ma(:,:), wef4ma(:,:), wlenf4ma(:,:)
     integer :: we, wo
     character (len=8) :: suffix
 
@@ -191,6 +196,10 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
     allocate(wef4m(0:num_fourier,2))
     allocate(wlenf4m(0:num_fourier,2))
 
+    allocate(wsf4ma(0:num_fourier,2))
+    allocate(wef4ma(0:num_fourier,2))
+    allocate(wlenf4ma(0:num_fourier,2))
+
     !global domain
 
     nsf4m(:) = 0
@@ -200,6 +209,14 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
     enddo 
 
     nlenf4m(:) = nef4m - nsf4m + 1
+
+    nsf4ma(:) = 0
+    do m = 0, num_fourier
+       neadj = num_fourier - m
+       nef4ma(m) = neadj
+    enddo 
+
+    nlenf4ma(:) = nef4ma - nsf4ma + 1
 
     nwaves = 0; noddwaves = 0; nevenwaves = 0
 
@@ -233,7 +250,41 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
 
     wlenf4m(:,:) = wef4m(:,:) - wsf4m(:,:) + 1
 
-   nwaves = 0; noddwaves = 0; nevenwaves = 0
+    nwaves = 0; noddwaves = 0; nevenwaves = 0
+
+    do m = 0, num_fourier
+        do n = nsf4ma(m), nef4ma(m)
+           nwaves = nwaves + 1
+        enddo
+        if (mod(nef4ma(m),2)==0) then
+            wef4ma(m,ev) = nwaves
+            wef4ma(m,od) = nwaves - 1
+        else
+            wef4ma(m,ev) = nwaves - 1
+            wef4ma(m,od) = nwaves
+        endif
+    enddo
+
+    nwavesglobala = nwaves 
+
+    wsf4ma(0,1) = 1
+    wsf4ma(0,2) = wsf4ma(0,1) + 1
+    
+    do m = 1, num_fourier
+        if (mod(nef4ma(m-1),2) == 0) then
+            wsf4ma(m,1) = wef4ma(m-1,1)+1
+        else
+            wsf4ma(m,1) = wef4ma(m-1,2)+1
+        endif
+        wsf4ma(m,2) = wsf4ma(m,1) + 1
+    enddo
+
+    wlenf4ma(:,:) = (wef4ma(:,:) - wsf4ma(:,:))/2 + 1
+
+    nwaves = 0; noddwaves = 0; nevenwaves = 0
+
+
+
    !--------------------------------------------------------------------------------   
     !local
 
@@ -296,6 +347,7 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
     wlen4m(:,od) = we4m(:,od) - ws4m(:,od) + 1
 
     allocate(wdecomp(nwaves_oe,2))
+    allocate(wdecompa(nwaves_oe,2))
 
     we = 0
     wo = 0
@@ -311,6 +363,24 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
             wo=wo+1
             if(n<=wlenf4m(tshuffle(m),od)) then
                 wdecomp(wo,od) = wsf4m(tshuffle(m),od) + n - 1
+            endif
+        enddo
+    enddo
+
+    we = 0
+    wo = 0
+    wdecompa = 0
+    do m = ms, me
+        do n = 1, wlen4m(m,ev)
+            we=we+1
+            if(n<=wlenf4ma(tshuffle(m),ev)) then
+                wdecompa(we,ev) = wsf4ma(tshuffle(m),ev) + (n - 1)*2
+            endif
+        enddo
+        do n = 1, wlen4m(m,od)
+            wo=wo+1
+            if(n<=wlenf4ma(tshuffle(m),od)) then
+                wdecompa(wo,od) = wsf4ma(tshuffle(m),od) + (n - 1)*2
             endif
         enddo
     enddo
@@ -402,6 +472,20 @@ subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
 end subroutine get_lats
 
 
+!--------------------------------------------------------------------------------   
+subroutine get_wdecompa(wdom,nwavesglobal)
+!--------------------------------------------------------------------------------
+    integer, intent(out) :: wdom(:,:)
+    integer, intent(out), optional :: nwavesglobal
+    
+    if(.not.initialized) &
+        call mpp_error('get_wdecomp', 'module not initialized', FATAL)
+
+    wdom(:,:) = wdecompa(:,:)
+
+    if (present(nwavesglobal)) nwavesglobal = nwavesglobala
+
+end subroutine get_wdecompa
 
 !--------------------------------------------------------------------------------   
 subroutine get_wdecomp(wdom,neven_global,nodd_global)
@@ -416,6 +500,7 @@ subroutine get_wdecomp(wdom,neven_global,nodd_global)
 
     if (present(neven_global)) neven_global = nevenwaves_g
     if (present(nodd_global)) nodd_global = noddwaves_g
+
 end subroutine get_wdecomp
 
 

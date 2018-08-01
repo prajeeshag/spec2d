@@ -29,14 +29,14 @@ use spherical_mod, only : spherical_to_fourier
 use spherical_mod, only : compute_lon_deriv_cos, compute_lat_deriv_cos
 use spherical_mod, only : compute_vor_div, compute_ucos_vcos
 use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave
-use spherical_mod, only : get_lats
+use spherical_mod, only : get_lats, get_wdecompa
 
 
 implicit none
 private
 
 public :: compute_ucos_vcos, compute_vor_div, get_lats
-public :: get_wdecomp, get_spherical_wave, get_lons
+public :: get_wdecomp, get_spherical_wave, get_lons, get_wdecompa
 public :: spherical_to_grid, grid_to_spherical, init_transforms
 public :: register_spec_restart, restore_spec_state, save_spec_restart
 
@@ -135,7 +135,7 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     forall(i=0:trunc) Tshuff(i) = i
     
     if (present(Tshuffle).and.(.not.Tshuffle)) then
-        call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm, Tshuff)
+        call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm)
     else
         call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm, Tshuff)
     endif
