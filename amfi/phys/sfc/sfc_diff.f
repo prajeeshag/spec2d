@@ -1,5 +1,6 @@
     
       module sfc_diff_mod
+      use mpp_mod, only : mpp_pe
 
       use constants_mod, only : GRAV, SBC => STEFAN,
      &    CP => CP_AIR, RVGAS, RDGAS
@@ -190,7 +191,6 @@ C         AA = SQRT(1. + 4. * ALPHA * HL12(I))
       ENDDO
 !!
 C##DG  IF(LAT.EQ.LATD) THEN
-C##DG    PRINT *, ' HL1(I), PM, PH =',
 C##DG &   HL1(I),  pm, ph
 C##DG  ENDIF
 C
@@ -256,7 +256,6 @@ C
        endif
       ENDDO
 C##DG  IF(LAT.EQ.LATD) THEN
-C##DG    PRINT *, ' FM, FH, CM, CH(I), USTAR =',
 C##DG &   FM, FH, CM, ch, USTAR
 C##DG  ENDIF
 C

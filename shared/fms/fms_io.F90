@@ -2391,7 +2391,7 @@ subroutine setup_one_field(fileObj, filename, fieldname, field_siz, index_field,
   real                            :: default_data
   logical                         :: is_no_domain = .false.
   logical                         :: is_scalar_or_1d = .false.
-  character(len=256)              :: fname, filename2, append_string
+  character(len=256)              :: fname, filename2, append_string, filename1
   type(domain2d), pointer, save   :: d_ptr   =>NULL()
   type(var_type), pointer, save   :: cur_var =>NULL()
   type(domain2d), pointer, save   :: io_domain =>NULL()
@@ -2429,12 +2429,19 @@ subroutine setup_one_field(fileObj, filename, fieldname, field_siz, index_field,
      d_ptr => Current_domain
   endif
 
+  filename1 = filename
+  if(Associated(fileObj%var) ) then
+     if (len(trim(filename))==0) then
+        filename1 = fileObj%name
+     endif
+  endif
+
   !--- remove .nc from file name
-  length = len_trim(filename)
-  if(filename(length-2:length) == '.nc') then
-     filename2 = filename(1:length-3)
+  length = len_trim(filename1)
+  if(filename1(length-2:length) == '.nc') then
+     filename2 = filename1(1:length-3)
   else
-     filename2 = filename(1:length)
+     filename2 = filename1(1:length)
   end if
 
   !Append a string to the file name
@@ -2451,8 +2458,8 @@ subroutine setup_one_field(fileObj, filename, fieldname, field_siz, index_field,
 
   if(Associated(fileObj%var) ) then
      ! make sure the consistency of file name
-     if(trim(fileObj%name) .NE. trim(fname)) call mpp_error(FATAL, 'fms_io(setup_one_field): filename = '// &
-         trim(fname)//' is not consistent with the filename of the restart object = '//trim(fileObj%name) )
+     if (trim(fileObj%name) .NE. trim(fname)) call mpp_error(FATAL, 'fms_io(setup_one_field): filename = '// &
+        trim(fname)//' is not consistent with the filename of the restart object = '//trim(fileObj%name) )
   else
      allocate(fileObj%var(max_fields) )
      allocate(fileObj%p0dr(MAX_TIME_LEVEL_REGISTER, max_fields))

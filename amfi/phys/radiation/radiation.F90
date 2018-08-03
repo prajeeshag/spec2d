@@ -12,7 +12,6 @@ use data_override_mod, only : data_override
 
 use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
 
-
 use vertical_levels_mod, only : get_pressure_at_levels
 
 use sat_vapor_pres_mod, only : compute_qs

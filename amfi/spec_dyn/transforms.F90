@@ -38,7 +38,7 @@ private
 public :: compute_ucos_vcos, compute_vor_div, get_lats
 public :: get_wdecomp, get_spherical_wave, get_lons, get_wdecompa
 public :: spherical_to_grid, grid_to_spherical, init_transforms
-public :: register_spec_restart, restore_spec_state, save_spec_restart
+public :: register_spec_restart
 
 type(domain2d) :: domainf
 
@@ -69,7 +69,6 @@ integer :: ishuff=0
 integer, parameter :: max_num_dom=10
 integer :: num_dom = 0
 type(domain2d) :: spresdom(max_num_dom)
-type(restart_file_type) :: specres
 
 logical :: initialized=.false.
 
@@ -229,8 +228,9 @@ end subroutine get_lons
     
 
 !--------------------------------------------------------------------------------   
-function register_spec_restart(filename,fieldname,data,mandatory,data_default)
+function register_spec_restart(specres,filename,fieldname,data,mandatory,data_default)
 !--------------------------------------------------------------------------------
+    type(restart_file_type), intent(inout) :: specres
     character (len=*), intent(in) :: filename, fieldname
     complex, intent(in) :: data(:,:,:)
     real, optional, intent(in) :: data_default
@@ -273,22 +273,6 @@ function register_spec_restart(filename,fieldname,data,mandatory,data_default)
                      spresdom(idx_dom), mandatory, data_default=data_default)
 
 end function register_spec_restart
-
-!--------------------------------------------------------------------------------   
-subroutine restore_spec_state()
-!--------------------------------------------------------------------------------   
-    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
-    call restore_state(specres)
-end subroutine restore_spec_state
-
-!--------------------------------------------------------------------------------   
-subroutine save_spec_restart(prefix)
-!--------------------------------------------------------------------------------   
-    character(len=*), optional :: prefix
-
-    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
-    call save_restart(specres,prefix)
-end subroutine save_spec_restart 
 
 !--------------------------------------------------------------------------------   
 subroutine vor_div_to_uv_grid3d(vor,div,u,v,getcosuv)

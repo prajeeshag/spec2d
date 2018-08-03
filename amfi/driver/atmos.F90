@@ -13,7 +13,10 @@ use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
 use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
 use fms_mod, only : file_exist
-use fms_io_mod, only : fms_io_exit 
+
+use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field
+use fms_io_mod, only : restore_state, save_restart, fms_io_exit
+
 
 use data_override_mod, only : data_override_init
 
@@ -51,6 +54,8 @@ real, allocatable :: tr1(:,:,:,:)
 
 real, allocatable :: lat_deg(:), lon_deg(:)
 
+type(restart_file_type) :: rstrt
+
 integer :: ntr
 character(len=8) :: fldnm
 
@@ -66,7 +71,7 @@ subroutine init_atmos(Time,deltim_in)
 !--------------------------------------------------------------------------------
     type(time_type), intent(in) :: Time
     real, intent(in) :: deltim_in
-    integer :: layout(2)
+    integer :: layout(2), tmp, idx
 
     call mpp_init()
     call fms_init()
@@ -79,7 +84,7 @@ subroutine init_atmos(Time,deltim_in)
 
     deltim = deltim_in
     
-    ntrac = 3
+    ntrac = 2
     ishuff = 2
     if(layout(1)==1) ishuff=0
     
@@ -104,12 +109,18 @@ subroutine init_atmos(Time,deltim_in)
 
     allocate(lat_deg(nlat), lon_deg(nlon))
 
-    call init_spectral_dynamics(nlon,nlat,nlev,trunc,ntrac,domain_g,deltim)
+    idx = reg_rf(rstrt, 'amfi_res', 'tmp', tmp, mandatory=.false.) !-> Just for registering the restart filename
+
+    call init_spectral_dynamics(nlon,nlat,nlev,trunc,ntrac,domain_g,deltim,rstrt)
 
     call get_lons(deglon=lon_deg)
     call get_lats(deglat=lat_deg)
     
-    call init_phys(Time,deltim,domain_g,ntrac,nlev,lat_deg,lon_deg)
+    call init_phys(Time,deltim,domain_g,ntrac,nlev,lat_deg,lon_deg,rstrt)
+
+    call restore_state(rstrt)
+
+    call save_restart(rstrt,'Ini')
 
 end subroutine init_atmos
 
@@ -121,8 +132,6 @@ subroutine update_atmos(Time)
 
     call spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
 
-    call phys(Time,tem,tr,p)
-    
     call write_data('rgloopa','u',u,domain_g)
     call write_data('rgloopa','v',v,domain_g)
     call write_data('rgloopa','p',p,domain_g)
@@ -142,6 +151,8 @@ subroutine update_atmos(Time)
         write(fldnm,'(A,I1)') 'tr',ntr
         call write_data('rgloopa',trim(fldnm)//'_1',tr1(:,:,:,ntr),domain_g) 
     enddo
+
+    call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1)
 
 end subroutine update_atmos
 

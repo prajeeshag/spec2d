@@ -15,8 +15,8 @@ EXE="spec2d"
 execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
 
-#mkmftemplate="$thisdir/bin/mkmf.template.debug"
-mkmftemplate="$thisdir/bin/mkmf.template"
+mkmftemplate="$thisdir/bin/mkmf.template.debug"
+#mkmftemplate="$thisdir/bin/mkmf.template"
 
 amfi="$thisdir/amfi"
 
@@ -92,6 +92,6 @@ make $@
 
 cd $thisdir/work
 
-mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 1 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 

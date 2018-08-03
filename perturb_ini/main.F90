@@ -1,117 +1,71 @@
+
 program main
 
-use, intrinsic :: iso_c_binding
+use sig_data_mod, only : get_grid_data, write_grid_data_to_sig
 
-use mpp_mod, only : mpp_init, FATAL, mpp_error, mpp_exit
-use fms_mod, only : fms_init
-use fms_io_mod, only : fms_io_exit, write_data
+use mpp_mod, only : mpp_init, mpp_exit
+use fms_io_mod, only : write_data, fms_io_exit
 
-use mpp_domains_mod, only : mpp_define_domains, domain2d
-
-use transforms_mod, only : init_transforms, get_wdecompa, spherical_to_grid
-
-use sigio_module
-use sigio_r_module
+use mersenne_twister, only : random_gauss
 
 implicit none
 
+real, pointer :: dat1(:,:,:), dat2(:,:,:), dat3(:,:,:)
 
-integer :: nft=12, iret
+real, pointer :: epslon(:,:,:), dati(:,:,:), rand(:,:,:)
 
-character(len=128) :: cfile='sig_ini'
+character(len=128) :: cfile, cfile1, ofile
 
-type(sigio_head) :: head
-type(sigio_dbti) :: dati
-
-real, allocatable, target :: buff(:)
-real, allocatable, target :: buff2(:,:,:)
-
-integer :: lnt2 = 4032
-
-integer, parameter :: nlev = 64
-
-integer, parameter :: nvar = nlev * 4 + 1
-
-type(domain2d) :: domain
-
-integer :: nlat = 94, nlon = 192, trunc = 62, nwaves, nwavesglob
-
-integer, allocatable :: wdom(:,:), wdoma(:,:)
-
-character (len=128) :: flnm='out.nc', fldnm='fld'
-
-real, allocatable :: buffg(:,:,:)
-
-complex, allocatable :: buffc(:,:,:)
-
-integer :: i, j
-
+integer :: i, k, j, nini, n, nsize
 
 call mpp_init()
-call fms_init()
-
-call mpp_define_domains([1,nlat,1,nlon],[1,1],domain,kxy=1)
-
-call init_transforms(domain,trunc,nwaves,Tshuffle=.false.)
-
-print *, nwaves
-
-allocate(wdom(nwaves,2))
-
-call get_wdecompa(wdom,nwavesglob)
-
-print *, 'even = ', wdom(:,1)
-print *, 'odd = ', wdom(:,2)
 
 call getarg(1,cfile)
+print *, trim(cfile)
+call get_grid_data(cfile,dat1)
+cfile=''
 
-flnm = trim(cfile)//".nc"
+call getarg(2,cfile)
+print *, trim(cfile)
+cfile1 = cfile
+call get_grid_data(cfile,dat2)
+cfile=''
 
-lnt2 = (trunc+2)*(trunc+1)
+call getarg(3,cfile)
+print *, trim(cfile)
+call get_grid_data(cfile,dat3)
+cfile=''
 
-print *, 'lnt2, nwavesglob =', lnt2, nwavesglob
+allocate(epslon(size(dat1,1),size(dat1,2),size(dat1,3)))
+allocate(dati(size(dat1,1),size(dat1,2),size(dat1,3)))
+allocate(rand(size(dat1,1),size(dat1,2),size(dat1,3)))
 
-call sigio_rropen(nft,trim(cfile),iret)
+epslon = dat2 - (dat1+dat3)*0.5
 
-if (iret/=0) stop 'Error: could not open file'
+nini = 30
+nsize = size(dat1,1)*size(dat1,2)*size(dat1,3)
 
-call sigio_alhead(head,iret)
+do n = 1, nini
+    call random_gauss_prt(nsize,rand)
+    dati = dat2 + rand * epslon
+    write(ofile,'(A,I3.3)')trim(cfile1)//'_', n
+    call write_grid_data_to_sig(cfile1,ofile,dati)
+enddo    
+   
 
-if (iret/=0) stop 'Error: could not allocate header'
-
-call sigio_rrhead(nft,head,iret)
-
-if (iret/=0) stop 'Error: could not read header'
-
-allocate(buff(lnt2))
-allocate(buff2(2,lnt2/2,nvar))
-allocate(buffc(nvar,nwaves,2))
-allocate(buffg(nvar,nlat,nlon))
-
-do i = 1, nvar
-
-    dati%i = 1 + i
-    dati%f => buff 
-    
-    call sigio_rrdbti(nft,head,dati,iret)
-    if (iret/=0) stop 'Error: could not read data'
-    
-    buff2(:,:,i) = reshape(buff,[2,lnt2/2])
-
-    do j = 1, nwaves 
-        if(wdom(j,1)>0) buffc(i,j,1) = cmplx(buff2(1,wdom(j,1),i),buff2(2,wdom(j,1),i))
-        if(wdom(j,2)>0) buffc(i,j,2) = cmplx(buff2(1,wdom(j,2),i),buff2(2,wdom(j,2),i))
-    enddo
-
-enddo
-
-call spherical_to_grid(buffc,grid=buffg)
-
-call write_data(flnm,fldnm,buff2)
-
-call write_data(flnm,trim(fldnm)//'g',buffg)
-
+deallocate(epslon, dati)
+ 
 call fms_io_exit()
 call mpp_exit()
+
+contains 
+
+subroutine random_gauss_prt(ns,randm)
+    integer, intent(in) :: ns
+    real :: randm(ns)
+
+    call random_gauss(randm)
+    return
+end subroutine random_gauss_prt
 
 end program main

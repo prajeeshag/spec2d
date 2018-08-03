@@ -15,13 +15,13 @@ use constants_mod, only : RVGAS, RDGAS
 
 use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
 
-use fms_io_mod, only : fms_io_exit 
+use fms_io_mod, only : fms_io_exit, restart_file_type
 
 use transforms_mod, only : get_spherical_wave
 use transforms_mod, only : compute_ucos_vcos, compute_vor_div
 use transforms_mod, only : spherical_to_grid, grid_to_spherical
 use transforms_mod, only : init_transforms, get_lats, get_lons
-use transforms_mod, only : register_spec_restart, restore_spec_state, save_spec_restart
+use transforms_mod, only : register_spec_restart
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
 
@@ -88,11 +88,12 @@ contains
 
 !--------------------------------------------------------------------------------
 subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
-                                  ntrac_in,domain,deltim_in)
+                                  ntrac_in,domain,deltim_in,rstrt)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: nlon_in, nlat_in, nlev_in, trunc_in, ntrac_in
     real, intent(in) :: deltim_in
     type(domain2d), target :: domain
+    type(restart_file_type), intent(inout) :: rstrt
 
     integer :: i, j, k, ntr
     character(len=8) :: fldnm
@@ -154,9 +155,15 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
         allocate(satm(i)%tem(nlev,nwaves_oe,2))
         allocate(satm(i)%tr(nlev,nwaves_oe,2,ntrac))
         allocate(satm(i)%prs(1,nwaves_oe,2))
+        satm(i)%vor = 0.
+        satm(i)%div = 0.
+        satm(i)%tem = 0.
+        satm(i)%tr = 0.
+        satm(i)%prs = 0.
     enddo
     
     allocate(stopo(1,nwaves_oe,2))
+    stopo = 0.
     
     do i = 1, 2
         allocate(gatm(i)%u(nlev,jsc:jec,isc:iec))
@@ -192,17 +199,17 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
     deallocate(ak,bk,sl)
     deallocate(sph_wave)
 
-    idx=register_spec_restart('spec_res','topo',stopo,.false.,0.)
+    idx=register_spec_restart(rstrt,'','topo',stopo,.false.,0.)
     do i = 1, 2
         nm='_m'
         if (i==2) nm='_n'
-        idx=register_spec_restart('spec_res','vor'//nm,satm(i)%vor,.false.,0.)
-        idx=register_spec_restart('spec_res','div'//nm,satm(i)%div,.false.,0.)
-        idx=register_spec_restart('spec_res','tem'//nm,satm(i)%tem,.true.,273.15)
-        idx=register_spec_restart('spec_res','prs'//nm,satm(i)%prs,.false.,0.)
+        idx=register_spec_restart(rstrt,'','vor'//nm,satm(i)%vor,.false.,0.)
+        idx=register_spec_restart(rstrt,'','div'//nm,satm(i)%div,.false.,0.)
+        idx=register_spec_restart(rstrt,'','tem'//nm,satm(i)%tem,.true.,0.)
+        idx=register_spec_restart(rstrt,'','prs'//nm,satm(i)%prs,.false.,0.)
         do tr = 1, ntrac
             write(fldnm,'(A,I3.3,A)') 'tr',tr,nm
-            idx=register_spec_restart('spec_res',fldnm,satm(i)%tr(:,:,:,tr),.false.,0.)
+            idx=register_spec_restart(rstrt,'',fldnm,satm(i)%tr(:,:,:,tr),.false.,0.)
         enddo
     enddo
             
@@ -225,9 +232,6 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
     !    call read_specdata('specdata',trim(fldnm)//'_1',satm(1)%tr(:,:,:,ntr))
     !    call read_specdata('specdata',trim(fldnm)//'_2',satm(2)%tr(:,:,:,ntr))
     !enddo
-
-    call restore_spec_state()
-    call save_spec_restart('init')
 
 end subroutine init_spectral_dynamics
 
@@ -293,11 +297,12 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
     call compute_vor_div(sucos,svcos,satm(3)%vor,satm(3)%div)
     
     satm(3)%vor = satm(1)%vor + 2.*deltim*satm(3)%vor
+
     satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
+
     do k = 1, size(satm(3)%div,1)
         satm(3)%div(k,:,:) = satm(3)%div(k,:,:) + stopo(1,:,:)
     enddo
-    satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
     
     call do_implicit(satm(1)%div, satm(1)%tem, satm(1)%prs, &
                      satm(2)%div, satm(2)%tem, satm(2)%prs, &
@@ -312,6 +317,7 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
     call spherical_to_grid(svcos,grid=gatm(2)%v)
     call spherical_to_grid(satm(3)%tem,grid=gatm(2)%tem)
     call spherical_to_grid(satm(3)%prs,grid=gatm(2)%prs)
+
     do ntr = 1, ntrac
         call spherical_to_grid(satm(3)%tr(:,:,:,ntr),grid=gatm(2)%tr(:,:,:,ntr))
     enddo
@@ -328,10 +334,12 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
     tem(1:nlev,jsc:jec,isc:iec) = gatm(1)%tem(1:nlev,jsc:jec,isc:iec)/(1.0+fv*tr(:,:,:,1))
     
     p1(jsc:jec,isc:iec) = exp(gatm(2)%prs(1,jsc:jec,isc:iec))
+
     do j = jsc, jec
         u1(1:nlev,j,isc:iec) = gatm(2)%u(1:nlev,j,isc:iec) * cosm_lat(j)
         v1(1:nlev,j,isc:iec) = gatm(2)%v(1:nlev,j,isc:iec) * cosm_lat(j)
     enddo
+
     tr1(1:nlev,jsc:jec,isc:iec,1:ntrac) = gatm(2)%tr(1:nlev,jsc:jec,isc:iec,1:ntrac)
     where(tr1<0.) tr1=0.
     
