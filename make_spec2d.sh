@@ -92,6 +92,6 @@ make $@
 
 cd $thisdir/work
 
-mpirun -np 1 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 

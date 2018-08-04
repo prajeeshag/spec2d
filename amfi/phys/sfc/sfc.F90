@@ -421,16 +421,18 @@ end subroutine init_land
 
 !--------------------------------------------------------------------------------   
 subroutine do_surface(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, &
-                      sfcdsw, sfcnsw, sfcdlw, fprcp, lprcp)
+                      sfcdsw, sfcnsw, sfcdlw, fprcp, lprcp, rb, ffmm, ffhh, &
+                      qss, hflx, evap, stress, wind)
 !--------------------------------------------------------------------------------   
     implicit none
     type(time_type), intent(in) :: Time
     real, intent(in), dimension(js:je,is:ie) :: pgr, ugrs, vgrs, tgrs, qgrs, prsl
     real, intent(in), dimension(js:je,is:ie) :: prslki, sfcdsw, sfcnsw, sfcdlw
     real, intent(in), dimension(js:je,is:ie) :: fprcp, lprcp
+    real, intent(out), dimension(js:je,is:ie) :: rb, stress, ffmm, ffhh, wind, &
+                                                 qss, evap, hflx
 
-    real, dimension(js:je,is:ie) :: cd, cdq, rb, stress, ffmm, ffhh, uustar, &
-                                    wind, fm10, fh2, qss, cmm, chh, evap, hflx, fwat
+    real, dimension(js:je,is:ie) :: cd, cdq, uustar, fm10, fh2, cmm, chh, fwat
 
     real, dimension(js:je,is:ie) :: cda, cdqa, rba, stressa, ffmma, ffhha, uustara, &
                                     winda, fm10a, fh2a, qssa, cmma, chha, evapa, hflxa
@@ -671,16 +673,6 @@ subroutine do_land(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
                           runoff3, snomlt, sncovr, rc, pc, rsmin, xlai, rcs, &
                           rct, rcq, rcsoil, soilw, soilm, smcwlt, smcdry, smcref, &
                           smcmax, cmm, chh, qss, evap, hflx, mask, guess)
-        do i = is, ie 
-            do j = js, je
-                if (sheleg(j,i)/=sheleg(j,i)) then
-                    print *, 'NAN at =', i, j, iter, fprecip(j,i), lprecip(j,i), &
-                            snwdph(j,i)
-                    call mpp_error(FATAL,'sheleg NAN')
-                endif
-            enddo
-        enddo
-
         mask = .false.
         where (guess) mask = .true.
         guess = .false.

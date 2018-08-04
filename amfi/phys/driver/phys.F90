@@ -15,7 +15,7 @@ use fms_mod, only : file_exist
 use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field
 use fms_io_mod, only : restore_state, save_restart
 
-use constants_mod, only : PI
+use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS
 
 use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=)
 
@@ -24,6 +24,8 @@ use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_d
 use radiation_mod, only : init_radiation, con_solr, radiation, NF_ALBD
 
 use sfc_mod, only : init_sfc, get_land_frac, set_surface, do_surface
+
+use vertdiff_mod, only : do_vertical_diffusion
 
 use astronomy_mod, only : astronomy_init, diurnal_solar
 
@@ -54,7 +56,8 @@ real, allocatable, dimension(:,:) :: fprcp, lprcp
 character(len=16) :: resfnm = 'phys_res'
 character (len=8) :: rou='am_phys'
 
-integer :: id_rsds, id_rsus, id_rsns, id_htlw, id_htrd
+integer :: id_rsds, id_rsus, id_rsns, id_htlw, id_htrd, id_shflx, id_lhflx, id_taux, &
+           id_tauy, id_htvd, id_hpbl
 
 logical :: initialized=.false.
 
@@ -182,11 +185,22 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     id_rsns = reg_df(rou, 'rsns', axes(1:2), Time, 'Surface Net Shortwave',  'W m-2')
 
     id_htrd = reg_df(rou, 'htrd', [axes(3),axes(1),axes(2)], Time,  &
-               'Net Heating Rate Due to Radiation',  'K s-1')
+               'Heating Rate Due to Radiation',  'K s-1')
 
     id_htlw = reg_df(rou, 'htlw', [axes(3),axes(1),axes(2)], Time, &
-               'Heating Rate Due to LW',  'K s-1')
-
+               'Heating Rate Due to LW',  'Ks-1')
+    id_shflx = reg_df(rou, 'shflx', [axes(1),axes(2)], Time, &
+               'Sensible Heat Flux', 'Wm-2')
+    id_lhflx = reg_df(rou, 'lhflx', [axes(1),axes(2)], Time, &
+               'Latent Heat Flux', 'Wm-2')
+    id_taux = reg_df(rou, 'taux', [axes(1),axes(2)], Time, &
+               'U-Wind Stress', 'Pa')
+    id_tauy = reg_df(rou, 'tauy', [axes(1),axes(2)], Time, &
+               'V-Wind Stress', 'Pa')
+    id_hpbl = reg_df(rou, 'hpbl', [axes(1),axes(2)], Time, &
+               'Height of Planetary Boundary Layer', 'm')
+    id_htvd = reg_df(rou, 'htvd', [axes(3),axes(1),axes(2)], Time,  &
+               'Heating Rate Due to Vertical Diffusion', 'K s-1')
     !--------------------------------------------------------------------------------    
 
     initialized = .true.
@@ -195,24 +209,39 @@ end subroutine init_phys
 
 
 !--------------------------------------------------------------------------------   
-subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1)
+subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,topo)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     real, intent(in), dimension(1:nlev,js:je,is:ie) :: tlyr, tlyr1, u1, v1
     real, intent(in), dimension(1:nlev,js:je,is:ie,1:ntrac) :: tr, tr1
     real, intent(in), dimension(js:je,is:ie) :: p, p1
+    real, intent(in), optional, dimension(js:je,is:ie) :: topo
 
-    real, dimension(1:nlev,js:je,is:ie) :: plyr, plyrk, prslki, dtdt
-    real, dimension(1:nlev+1,js:je,is:ie) :: plvl, plvlk
-    real, dimension(js:je,is:ie) :: tskin, fracday, coszen, rcoszen
-    real, dimension(js:je,is:ie) :: rsds, rsus, rsns
-    real, dimension(js:je,is:ie) :: rlds, rlus, rldsg
+    real, dimension(1:nlev,js:je,is:ie) :: plyr, plyrk, prslki, delp, phil
+    real, dimension(1:nlev+1,js:je,is:ie) :: plvl, plvlk, phii
+    real, dimension(1:nlev,js:je,is:ie) :: dtdt, dudt, dvdt
+    real, dimension(1:nlev,js:je,is:ie) :: dtdt1, dudt1, dvdt1
+    real, dimension(1:nlev,js:je,is:ie,ntrac) :: dqdt, dqdt1
+
+    real, dimension(js:je,is:ie) :: tskin, fracday, coszen, rcoszen, rsds, rsus, rsns, &
+                                    rlds, rlus, rldsg, rb, ffmm, ffhh, qss, hflx, evap, &
+                                    stress, wind, dusfc1, dvsfc1, dtsfc1, dqsfc1, hpbl, &
+                                    gamt, gamq, xkzm, topo1, sfcemis
+
+    integer, dimension(js:je,is:ie) :: kpbl
+
     real, dimension(NF_ALBD,js:je,is:ie) :: sfcalb
-    real, dimension(js:je,is:ie) :: sfcemis
     real :: solcon, rrsun
-    integer :: k
+    integer :: k, imax
     logical :: used
 
+    imax = size(p,1)*size(p,2)
+
+    dtdt = 0.; dudt = 0.; dvdt = 0.; dqdt = 0.
+    dtdt1 = 0.; dudt1 = 0.; dvdt1 = 0.; dqdt1 = 0.
+
+    topo1 = 0.
+    if(present(topo)) topo1 = topo
 
     if (rad_time==Time) then
         coszen(:,:) = 0.0
@@ -238,7 +267,8 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1)
     coszen = coszen * fracday
 
     call adjust_rad(coszen, tskin, tlyr(1,:,:), rsdsz, rsusz, rldsz, htsw,  &
-                    htlw, sfcemis, dtdt, rsds, rsus, rlds, rlus)
+                    htlw, sfcemis, dtdt1, rsds, rsus, rlds, rlus)
+    dtdt = dtdt + dtdt1
 
     rsns = rsds - rsus
 
@@ -247,17 +277,66 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1)
     used = send_data(id_rsds, rsds, Time) 
     used = send_data(id_rsus, rsus, Time) 
     used = send_data(id_rsns, rsns, Time) 
-    used = send_data(id_htrd, dtdt, Time) 
+    used = send_data(id_htrd, dtdt1, Time) 
     used = send_data(id_htlw, htlw, Time) 
 
     call get_pressure_at_levels(p1,plvl,plyr,plvlk,plyrk)
     prslki = plvlk(1:nlev,:,:)/plyrk
+    delp = plvl(1:nlev-1,:,:) - plvl(2:nlev,:,:)
 
+    call get_phi(topo1, tlyr1, tr1(:,:,:,ind_q), plvl, plvlk, plyr, plyrk, phii, phil)
+    
     call do_surface(Time, p1(:,:), u1(1,:,:), v1(1,:,:), tlyr1(1,:,:), &
             tr1(1,:,:,ind_q), plyr(1,:,:), prslki(1,:,:), rsds, rsns, rldsg, &
-            fprcp, lprcp)
+            fprcp, lprcp, rb, ffmm, ffhh, qss, hflx, evap, stress, wind)
 
+    call do_vertical_diffusion(imax, nlev, ntrac, dvdt1, dudt1, dtdt1, dqdt1, u1, &
+                    v1, tlyr1, tr1, plvlk, rb, ffmm, ffhh, qss, hflx, evap, stress, &
+                    wind, kpbl, plvl, delp, plyr, plyrk, phii, phil, deltim, dusfc1, &
+                    dvsfc1, dtsfc1, dqsfc1, hpbl, gamt, gamq, xkzm)
+
+    dtdt = dtdt + dtdt1 
+    dudt = dudt + dudt1 
+    dvdt = dvdt + dvdt1 
+    dqdt = dqdt + dqdt1 
+
+    used = send_data(id_shflx, dtsfc1, Time)
+    used = send_data(id_lhflx, dqsfc1, Time)
+    used = send_data(id_hpbl, hpbl, Time)
+    used = send_data(id_taux, dusfc1, Time)
+    used = send_data(id_tauy, dvsfc1, Time)
+    used = send_data(id_htvd, dtdt1, Time)
+
+    return
 end subroutine phys
+
+
+!--------------------------------------------------------------------------------   
+subroutine get_phi(topo,t,q,prsi,prki,prsl,prkl,phii,phil)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, intent(in), dimension(:,:) :: topo
+    real, intent(in), dimension(:,:,:) :: t, q, prsi, prki, prsl, prkl
+    real, intent(out), dimension(:,:,:) :: phii, phil
+
+    real, dimension(size(topo,1),size(topo,2)) :: tem, dphib, dphit
+    integer :: k
+    real, parameter :: fvirt = RVGAS/RDGAS - 1.
+
+    phii(1,:,:) = topo
+
+    do k = 1, size(t,1)
+        tem = CP_AIR * t(k,:,:) * (1. + fvirt * q(k,:,:)) / prkl(k,:,:)
+        dphib = (prki(k,:,:) - prkl(k,:,:)) * tem 
+        dphit = (prkl(k,:,:) - prki(k+1,:,:)) * tem
+        phil(k,:,:) = phii(k,:,:) + dphib
+        phii(k+1,:,:) = phil(k,:,:) + dphit
+    enddo
+
+    return
+
+end subroutine get_phi
+
 
 ! ===================================================================== !
 !  subroutine adjust_rad(tskin, t1, sfcdsw, sfcnsw, sfcdlw, swh, hlw, & !
