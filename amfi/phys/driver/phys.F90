@@ -31,6 +31,8 @@ use astronomy_mod, only : astronomy_init, diurnal_solar
 
 use vertical_levels_mod, only : get_pressure_at_levels
 
+use gwdrag_mod, only : init_gwdrag, gwdrag
+
 implicit none
 private
 
@@ -57,7 +59,8 @@ character(len=16) :: resfnm = 'phys_res'
 character (len=8) :: rou='am_phys'
 
 integer :: id_rsds, id_rsus, id_rsns, id_htlw, id_htrd, id_shflx, id_lhflx, id_taux, &
-           id_tauy, id_htvd, id_hpbl
+           id_tauy, id_htvd, id_hpbl, id_dqvd, id_duvd, id_dvvd
+integer :: id_dugwd, id_dvgwd
 
 logical :: initialized=.false.
 
@@ -131,6 +134,8 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
 
     call get_land_frac(fland)
 
+    call init_gwdrag(domain,fland)
+
     allocate(lat_rad(js:je,is:ie))
     allocate(lat_deg(js:je,is:ie))
     allocate(lon_rad(js:je,is:ie))
@@ -185,10 +190,10 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     id_rsns = reg_df(rou, 'rsns', axes(1:2), Time, 'Surface Net Shortwave',  'W m-2')
 
     id_htrd = reg_df(rou, 'htrd', [axes(3),axes(1),axes(2)], Time,  &
-               'Heating Rate Due to Radiation',  'K s-1')
+               'Temperature tendency (Radiation)',  'K s-1')
 
     id_htlw = reg_df(rou, 'htlw', [axes(3),axes(1),axes(2)], Time, &
-               'Heating Rate Due to LW',  'Ks-1')
+               'Temperature tendency (LW)',  'Ks-1')
     id_shflx = reg_df(rou, 'shflx', [axes(1),axes(2)], Time, &
                'Sensible Heat Flux', 'Wm-2')
     id_lhflx = reg_df(rou, 'lhflx', [axes(1),axes(2)], Time, &
@@ -200,7 +205,17 @@ subroutine init_phys(Time, deltim_in, domain_in, ntrac_in, nlev_in, &
     id_hpbl = reg_df(rou, 'hpbl', [axes(1),axes(2)], Time, &
                'Height of Planetary Boundary Layer', 'm')
     id_htvd = reg_df(rou, 'htvd', [axes(3),axes(1),axes(2)], Time,  &
-               'Heating Rate Due to Vertical Diffusion', 'K s-1')
+               'Temperature tendency (Vertical Diffusion)', 'K s-1')
+    id_dqvd = reg_df(rou, 'dqvd', [axes(3),axes(1),axes(2)], Time,  &
+               'Moisture tendency (Vertical Diffusion)', 'm/s-2')
+    id_duvd = reg_df(rou, 'duvd', [axes(3),axes(1),axes(2)], Time,  &
+               'U-velocity tendency (Vertical Diffusion)', 'm/s-2')
+    id_dvvd = reg_df(rou, 'dvvd', [axes(3),axes(1),axes(2)], Time,  &
+               'V-velocity tendency (Vertical Diffusion)', 'm/s-2')
+    id_dugwd = reg_df(rou, 'dugwd', [axes(3),axes(1),axes(2)], Time,  &
+               'U-velocity tendency (Gravity Wave Drag)', 'm/s-2')
+    id_dvgwd = reg_df(rou, 'dvgwd', [axes(3),axes(1),axes(2)], Time,  &
+               'V-velocity tendency (Gravity Wave Drag)', 'm/s-2')
     !--------------------------------------------------------------------------------    
 
     initialized = .true.
@@ -290,6 +305,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,topo)
             tr1(1,:,:,ind_q), plyr(1,:,:), prslki(1,:,:), rsds, rsns, rldsg, &
             fprcp, lprcp, rb, ffmm, ffhh, qss, hflx, evap, stress, wind)
 
+    dtdt1 = 0.; dudt1 = 0.; dvdt1 = 0.; dqdt1 = 0.
     call do_vertical_diffusion(imax, nlev, ntrac, dvdt1, dudt1, dtdt1, dqdt1, u1, &
                     v1, tlyr1, tr1, plvlk, rb, ffmm, ffhh, qss, hflx, evap, stress, &
                     wind, kpbl, plvl, delp, plyr, plyrk, phii, phil, deltim, dusfc1, &
@@ -306,6 +322,19 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,topo)
     used = send_data(id_taux, dusfc1, Time)
     used = send_data(id_tauy, dvsfc1, Time)
     used = send_data(id_htvd, dtdt1, Time)
+    used = send_data(id_dqvd, dqdt1(:,:,:,ind_q), Time)
+    used = send_data(id_duvd, dudt1, Time)
+    used = send_data(id_dvvd, dvdt1, Time)
+
+    dudt1 = 0.; dvdt1 = 0.
+    call gwdrag(dvdt1, dudt1, u1, v1, tlyr1, tr1(:,:,:,ind_q), kpbl, &
+                plvl, delp, plyr, plyrk, phii, phil, deltim, dusfc1, dvsfc1)
+
+    used = send_data(id_dugwd, dudt1, Time)
+    used = send_data(id_dvgwd, dvdt1, Time)
+
+    dudt = dudt + dudt1 
+    dvdt = dvdt + dvdt1 
 
     return
 end subroutine phys
