@@ -23,7 +23,7 @@ use transforms_mod, only : spherical_to_grid, grid_to_spherical
 use transforms_mod, only : init_transforms, get_lats, get_lons
 use transforms_mod, only : register_spec_restart
 
-use vertical_levels_mod, only: init_vertical_levels, get_ak_bk
+use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel
 
 use implicit_mod, only : init_implicit, do_implicit
 
@@ -237,10 +237,10 @@ end subroutine init_spectral_dynamics
 
 
 !--------------------------------------------------------------------------------
-subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
+subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 !--------------------------------------------------------------------------------
     real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u, v, tem
-    real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u1, v1, tem1
+    real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u1, v1, tem1, vvel1
     real, intent(out), dimension(nlev,jsc:jec,isc:iec,ntrac) :: tr, tr1
     real, intent(out), dimension(jsc:jec,isc:iec)            :: p, p1
 
@@ -316,8 +316,9 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
     call spherical_to_grid(sucos,grid=gatm(2)%u)
     call spherical_to_grid(svcos,grid=gatm(2)%v)
     call spherical_to_grid(satm(3)%tem,grid=gatm(2)%tem)
-    call spherical_to_grid(satm(3)%prs,grid=gatm(2)%prs)
+    call spherical_to_grid(satm(3)%prs,grid=gatm(2)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
 
+    
     do ntr = 1, ntrac
         call spherical_to_grid(satm(3)%tr(:,:,:,ntr),grid=gatm(2)%tr(:,:,:,ntr))
     enddo
@@ -339,6 +340,10 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
         u1(1:nlev,j,isc:iec) = gatm(2)%u(1:nlev,j,isc:iec) * cosm_lat(j)
         v1(1:nlev,j,isc:iec) = gatm(2)%v(1:nlev,j,isc:iec) * cosm_lat(j)
     enddo
+
+    call spherical_to_grid(satm(3)%div,grid=div)
+
+    call get_vertical_vel(p1,dphi%prs(1,:,:),dlam%prs(1,:,:),div,u1,v1,vvel1)
 
     tr1(1:nlev,jsc:jec,isc:iec,1:ntrac) = gatm(2)%tr(1:nlev,jsc:jec,isc:iec,1:ntrac)
     where(tr1<0.) tr1=0.

@@ -45,6 +45,7 @@ real, allocatable :: u(:,:,:)
 real, allocatable :: u1(:,:,:)
 real, allocatable :: v(:,:,:)
 real, allocatable :: v1(:,:,:)
+real, allocatable :: vvel1(:,:,:)
 real, allocatable :: p(:,:)
 real, allocatable :: p1(:,:)
 real, allocatable :: tem(:,:,:)
@@ -103,6 +104,7 @@ subroutine init_atmos(Time,deltim_in)
     
     allocate(u1(nlev,jsc:jec,isc:iec))
     allocate(v1(nlev,jsc:jec,isc:iec))
+    allocate(vvel1(nlev,jsc:jec,isc:iec))
     allocate(tem1(nlev,jsc:jec,isc:iec))
     allocate(tr1(nlev,jsc:jec,isc:iec,ntrac))
     allocate(p1(jsc:jec,isc:iec))
@@ -130,7 +132,7 @@ subroutine update_atmos(Time)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
 
-    call spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1)
+    call spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 
     call write_data('rgloopa','u',u,domain_g)
     call write_data('rgloopa','v',v,domain_g)
@@ -152,7 +154,7 @@ subroutine update_atmos(Time)
         call write_data('rgloopa',trim(fldnm)//'_1',tr1(:,:,:,ntr),domain_g) 
     enddo
 
-    call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1)
+    call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1,vvel1)
 
 end subroutine update_atmos
 

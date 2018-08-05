@@ -34,7 +34,7 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 	   $thisdir/shared/time_manager $thisdir/shared/data_override \
        $thisdir/shared/time_interp $thisdir/shared/axis_utils \
        $thisdir/shared/astronomy $thisdir/shared/diag_manager \
-       $thisdir/shared/sat_vapor_pres"
+       $thisdir/shared/sat_vapor_pres $thisdir/shared/mersenne_twister"
 #--------------------------------------------------------------------------------	
 
 #-------------------------mppnccombine SRC---------------------------------------	
@@ -94,4 +94,6 @@ cd $thisdir/work
 
 mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
+rm -f atm_out.nc
 
+./mppncc -r atm_out.nc

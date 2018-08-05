@@ -34,6 +34,7 @@ subroutine do_vertical_diffusion (imax,levs,ntrac,dvdt,dudt,dtdt,dqdt,ugrs,vgrs,
 
     do i = 1, imax
         qgrs1 = qgrs(:,i,:)
+        dqdt1 = 0.
         call moninp(levs, ntrac, dvdt(:,i), dudt(:,i), dtdt(:,i), dqdt1, ugrs(:,i), vgrs(:,i), &
                     tgrs(:,i), qgrs1, prsik(:,i), rb(i), ffmm(i), ffhh(i), qss(i), &
                     hflx(i), evap(i), stress(i), wind(i), kpbl(i), prsi(:,i), del(:,i), &
