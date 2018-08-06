@@ -31,10 +31,10 @@ integer :: num_atmos_calls
 character(len=32) :: resfile='INPUT/atm.res'
 character(len=512) :: err_msg
 integer :: date_init(6), date(6), calendar_type
+integer :: restart_interval(6) = 0
 integer :: dt_atmos=0, unit, m, n
 
-namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos
-
+namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos, restart_interval
 
 call mpp_init()
 call fms_init()

@@ -31,8 +31,6 @@ private
 
 public :: init_radiation, radiation
 
-real :: deltim=0.
-
 type(time_type) :: dt, rad_dt
 
 type(domain2D), pointer :: domain
@@ -77,12 +75,11 @@ namelist/radiation_nml/icwp, iovr, isubc
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
+subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
                           lat_deg_in,lon_deg_in,fland_in, axes_in, &
                           ind_q_in,ind_clw_in,ind_oz_in)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
-    real, intent(in) :: deltim_in
     type(domain2D), target :: domain_in
     integer, intent(in) :: nlev_in, ntrac_in
     real, intent(in) :: lat_deg_in(:), lon_deg_in(:)
@@ -96,8 +93,6 @@ subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
     read(unit,nml=radiation_nml)
 
     call close_file(unit)
-
-    deltim = deltim_in
 
     domain => domain_in
 

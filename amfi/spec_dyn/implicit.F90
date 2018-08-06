@@ -13,7 +13,7 @@ use fms_io_mod, only : write_data
 implicit none
 private
 
-public :: init_implicit, do_implicit 
+public :: init_implicit, do_implicit, do_implicit_adj
 
 real, allocatable :: bmhyb(:,:), amhyb(:,:)
 real, allocatable :: svhyb(:), d_hyb_m(:,:,:)
@@ -53,11 +53,11 @@ subroutine init_implicit(ak, bk, ref_temp, dt, trunc)
     
     call get_cd_hyb(dt,trunc+3)
 
-    call write_data('rimplicit','bmhyb',bmhyb)
-    call write_data('rimplicit','amhyb',amhyb)
-    call write_data('rimplicit','svhyb',svhyb)
-    call write_data('rimplicit','tor_hyb',tor_hyb)
-    call write_data('rimplicit','d_hyb_m',d_hyb_m)
+    !call write_data('rimplicit','bmhyb',bmhyb)
+    !call write_data('rimplicit','amhyb',amhyb)
+    !call write_data('rimplicit','svhyb',svhyb)
+    !call write_data('rimplicit','tor_hyb',tor_hyb)
+    !call write_data('rimplicit','d_hyb_m',d_hyb_m)
 
     initialized = .true.
 
@@ -488,4 +488,171 @@ subroutine matinv(a,m,n,d,p,r)
       enddo
       return
 end subroutine
+
+!--------------------------------------------------------------------------------   
+subroutine do_implicit_adj(div, tem, ps, div1, tem1, ps1, dt)
+!--------------------------------------------------------------------------------   
+    implicit none
+    complex, dimension(:,:,:), intent(in) :: div1, tem1, ps1
+    complex, dimension(:,:,:), intent(inout) :: div, tem, ps
+    real, intent(in) :: dt
+    
+    integer :: sph_wave(size(div,2),2), nnp1(size(div,2),2)
+
+    integer :: i
+
+    if (.not.initialized) call mpp_error('do_implicit_adj', 'module not initialized', FATAL)
+
+    call get_spherical_wave(sph_wave,nnp1_out=nnp1)
+
+    do i = 1, 2
+        call implicit_adj_drv(div(:,:,i), tem(:,:,i), ps(:,:,i), div1(:,:,i), tem1(:,:,i), ps1(:,:,i), &
+                            dt, nnp1(:,i), sph_wave(:,i))
+    end do
+
+end subroutine do_implicit_adj
+
+
+!--------------------------------------------------------------------------------   
+subroutine implicit_adj_drv(de, te, qe, xe, ye, ze, dt, snnp1ev, ndexev)
+!--------------------------------------------------------------------------------   
+    implicit none
+    complex, dimension(:,:), intent(in) :: xe, ye, ze
+    complex, dimension(:,:), intent(inout) :: de, te, qe
+    integer, dimension(:), intent(in) :: snnp1ev, ndexev 
+    real, intent(in) :: dt
+
+    integer :: nwaves
+    type(C_PTR) :: pcxe, pcye, pcze, pcde, pcte, pcqe
+
+    real, pointer, dimension(:,:,:) :: pxe, pye, pde, pte
+    real, pointer, dimension(:,:) :: pqe, pze
+
+    real, dimension(size(de,2),2,size(de,1)) :: div, tem, div1, tem1
+    real, dimension(size(de,2),2) :: ps, ps1 
+
+    integer :: i, j, k
+
+    nwaves = size(de,2)
+
+    pcxe = C_LOC(xe)
+    pcye = C_LOC(ye)
+    pcze = C_LOC(ze)
+    pcde = C_LOC(de)
+    pcte = C_LOC(te)
+    pcqe = C_LOC(qe)
+
+    call c_f_pointer(pcxe,pxe,[2,levs,nwaves])
+    call c_f_pointer(pcye,pye,[2,levs,nwaves])
+    call c_f_pointer(pcze,pze,[2,nwaves])
+    call c_f_pointer(pcde,pde,[2,levs,nwaves])
+    call c_f_pointer(pcte,pte,[2,levs,nwaves])
+    call c_f_pointer(pcqe,pqe,[2,nwaves])
+
+    do i = 1, nwaves
+        div(i,1:2,1:levs)  = pde(1:2,1:levs,i)
+        div1(i,1:2,1:levs) = pxe(1:2,1:levs,i)
+        tem(i,1:2,1:levs)  = pte(1:2,1:levs,i)
+        tem1(i,1:2,1:levs) = pye(1:2,1:levs,i)
+        ps(i,1:2)          = pqe(1:2,i)
+        ps1(i,1:2)         = pze(1:2,i)
+    enddo
+
+    call implicit_adj(div,tem,ps,div1,tem1,ps1,dt,snnp1ev,ndexev,nwaves)
+
+    do i = 1, nwaves
+        pde(1:2,1:levs,i) = div(i,1:2,1:levs) 
+        pte(1:2,1:levs,i) = tem(i,1:2,1:levs)
+        pqe(1:2,i)        = ps(i,1:2)        
+    enddo
+    
+    return 
+
+end subroutine implicit_adj_drv
+
+!--------------------------------------------------------------------------------   
+subroutine implicit_adj(de,te,qe,xe,ye,ze,dt,snnp1ev,ndexev,nwaves)
+!--------------------------------------------------------------------------------   
+    implicit none
+    integer, intent(in) :: nwaves      
+    real, dimension(nwaves,2,levs), intent(in) :: xe, ye
+    real, dimension(nwaves,2,levs), intent(inout) :: de, te
+    real, dimension(nwaves,2), intent(in) :: ze
+    real, dimension(nwaves,2), intent(inout) :: qe
+    real, intent(in) :: dt
+    integer, dimension(nwaves), intent(in) :: snnp1ev
+    integer, dimension(nwaves), intent(in) :: ndexev
+
+    real :: ue(nwaves,2,levs), ve(nwaves,2,levs)
+    integer :: j,k
+    integer :: indev,indev1,indev2,l,locl,n
+    integer :: indlsev,jbasev
+    integer :: indlsod,jbasod
+
+    real :: cons0 = 0.
+
+    indev1 = 1; indev2 = nwaves 
+
+    do k=1,levs
+        do indev = indev1 , indev2
+            ve(indev,1,k)=cons0     !constant
+            ve(indev,2,k)=cons0     !constant
+        enddo
+ 
+        do j=1,levs
+            do indev = indev1 , indev2
+                ve(indev,1,k)=ve(indev,1,k)+amhyb(k,j)*ye(indev,1,j)
+                ve(indev,2,k)=ve(indev,2,k)+amhyb(k,j)*ye(indev,2,j)
+            enddo
+        enddo
+ 
+        do indev = indev1 , indev2
+            ue(indev,1,k)=xe(indev,1,k)+dt*snnp1ev(indev)*(ve(indev,1,k)+tor_hyb(k)*ze(indev,1))
+            ue(indev,2,k)=xe(indev,2,k)+dt*snnp1ev(indev)*(ve(indev,2,k)+tor_hyb(k)*ze(indev,2))
+        enddo
+    enddo
+ 
+    do k=1,levs
+        do indev = indev1 , indev2
+          ve(indev,1,k)=cons0     !constant
+          ve(indev,2,k)=cons0     !constant
+        enddo
+        do j=1,levs
+            do indev = indev1 , indev2
+                ve(indev,1,k)= ve(indev,1,k) +dm205_hyb(ndexev(indev)+1,k,j)*ue(indev,1,j)
+                ve(indev,2,k)= ve(indev,2,k) +dm205_hyb(ndexev(indev)+1,k,j)*ue(indev,2,j)
+            enddo
+        enddo
+    enddo
+ 
+    do j=1,levs
+        do indev = indev1 , indev2
+            qe(indev,1)=qe(indev,1)-dt*svhyb(j)*ve(indev,1,j)
+            qe(indev,2)=qe(indev,2)-dt*svhyb(j)*ve(indev,2,j)
+        enddo
+    enddo
+ 
+    do indev = indev1 , indev2
+        qe(indev,1)=qe(indev,1)+ze(indev,1)
+        qe(indev,2)=qe(indev,2)+ze(indev,2)
+    enddo
+ 
+    do k=1,levs
+        do j=1,levs
+            do indev = indev1 , indev2
+                te(indev,1,k)=te(indev,1,k)-dt*bmhyb(k,j)*ve(indev,1,j)
+                te(indev,2,k)=te(indev,2,k)-dt*bmhyb(k,j)*ve(indev,2,j)
+            enddo
+        enddo
+        do indev = indev1 , indev2
+            te(indev,1,k)=te(indev,1,k)+ye(indev,1,k)
+            te(indev,2,k)=te(indev,2,k)+ye(indev,2,k)
+ 
+            de(indev,1,k)=de(indev,1,k)+ve(indev,1,k)
+            de(indev,2,k)=de(indev,2,k)+ve(indev,2,k)
+        enddo
+    enddo
+    return
+end subroutine implicit_adj 
+
 end module implicit_mod

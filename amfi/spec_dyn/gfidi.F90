@@ -224,7 +224,6 @@ subroutine gfidi_hyb(levs, ntrac, deltim, sinlat, rcl, &
         enddo
     enddo
  
-    spdmax=0.
     do  k=1,levs
         do j=1,lons_lat
             ek(j,k)=(ug(j,levs+1-k)*ug(j,levs+1-k) &

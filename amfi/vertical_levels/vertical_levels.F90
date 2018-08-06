@@ -30,7 +30,7 @@ subroutine  init_vertical_levels(nlevs_in)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: nlevs_in
     integer :: k
-    real :: psurff = 101.3
+    real :: psurff = 100.0
 
     nlevs = nlevs_in
 

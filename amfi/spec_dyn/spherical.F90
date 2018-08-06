@@ -411,9 +411,10 @@ end subroutine init_spherical
 
 
 !--------------------------------------------------------------------------------   
-subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
+subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat,wtslat)
 !--------------------------------------------------------------------------------
-    real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, cosm2lat, deglat
+    real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, &
+                                                 cosm2lat, deglat, wtslat
 
     if(.not.initialized) &
         call mpp_error('get_lats', 'module not initialized', FATAL)
@@ -463,6 +464,16 @@ subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
             deglat = deg_lat
         elseif (size(deglat,1)==jlen) then
             deglat = deg_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
+
+    if(present(wtslat)) then
+        if (size(wtslat,1)==nlat) then
+            wtslat = wts_lat
+        elseif (size(wtslat,1)==jlen) then
+            wtslat = wts_lat(js:je)
         else
             call mpp_error(FATAL,'get_lats: should be either compute domain or global')
         endif

@@ -15,8 +15,8 @@ EXE="spec2d"
 execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
 
-mkmftemplate="$thisdir/bin/mkmf.template.debug"
-#mkmftemplate="$thisdir/bin/mkmf.template"
+#mkmftemplate="$thisdir/bin/mkmf.template.debug"
+mkmftemplate="$thisdir/bin/mkmf.template"
 
 amfi="$thisdir/amfi"
 
@@ -34,7 +34,8 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 	   $thisdir/shared/time_manager $thisdir/shared/data_override \
        $thisdir/shared/time_interp $thisdir/shared/axis_utils \
        $thisdir/shared/astronomy $thisdir/shared/diag_manager \
-       $thisdir/shared/sat_vapor_pres $thisdir/shared/mersenne_twister"
+       $thisdir/shared/sat_vapor_pres $thisdir/shared/mersenne_twister \
+	   $thisdir/shared/tracer_manager $thisdir/shared/field_manager"
 #--------------------------------------------------------------------------------	
 
 #-------------------------mppnccombine SRC---------------------------------------	

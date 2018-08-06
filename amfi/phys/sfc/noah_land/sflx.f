@@ -372,9 +372,9 @@
 !           into the soil so that prcp1 is set to zero.
 
       if (snowng .or. frzgra) then
-        sn_new = ffrozp * dt * 0.001
+        sn_new = ffrozp * dt
         if (frzgra) then 
-            sn_new = sn_new + prcp * dt * 0.001
+            sn_new = sn_new + prcp * dt
             prcp1 = 0.
         else
             prcp1 = prcp

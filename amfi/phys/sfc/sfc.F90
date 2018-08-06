@@ -742,7 +742,7 @@ subroutine sfc_land_drv(imax, dt, fprcp, swdn, swnet, lwdn, sfcems, ps, p1, t1, 
     implicit none
     integer, intent(in) :: imax
     real, intent(in) :: dt
-    real, dimension(imax), intent(in) :: fprcp, lprcp !precip rate (kg m-2 s-1)
+    real, dimension(imax), intent(in) :: fprcp, lprcp !precip rate (m/s-1)
     real, dimension(imax), intent(in) :: swdn, swnet, lwdn ! Radiation Wm-2
     real, dimension(imax), intent(in) :: sfcems !Sfc Emissitivity
     real, dimension(imax), intent(in) :: ps, p1 ! Pressure in cb

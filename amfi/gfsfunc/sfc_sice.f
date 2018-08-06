@@ -134,7 +134,7 @@
 
 !  --- ...  snow-rain detection
 
-       sheleg = sheleg + 1.e3*tprcp
+       sheleg = sheleg + 1.e3 * tprcp * delt
 
 !  --- ...  initialize variables. all units are supposedly m.k.s. unless specifie
 !           psurf is in pascals, wind is wind speed, theta1 is adiabatic surface
