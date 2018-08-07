@@ -833,8 +833,14 @@ subroutine data_override_3d(gridname,fieldname_code,data,time,override,data_inde
      je_src      = override_array(curr_position)%je_src
      window_size = override_array(curr_position)%window_size
      !---make sure data size match window_size
-     if( window_size(1) .NE. size(data,1) .OR. window_size(2) .NE. size(data,2) ) then
-        call mpp_error(FATAL, "data_override: window_size does not match size(data)")
+     if (kxy1==3) then
+        if( window_size(1) .NE. size(data,1) .OR. window_size(2) .NE. size(data,2) ) then
+           call mpp_error(FATAL, "data_override: window_size does not match size(data)")
+        endif
+     else
+        if( window_size(1) .NE. size(data,2) .OR. window_size(2) .NE. size(data,3) ) then
+           call mpp_error(FATAL, "data_override: window_size does not match size(data)")
+        endif
      endif
 !9 Get id_time  previously stored in override_array
      id_time = override_array(curr_position)%t_index

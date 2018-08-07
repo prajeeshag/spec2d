@@ -16,7 +16,7 @@ use fms_io_mod, only : fms_io_exit
 
 use time_manager_mod, only : time_type, set_calendar_type, operator(-)
 use time_manager_mod, only : operator(+), set_date, set_time, days_in_month
-use time_manager_mod, only : operator(/), operator(>)
+use time_manager_mod, only : operator(/), operator(>), print_date
 
 use diag_manager_mod, only: diag_manager_init, diag_manager_end
 use diag_manager_mod, only: get_base_date, DIAG_OTHER
@@ -91,6 +91,7 @@ call init_atmos(Time,real(dt_atmos))
 
 do n = 1, num_atmos_calls
     call update_atmos(Time)
+    call print_date(Time)
     Time = Time + time_step
 enddo
 

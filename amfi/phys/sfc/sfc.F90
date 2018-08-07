@@ -879,20 +879,19 @@ subroutine set_surface(Time,tskin,coszen,sfcalb,sfcemis)
     call data_override('ATM','sst',sst,Time,ov)
     if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for sst !')
 
-
     call data_override('ATM','fice',fice,Time,ov)
     if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for fice !')
     if (ov) where(fice<fice_min) fice = 0.
 
     call get_tskin(tskin)
-  
+    
     if (present(sfcalb).and..not.present(coszen)) &
        call mpp_error(FATAL, 'set_surface: sfcalb present but coszen not present')
 
     if (present(sfcalb)) call get_albedo(Time,coszen,sfcalb)
 
     if (present(sfcemis)) call get_emis(sfcemis)
-     
+
     return
 end subroutine set_surface
     

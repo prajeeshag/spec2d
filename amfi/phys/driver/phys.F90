@@ -17,7 +17,8 @@ use fms_io_mod, only : restore_state, save_restart
 
 use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS
 
-use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=)
+use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=), &
+                             print_date
 
 use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
 
@@ -72,12 +73,14 @@ character(len=16) :: resfnm = 'phys_res'
 character (len=8) :: rou='am_phys'
 
 integer :: id_rsds, id_rsus, id_rsns, id_dtlw, id_dtrd, id_shflx, id_lhflx, id_taux, &
-           id_tauy, id_dtvd, id_hpbl, id_dqvd, id_duvd, id_dvvd
+           id_tauy, id_dtvd, id_hpbl, id_dqvd, id_duvd, id_dvvd, id_rlds, id_rlus, id_tskin, &
+           id_sfcemis
 integer :: id_dugwd, id_dvgwd, id_ducgwd, id_dvcgwd
 integer :: id_dtcu, id_dqcu, id_ducu, id_dvcu, id_lprcu, id_kcnv, id_fprcu
 integer :: id_dtsc, id_dqsc
 integer :: id_dtmp, id_dqmp, id_lprmp, id_fprmp
 integer :: id_dtphy, id_dqphy, id_lpr, id_fpr, id_pr, id_duphy, id_dvphy
+integer :: id_tr1
 
 logical :: initialized=.false.
 
@@ -224,6 +227,12 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
 
     id_rsns = reg_df(rou, 'rsns', axes(1:2), time, 'surface net shortwave',  'w m-2')
 
+    id_sfcemis = reg_df(rou, 'sfcemis', axes(1:2), time, 'surface emisivity',  'w m-2')
+
+    id_rlds = reg_df(rou, 'rlds', axes(1:2), time, 'surface downwelling longwave',  'w m-2')
+    id_rlus = reg_df(rou, 'rlus', axes(1:2), time, 'surface upwelling longwave',  'w m-2')
+    id_tskin = reg_df(rou, 'tskin', axes(1:2), time, 'Surface Temperature',  'K')
+
     id_dtrd = reg_df(rou, 'dtrd', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (radiation)',  'k s-1')
 
@@ -301,6 +310,8 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
     id_pr = reg_df(rou, 'pr', [axes(1),axes(2)], time, &
                'precipitation rate', 'kg m-2 s-1')
 
+    id_tr1 = reg_df(rou, 'tr1', [axes(3),axes(1),axes(2)], time, &
+               'temperature tendency (lw)',  'ks-1')
     !--------------------------------------------------------------------------------    
 
     initialized = .true.
@@ -349,6 +360,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     !Radiation
     !--------------------------------------------------------------------------------   
     if (rad_time==Time) then
+        call print_date(Time,'Calling Radiation at:')
         coszen(:,:) = 0.0
         rcoszen(:,:) = 0.0
         call diurnal_solar(lat_rad, lon_rad, Time, coszen, fracday, rrsun, time_step_rad)
@@ -382,6 +394,10 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     used = send_data(id_rsds, rsds, Time) 
     used = send_data(id_rsus, rsus, Time) 
     used = send_data(id_rsns, rsns, Time) 
+    used = send_data(id_rlds, rlds, Time) 
+    used = send_data(id_rlus, rlus, Time) 
+    used = send_data(id_tskin, tskin, Time) 
+    used = send_data(id_sfcemis, sfcemis, Time) 
     used = send_data(id_dtrd, dtdt1, Time) 
     used = send_data(id_dtlw, htlw, Time) 
     !End Radiation
@@ -401,6 +417,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     !Vertical Diffusion
     dtdt1 = 0.; dudt1 = 0.; dvdt1 = 0.; dqdt1 = 0.
+    dusfc1 = 0.; dvsfc1 = 0.; dtsfc1 = 0.; dqsfc1 = 0.
     call do_vertical_diffusion(imax, nlev, ntrac, dvdt1, dudt1, dtdt1, dqdt1, u1, &
                     v1, tlyr1, tr1, plvlk, rb, ffmm, ffhh, qss, hflx, evap, stress, &
                     wind, kpbl, plvl, delp, plyr, plyrk, phii, phil, dt_phys, dusfc1, &
@@ -540,6 +557,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     if (id_duphy>0) used = send_data(id_duphy, rdt_phys*(dudt-u1), Time)
     if (id_dvphy>0) used = send_data(id_dvphy, rdt_phys*(dvdt-v1), Time)
 
+    if (id_tr1>0) used = send_data(id_tr1, tr1(:,:,:,1), Time)
 
     return
 end subroutine phys

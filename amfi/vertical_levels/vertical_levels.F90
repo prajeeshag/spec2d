@@ -1,6 +1,6 @@
 module vertical_levels_mod
 
-use mpp_mod, only : mpp_error, FATAL, NOTE, WARNING
+use mpp_mod, only : mpp_error, FATAL, NOTE, WARNING, mpp_pe, mpp_root_pe
 use fms_io_mod, only : read_data
 use constants_mod, only : RDGAS, CP_AIR
 use omegtes_mod, only : omegtes
@@ -30,14 +30,16 @@ subroutine  init_vertical_levels(nlevs_in)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: nlevs_in
     integer :: k
-    real :: psurff = 100.0
+    real :: psurff = 101.3
 
     nlevs = nlevs_in
 
     call set_ak_bk(nlevs_in)
 
-    call read_data('implicit','ak',ak)
-    call read_data('implicit','bk',bk)
+    if (mpp_pe()==mpp_root_pe()) then
+        print *, 'ak=', ak
+        print *, 'bk=', bk
+    endif
 
     allocate(dbk(nlevs),bkl(nlevs),ck(nlevs))
     allocate(si(nlevs+1),sl(nlevs))

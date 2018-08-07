@@ -309,7 +309,7 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis,
     qlyr = 0.
     olyr = 0.
     clw = 0.
-
+    
     call data_override('ATM','ozone',olyr,Time,kxy=1)
 
     if (ind_q>0) qlyr = tr(:,:,:,ind_q)

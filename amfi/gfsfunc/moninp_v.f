@@ -1,5 +1,6 @@
         module moninp_mod
         implicit none
+        integer, parameter :: IM = 1
         contains
       SUBROUTINE MONINP(KM,ntrac,DV,DU,TAU,RTG,
      &     U1,V1,T1,Q1,
@@ -17,7 +18,6 @@
 !
 !     Arguments
       real, parameter :: FV = RVGAS/RD - 1.
-      integer, parameter :: IM = 1
       integer KM, ntrac, KPBL(IM)
 !
       real DELTIM
