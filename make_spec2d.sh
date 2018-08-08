@@ -6,7 +6,7 @@ export CC=mpiicc
 export MPICC=mpiicc
 export F77=mpiifort
 
-cppDef="-Duse_netCDF -Duse_libMPI -DOVERLOAD_C8 -Dgloopa" #-Dtest_grid_to_fourier #-Dcheck_mpi" # -Dtest_interp"
+cppDef="-Duse_netCDF -Duse_libMPI " #-Dtest_grid_to_fourier " 
 
 thisdir=$(pwd)
 
@@ -15,8 +15,8 @@ EXE="spec2d"
 execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
 
-mkmftemplate="$thisdir/bin/mkmf.template.debug"
-#mkmftemplate="$thisdir/bin/mkmf.template"
+#mkmftemplate="$thisdir/bin/mkmf.template.debug"
+mkmftemplate="$thisdir/bin/mkmf.template"
 
 amfi="$thisdir/amfi"
 
@@ -34,7 +34,8 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 	   $thisdir/shared/time_manager $thisdir/shared/data_override \
        $thisdir/shared/time_interp $thisdir/shared/axis_utils \
        $thisdir/shared/astronomy $thisdir/shared/diag_manager \
-       $thisdir/shared/sat_vapor_pres"
+       $thisdir/shared/sat_vapor_pres $thisdir/shared/mersenne_twister \
+	   $thisdir/shared/tracer_manager $thisdir/shared/field_manager"
 #--------------------------------------------------------------------------------	
 
 #-------------------------mppnccombine SRC---------------------------------------	
@@ -90,8 +91,10 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 make $@
 #--------------------------------------------------------------------------------	
 
-cd $thisdir/work
+cd $thisdir/work1
 
-mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
+rm -f atm_out.nc
 
+./mppncc -r atm_out.nc

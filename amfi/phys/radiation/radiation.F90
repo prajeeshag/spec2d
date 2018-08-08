@@ -1,6 +1,7 @@
 module radiation_mod
 
-use mpp_mod, only : mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe
+use mpp_mod, only : mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, &
+                    mpp_clock_id, mpp_clock_begin, mpp_clock_end
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain
 
@@ -30,8 +31,6 @@ implicit none
 private
 
 public :: init_radiation, radiation
-
-real :: deltim=0.
 
 type(time_type) :: dt, rad_dt
 
@@ -70,6 +69,8 @@ integer :: id_htsw, id_rsdt, id_rsut, id_rsutc, id_rsds, id_rsdsc, id_rsus, id_r
            id_ruvds, id_ruvdsc, id_rnirdsbm, id_rnirdsbf, id_rvisdsbm, id_rvisdsdf 
 integer :: id_htlw, id_rlut, id_rlutc, id_rlds, id_rldsc, id_rlus, id_rlusc
 
+integer :: clck_swrad, clck_lwrad
+
 logical :: initialized=.true.
 
 namelist/radiation_nml/icwp, iovr, isubc 
@@ -77,12 +78,11 @@ namelist/radiation_nml/icwp, iovr, isubc
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
+subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
                           lat_deg_in,lon_deg_in,fland_in, axes_in, &
                           ind_q_in,ind_clw_in,ind_oz_in)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
-    real, intent(in) :: deltim_in
     type(domain2D), target :: domain_in
     integer, intent(in) :: nlev_in, ntrac_in
     real, intent(in) :: lat_deg_in(:), lon_deg_in(:)
@@ -96,8 +96,6 @@ subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
     read(unit,nml=radiation_nml)
 
     call close_file(unit)
-
-    deltim = deltim_in
 
     domain => domain_in
 
@@ -142,6 +140,9 @@ subroutine init_radiation(Time,deltim_in,domain_in,ntrac_in,nlev_in, &
     call init_lwrad(icwp,me,iovr,isubc)
 
     call rad_diag_init(Time,axes_in)
+
+    clck_swrad = mpp_clock_id('SW radiation')
+    clck_lwrad = mpp_clock_id('LW radiation')
 
     initialized = .true.
 
@@ -314,7 +315,7 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis,
     qlyr = 0.
     olyr = 0.
     clw = 0.
-
+    
     call data_override('ATM','ozone',olyr,Time,kxy=1)
 
     if (ind_q>0) qlyr = tr(:,:,:,ind_q)
@@ -497,6 +498,9 @@ subroutine swrad_drv(plyr,plvl,tlyr,tlvl,qlyr,olyr,gasvmr, &
 
     integer :: i
 
+    call mpp_clock_begin(clck_swrad)
+
+    !$OMP PARALLEL DO SCHEDULE(DYNAMIC) DEFAULT(SHARED) PRIVATE(i)
     do i = 1, imax
         call swrad(plyr(:,i), plvl(:,i), tlyr(:,i), tlvl(:,i), &
                 qlyr(:,i), olyr(:,i), gasvmr(:,:,i), clouds(:,:,i), icseed(i), &
@@ -505,6 +509,11 @@ subroutine swrad_drv(plyr,plvl,tlyr,tlvl,qlyr,olyr,gasvmr, &
                 htsw(:,i),rsdt(i),rsut(i),rsutc(i),rsds(i),rsdsc(i),rsus(i),rsusc(i), &
                 ruvds(i),ruvdsc(i),rnirbm(i),rnirdf(i),rvisbm(i),rvisdf(i))
     enddo
+    !$OMP END PARALLEL DO
+
+    call mpp_clock_end(clck_swrad)
+
+    return
 
 end subroutine swrad_drv
 
@@ -525,13 +534,18 @@ subroutine lwrad_drv(plyr, plvl, tlyr, tlvl, qlyr, olyr, gasvmr, clouds, icseed,
 
     integer :: i
 
+    call mpp_clock_begin(clck_lwrad)
+
+    !$OMP PARALLEL DO SCHEDULE(DYNAMIC) DEFAULT(SHARED) PRIVATE(i)
     do i = 1, imax
         call lwrad(plyr(:,i), plvl(:,i), tlyr(:,i), tlvl(:,i), qlyr(:,i), olyr(:,i), gasvmr(:,:,i), &
                    clouds(:,:,i), icseed(i), aerosols(:,:,:,i), sfcemis(i), tskin(i), &
                    nlev, nlevp1, NF_VGAS, NF_CLDS, NF_AELW, &
                    htlw(:,i), rlut(i), rlutc(i), rlds(i), rldsc(i), rlus(i), rlusc(i))
     enddo
+    !$OMP END PARALLEL DO
 
+    call mpp_clock_end(clck_lwrad)
     return
 end subroutine lwrad_drv
 

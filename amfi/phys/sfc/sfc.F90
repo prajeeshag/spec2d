@@ -742,7 +742,7 @@ subroutine sfc_land_drv(imax, dt, fprcp, swdn, swnet, lwdn, sfcems, ps, p1, t1, 
     implicit none
     integer, intent(in) :: imax
     real, intent(in) :: dt
-    real, dimension(imax), intent(in) :: fprcp, lprcp !precip rate (kg m-2 s-1)
+    real, dimension(imax), intent(in) :: fprcp, lprcp !precip rate (m/s-1)
     real, dimension(imax), intent(in) :: swdn, swnet, lwdn ! Radiation Wm-2
     real, dimension(imax), intent(in) :: sfcems !Sfc Emissitivity
     real, dimension(imax), intent(in) :: ps, p1 ! Pressure in cb
@@ -879,20 +879,19 @@ subroutine set_surface(Time,tskin,coszen,sfcalb,sfcemis)
     call data_override('ATM','sst',sst,Time,ov)
     if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for sst !')
 
-
     call data_override('ATM','fice',fice,Time,ov)
     if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for fice !')
     if (ov) where(fice<fice_min) fice = 0.
 
     call get_tskin(tskin)
-  
+    
     if (present(sfcalb).and..not.present(coszen)) &
        call mpp_error(FATAL, 'set_surface: sfcalb present but coszen not present')
 
     if (present(sfcalb)) call get_albedo(Time,coszen,sfcalb)
 
     if (present(sfcemis)) call get_emis(sfcemis)
-     
+
     return
 end subroutine set_surface
     

@@ -1,13 +1,16 @@
 module vertical_levels_mod
 
-use mpp_mod, only : mpp_error, FATAL, NOTE, WARNING
+use mpp_mod, only : mpp_error, FATAL, NOTE, WARNING, mpp_pe, mpp_root_pe
 use fms_io_mod, only : read_data
+use fms_mod, only : stdlog, stderr, stdout
 use constants_mod, only : RDGAS, CP_AIR
+use omegtes_mod, only : omegtes
 
 implicit none
 private
 
-public :: init_vertical_levels, get_ak_bk, get_pressure_at_levels
+public :: init_vertical_levels, get_ak_bk, get_pressure_at_levels, &
+          get_vertical_vel
 
 real, parameter :: rk = RDGAS/CP_AIR
 real, parameter :: rk1 = rk + 1.0, rkr = 1.0/rk, r100=100.0, pt01=0.01
@@ -34,9 +37,6 @@ subroutine  init_vertical_levels(nlevs_in)
 
     call set_ak_bk(nlevs_in)
 
-    call read_data('implicit','ak',ak)
-    call read_data('implicit','bk',bk)
-
     allocate(dbk(nlevs),bkl(nlevs),ck(nlevs))
     allocate(si(nlevs+1),sl(nlevs))
 
@@ -57,6 +57,44 @@ subroutine  init_vertical_levels(nlevs_in)
     initialized = .true.
     return
 end subroutine init_vertical_levels
+
+!--------------------------------------------------------------------------------   
+subroutine get_vertical_vel(pgr,dphi,dlam,div,u,v,vvel)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, intent(in), dimension(:,:) :: pgr, dphi, dlam
+    real, intent(in), dimension(:,:,:) :: div, u, v
+    real, intent(out), dimension(:,:,:) :: vvel
+
+    integer :: km, imax
+
+    if(.not.initialized) call mpp_error('get_vertical_vel','module not initialized',fatal) 
+
+    km = size(vvel,1)
+    imax = size(pgr,2) * size(pgr,1)
+
+    call omegtes_drv(imax, km, pgr, dphi, dlam, div, u, v, vvel)
+    
+    return
+
+end subroutine get_vertical_vel
+
+!--------------------------------------------------------------------------------   
+subroutine omegtes_drv(imax,km,pgr, dphi, dlam, div, u, v, vvel)
+!--------------------------------------------------------------------------------   
+    integer, intent(in) :: km, imax
+    real, intent(in), dimension(imax) :: pgr, dphi, dlam
+    real, intent(in), dimension(km,imax) :: div, u, v
+    real, intent(out), dimension(km,imax) :: vvel
+    
+    integer :: i 
+    
+    do i = 1, imax
+        call omegtes(km, ak, bk, dbk, ck, pgr(i), dphi(i), &
+                 dlam(i), div(:,i), u(:,i), v(:,i), vvel(:,i))
+    enddo
+end subroutine omegtes_drv
+
 
 !--------------------------------------------------------------------------------   
 subroutine get_pressure_at_levels(pgr,prsi,prsl,prsik,prslk)

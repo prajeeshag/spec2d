@@ -6,7 +6,8 @@ use mpp_mod, only : mpp_error, FATAL, WARNING, NOTE, mpp_init, mpp_pe
 use mpp_mod, only : mpp_root_pe, mpp_sync, mpp_clock_id, mpp_clock_begin
 use mpp_mod, only : mpp_clock_end
 
-use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_layout
+use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_layout, &
+                            mpp_get_global_domain
 
 use fms_mod, only : fms_init, open_namelist_file, close_file
 
@@ -69,11 +70,11 @@ real, allocatable, dimension(:) :: wts_hem
 real, dimension(:,:,:), allocatable :: Pnm, Pnm_wts
 real, dimension(:,:,:), allocatable :: Hnm, Hnm_wts
 
-integer :: num_fourier
-integer :: num_spherical
-integer :: trunc
-integer :: truncadj
-integer :: nlat
+integer :: num_fourier = 0
+integer :: num_spherical = 0
+integer :: trunc = 0
+integer :: truncadj = 0
+integer :: nlat = 0
 integer :: ms, me, mlen
 integer :: js_hem, je_hem, jlen_hem, js, je, jlen
 integer :: jsn, jen, jkn, jss, jes, jks
@@ -85,10 +86,10 @@ integer, allocatable :: ne4m(:)   ! Ending of spherical for a particulat fourier
 integer, allocatable :: nlen4m(:) ! number of spherical for a particular fourier
                                   !(Constant in case of rhomboidal truncation)
 
-integer :: nwaves !Total number of waves
-integer :: nwaves_oe !Total number of odd-even waves [=nwaves/2])
-integer :: noddwaves, nevenwaves
-integer :: noddwaves_g, nevenwaves_g, nwaves_oe_g
+integer :: nwaves = 0 !Total number of waves
+integer :: nwaves_oe = 0 !Total number of odd-even waves [=nwaves/2])
+integer :: noddwaves = 0, nevenwaves = 0
+integer :: noddwaves_g = 0, nevenwaves_g = 0, nwaves_oe_g = 0
 integer :: nwavesglobala
 
 logical, allocatable :: iseven(:) ! oddeven flag (.true. = even); (.false. = odd)
@@ -109,18 +110,22 @@ integer :: clck_f2s, clck_s2f
 
 integer, parameter, public :: ev=1, od=2
 
-logical :: initialized=.false.
+logical :: initialized=.false., notfpe=.false.
+
+interface init_spherical
+    module procedure init_spherical1 
+    module procedure init_spherical2
+end interface init_spherical
 
 contains
 
-
 !------------------------------------------------------------------------------
-subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
-                nwaves_oe_out, domain_fourier_in, tshuffle_in)
+subroutine init_spherical1(trunc_in, ishuff_in, nwaves_oe_out, &
+                           domain_fourier_in, tshuffle_in)
 !------------------------------------------------------------------------------
     implicit none
-    integer, intent(in) :: trunc_in, nlat_in, ishuff_in
-    type(domain2d), optional :: domain_fourier_in
+    integer, intent(in) :: trunc_in, ishuff_in
+    type(domain2d) :: domain_fourier_in
     integer, optional :: tshuffle_in(0:)
     integer, intent(out) :: nwaves_oe_out
 
@@ -129,7 +134,7 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
     integer :: nsf4ma(0:trunc_in), nef4ma(0:trunc_in), nlenf4ma(0:trunc_in)
     integer, allocatable :: wsf4m(:,:), wef4m(:,:), wlenf4m(:,:)
     integer, allocatable :: wsf4ma(:,:), wef4ma(:,:), wlenf4ma(:,:)
-    integer :: we, wo
+    integer :: we, wo, jeg, jsg
     character (len=8) :: suffix
 
     namelist/spherical_nml/debug
@@ -141,26 +146,20 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
     read(unit,nml=spherical_nml,iostat=iostat)
     call close_file(unit)
 
-    if (mod(nlat_in,2)/=0) &
+    call mpp_get_compute_domain(domain_fourier_in,jsg,jeg)
+    nlat = jeg -jsg +1
+
+    if (mod(nlat,2)/=0) &
         call mpp_error('init_spherical', 'NLAT should be a even number', FATAL)
    
     ishuff = ishuff_in 
-    nlat = nlat_in
     num_fourier = trunc_in
     num_spherical = trunc_in + 1
     trunc = trunc_in
 
     if (mod(num_spherical,2)==0) num_spherical = num_spherical + 1
 
-    if (present(domain_fourier_in)) then
-        call mpp_get_compute_domain(domain_fourier_in,js,je,ms,me)
-    else
-        js = 1
-        je = nlat
-        ms = 0
-        me = num_fourier
-    endif
-
+    call mpp_get_compute_domain(domain_fourier_in,js,je,ms,me)
     jlen = je - js + 1
 
     if (mod(js,2)==0) call mpp_error('init_spherical', 'js should be a odd number!!!', FATAL)
@@ -407,16 +406,57 @@ subroutine init_spherical(trunc_in, nlat_in, ishuff_in,&
 
     initialized = .true.
 
-end subroutine init_spherical
+end subroutine init_spherical1
+
+
+subroutine init_spherical2(domaing,ishuff)
+    type(domain2D) :: domaing
+    integer, intent(in) :: ishuff
+    integer :: jsg, jeg
+
+    notfpe = .true.
+
+    call mpp_get_compute_domain(domaing,js,je)
+    call mpp_get_global_domain(domaing,jsg,jeg)
+    nlat = jeg - jsg + 1
+
+    ms = 0; me = 0
+
+    jlen = je - js + 1
+
+    if (mod(js,2)==0) call mpp_error('init_spherical', 'js should be a odd number!!!', FATAL)
+    if (mod(jlen,2)/=0) call mpp_error('init_spherical', 'jlen should be a even number!!!', FATAL)
+    if (mod(je,2)/=0) call mpp_error('init_spherical', 'je should be a even number!!!', FATAL)
+
+    js_hem = js/2 + 1
+    je_hem = (je-1)/2 + 1
+    jlen_hem = jlen/2
+
+    if (ishuff==1) then
+        jss = js; jes = je; jks = 2
+        jsn = js+1; jen = je; jkn = 2
+    elseif(ishuff==2) then
+        jss = js; jes = js+jlen/2-1; jks = 1
+        jsn = jes+1; jen = je; jkn = 1
+    elseif(ishuff==0) then
+        jss = js; jes = js+jlen/2-1; jks = 1
+        jsn = je; jen = js+jlen/2; jkn = -1
+    endif
+
+    call define_gaussian()
+
+    initialized = .true.
+end subroutine init_spherical2
 
 
 !--------------------------------------------------------------------------------   
-subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
+subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat,wtslat)
 !--------------------------------------------------------------------------------
-    real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, cosm2lat, deglat
+    real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, &
+                                                 cosm2lat, deglat, wtslat
 
     if(.not.initialized) &
-        call mpp_error('get_lats', 'module not initialized', FATAL)
+        call mpp_error('spherical_mod', 'module not initialized', FATAL)
 
     if(present(sinlat)) then
         if (size(sinlat,1)==nlat) then
@@ -468,6 +508,16 @@ subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat)
         endif
     endif
 
+    if(present(wtslat)) then
+        if (size(wtslat,1)==nlat) then
+            wtslat = wts_lat
+        elseif (size(wtslat,1)==jlen) then
+            wtslat = wts_lat(js:je)
+        else
+            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+        endif
+    endif
+
     return
 end subroutine get_lats
 
@@ -478,6 +528,8 @@ subroutine get_wdecompa(wdom,nwavesglobal)
     integer, intent(out) :: wdom(:,:)
     integer, intent(out), optional :: nwavesglobal
     
+    if (notfpe) return
+
     if(.not.initialized) &
         call mpp_error('get_wdecomp', 'module not initialized', FATAL)
 
@@ -493,6 +545,8 @@ subroutine get_wdecomp(wdom,neven_global,nodd_global)
     integer, intent(out) :: wdom(:,:)
     integer, intent(out), optional :: neven_global, nodd_global
     
+    if (notfpe) return
+
     if(.not.initialized) &
         call mpp_error('get_wdecomp', 'module not initialized', FATAL)
 
@@ -509,6 +563,8 @@ subroutine get_spherical_wave(spherical_wave_out,nnp1_out)
 !--------------------------------------------------------------------------------   
     integer, intent(out), optional :: spherical_wave_out(:,:)
     integer, intent(out), optional :: nnp1_out(:,:)
+
+    if (notfpe) return
 
     if(.not.initialized) &
         call mpp_error('get_spherical_wave', 'module not initialized', FATAL)
@@ -792,6 +848,8 @@ subroutine compute_lon_deriv_cos(spherical, deriv_lon)
     
     integer :: k, n, i
     
+    if (notfpe) return
+
     if(.not. initialized ) then
       call mpp_error('compute_lon_deriv','module spherical not initialized', FATAL)
     end if
@@ -815,6 +873,8 @@ subroutine compute_lat_deriv_cos(spherical,deriv_lat)
     
     integer :: k, n, nw
     
+    if (notfpe) return
+
     if(.not. initialized ) then
       call mpp_error('compute_lat_deriv','module spherical not initialized', FATAL)
     end if
@@ -852,6 +912,8 @@ subroutine do_truncation(spherical,full)
     integer :: k
     logical :: full1
 
+    if (notfpe) return
+
     full1 = .true.
     if(present(full)) full1=full
 
@@ -882,6 +944,8 @@ subroutine compute_ucos_vcos(vorticity , divergence, u_cos, v_cos, do_trunc)
 
     logical :: do_trunc1
     integer :: k, nw
+
+    if (notfpe) return
 
     if(.not. initialized ) then
       call mpp_error('compute_ucos_vcos','module spherical not initialized', FATAL)
@@ -952,6 +1016,8 @@ subroutine compute_alpha_operator(spherical_a, spherical_b, rsign, alpha, do_tru
     logical :: do_trunc1
     integer :: k, nw
 
+    if (notfpe) return
+
     if(.not. initialized ) then
       call mpp_error('compute_vor or div','module spherical not initialized', FATAL)
     end if
@@ -1001,6 +1067,8 @@ subroutine compute_vor_div(u_cos, v_cos, vorticity, divergence, do_trunc)
     complex,dimension(:,:,:), intent(out) :: divergence
     logical, intent(in), optional :: do_trunc
 
+    if (notfpe) return
+
     call compute_alpha_operator(v_cos, u_cos, -1, vorticity, do_trunc)
     call compute_alpha_operator(u_cos, v_cos, +1, divergence, do_trunc)
 
@@ -1016,6 +1084,8 @@ subroutine compute_vor(u_cos, v_cos, vorticity, do_trunc)
     complex,dimension(:,:,:), intent(out) :: vorticity
     logical, intent(in), optional :: do_trunc
 
+    if (notfpe) return
+
     call compute_alpha_operator(v_cos, u_cos, -1, vorticity, do_trunc)
 
     return
@@ -1029,6 +1099,8 @@ subroutine compute_div(u_cos, v_cos, divergence, do_trunc)
     complex,dimension(:,:,:), intent(in)  :: v_cos
     complex,dimension(:,:,:), intent(out) :: divergence
     logical, intent(in), optional :: do_trunc
+
+    if (notfpe) return
 
     call compute_alpha_operator(u_cos, v_cos, +1, divergence, do_trunc)
 
@@ -1047,6 +1119,8 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
 
     integer :: ks, ke, ews, ewe, ows, owe, m, nj
     logical :: deriv
+
+    if (notfpe) return
 
     call mpp_clock_begin(clck_s2f)
 
@@ -1118,6 +1192,8 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 
     logical :: useHnm1, do_trunc1
     integer :: ks, ke, ews, ewe, ows, owe, m, k, nj
+
+    if (notfpe) return
 
     call mpp_clock_begin(clck_f2s)
 

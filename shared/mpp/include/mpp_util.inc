@@ -798,7 +798,7 @@ end function rarray_to_char
 
 !$OMP MASTER
     if( clocks(id)%peset_num.NE.current_peset_num ) &
-         call mpp_error( FATAL, 'MPP_CLOCK_BEGIN: cannot change pelist context of a clock.' )
+         call mpp_error( FATAL, 'MPP_CLOCK_BEGIN: cannot change pelist context of a clock. clock name: '//trim(clocks(id)%name) )
     if( clocks(id)%is_on) call mpp_error(FATAL, 'MPP_CLOCK_BEGIN: mpp_clock_begin is called again '// &
                 'before calling mpp_clock_end for the clock '//trim(clocks(id)%name) )
     if( clocks(id)%sync_on_begin )then

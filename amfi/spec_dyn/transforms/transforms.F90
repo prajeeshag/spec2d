@@ -20,7 +20,7 @@ use fms_io_mod, only : fms_io_exit
 
 use constants_mod, only : RADIUS
 
-use grid_fourier_mod, only : init_grid_fourier, fft_1dr2c_serial, fft_1dc2c_serial
+use grid_fourier_mod, only : init_grid_fourier
 use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
 
 use spherical_mod, only : init_spherical, fourier_to_spherical
@@ -38,7 +38,7 @@ private
 public :: compute_ucos_vcos, compute_vor_div, get_lats
 public :: get_wdecomp, get_spherical_wave, get_lons, get_wdecompa
 public :: spherical_to_grid, grid_to_spherical, init_transforms
-public :: register_spec_restart
+public :: register_spec_restart, save_spec_restart, restore_spec_restart
 
 type(domain2d) :: domainf
 
@@ -69,6 +69,11 @@ integer :: ishuff=0
 integer, parameter :: max_num_dom=10
 integer :: num_dom = 0
 type(domain2d) :: spresdom(max_num_dom)
+type(restart_file_type) :: specres
+
+character(len=32) :: resnm='spec_res'
+
+integer :: clck_g2s, clck_s2g
 
 logical :: initialized=.false.
 
@@ -163,16 +168,15 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     jsf = 0; jef = -1 
 
     if (fpe) then
-
-        call mpp_set_current_pelist(fpelist)
-
-        call mpp_define_domains( [1,nlat, 0,trunc], [1,mpp_npes()], domainf, yextent=fextent)
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_define_domains([1,nlat, 0,trunc], [1,mpp_npes()], domainf, &
+                                yextent=fextent, pelist=fpelist)
 
         call mpp_get_compute_domain(domainf, jsf, jef, isf, ief)
 
-        if(flen /= ief-isf+1) call mpp_error('gloopa', 'flen /= ief-isf+1', FATAL)
+        if(flen /= ief-isf+1) call mpp_error('transforms_mod', 'flen /= ief-isf+1', FATAL)
 
-        call init_spherical(trunc, nlat, ishuff, nwaves_oe, domainf, Tshuff) 
+        call init_spherical(trunc, ishuff, nwaves_oe, domainf, Tshuff) 
 
         nwaves_oe_total=nwaves_oe
 
@@ -181,10 +185,11 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
         call mpp_gather([nwaves_oe], spextent)
 
         call mpp_broadcast(spextent,size(spextent),mpp_root_pe())
-
+    else
+        call init_spherical(domainl, ishuff)
     endif
 
-    call mpp_set_current_pelist()
+    call mpp_set_current_pelist(no_sync=.true.)
 
     nwaves = nwaves_oe
 
@@ -200,6 +205,9 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     do i = 2, nlon
        deg_lon(i) = deg_lon(i-1) + dlon
     enddo 
+
+    clck_g2s = mpp_clock_id('grid2spectral')
+    clck_s2g = mpp_clock_id('spectral2grid')
 
     initialized = .true.
 
@@ -226,12 +234,10 @@ subroutine get_lons(deglon)
 
 end subroutine get_lons
     
-
 !--------------------------------------------------------------------------------   
-function register_spec_restart(specres,filename,fieldname,data,mandatory,data_default)
+function register_spec_restart(fieldname,data,mandatory,data_default)
 !--------------------------------------------------------------------------------
-    type(restart_file_type), intent(inout) :: specres
-    character (len=*), intent(in) :: filename, fieldname
+    character (len=*), intent(in) :: fieldname
     complex, intent(in) :: data(:,:,:)
     real, optional, intent(in) :: data_default
     logical, optional, intent(in) :: mandatory
@@ -245,7 +251,10 @@ function register_spec_restart(specres,filename,fieldname,data,mandatory,data_de
 
     register_spec_restart = 0
 
+
     if (.not.fpe) return
+
+    call mpp_set_current_pelist(fpelist,no_sync=.true.)
 
     idx_dom = 0
 
@@ -266,13 +275,49 @@ function register_spec_restart(specres,filename,fieldname,data,mandatory,data_de
         call mpp_define_domains(gdom, layout, spresdom(idx_dom),yextent=spextent)
     endif
 
-        cptr = C_LOC(data)
-        call c_f_pointer(cptr,rdata,[size(data,1)*2,size(data,2),size(data,3)])
-        register_spec_restart = &
-            register_restart_field(specres, filename, fieldname, rdata, &
+    cptr = C_LOC(data)
+    call c_f_pointer(cptr,rdata,[size(data,1)*2,size(data,2),size(data,3)])
+    register_spec_restart = &
+            register_restart_field(specres, resnm, fieldname, rdata, &
                      spresdom(idx_dom), mandatory, data_default=data_default)
 
+
+    call mpp_set_current_pelist(no_sync=.true.)
+
+    return
+
 end function register_spec_restart
+
+
+!--------------------------------------------------------------------------------   
+subroutine save_spec_restart(tstamp)
+!--------------------------------------------------------------------------------   
+    character(len=*), optional, intent(in) :: tstamp
+
+    if(.not.fpe) return
+
+    call mpp_set_current_pelist(fpelist,no_sync=.true.)
+    call save_restart(specres,tstamp)
+    call mpp_set_current_pelist(no_sync=.true.)
+
+    return
+end subroutine save_spec_restart
+
+!--------------------------------------------------------------------------------   
+subroutine restore_spec_restart()
+!--------------------------------------------------------------------------------   
+
+    if(.not.fpe) return
+
+    call mpp_set_current_pelist(fpelist,no_sync=.true.)
+
+    call restore_state(specres)
+
+    call mpp_set_current_pelist(no_sync=.true.)
+
+    return
+end subroutine restore_spec_restart
+
 
 !--------------------------------------------------------------------------------   
 subroutine vor_div_to_uv_grid3d(vor,div,u,v,getcosuv)
@@ -372,9 +417,19 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
         enddo
     endif
     
-    call fourier_to_spherical(four3,usp,do_trunc=.true.)
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,usp,do_trunc=.true.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
+
     call compute_lon_deriv_cos(usp,usm)
-    call fourier_to_spherical(four3,usp,useHnm=.true.,do_trunc=.true.)
+
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,usp,useHnm=.true.,do_trunc=.true.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
 
     pgrd = C_LOC(v)
     call c_f_pointer(pgrd, grd, [howmany, ni])
@@ -391,9 +446,19 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
         enddo
     endif
     
-    call fourier_to_spherical(four3,vsp,do_trunc=.true.)
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,vsp,do_trunc=.true.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
+
     call compute_lon_deriv_cos(vsp,vsm)
-    call fourier_to_spherical(four3,vsp,useHnm=.true.,do_trunc=.true.)
+    
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,vsp,useHnm=.true.,do_trunc=.true.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
 
     rradius = 1./RADIUS
     vor = vsm + (usp*rradius)
@@ -435,7 +500,11 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
         four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
     enddo
     
-    call fourier_to_spherical(four3,us,do_trunc=.false.)
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,us,do_trunc=.false.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
 
     pgrd = C_LOC(v)
     call c_f_pointer(pgrd, grd, [howmany, ni])
@@ -446,7 +515,11 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
         four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
     enddo
     
-    call fourier_to_spherical(four3,vs,do_trunc=.false.)
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,vs,do_trunc=.false.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
 
     call compute_vor_div(us,vs,vor,div)
 
@@ -495,7 +568,9 @@ subroutine grid_to_spherical3D(grid,spherical,do_trunc)
     integer :: nk, nj, ni, howmany
     integer :: i, j, k
     logical :: do_trunc1
-    
+
+    call mpp_clock_begin(clck_g2s)   
+ 
     do_trunc1 = .true.
     
     if(present(do_trunc)) do_trunc1 = do_trunc
@@ -512,7 +587,13 @@ subroutine grid_to_spherical3D(grid,spherical,do_trunc)
 
     call grid_to_fourier(grd,four)
 
-    call fourier_to_spherical(four3,spherical,do_trunc=do_trunc1)
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call fourier_to_spherical(four3,spherical,do_trunc=do_trunc1)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
+
+    call mpp_clock_end(clck_g2s)
 
     return
 end subroutine grid_to_spherical3D 
@@ -536,6 +617,8 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
     real :: ma
     real, parameter :: rRADIUS = 1./RADIUS
 
+    call mpp_clock_begin(clck_s2g)   
+
     nk = size(spherical,1); nj = jlen; ni = iec-isc+1
 
     howmany = nk*nj
@@ -544,7 +627,11 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
     call c_f_pointer(pfour, four3, [nk, nj, flen])
 
     if (present(lat_deriv)) then
-        call spherical_to_fourier(spherical, four3, .true.)
+        if (fpe) then
+            call mpp_set_current_pelist(fpelist,no_sync=.true.)
+            call spherical_to_fourier(spherical, four3, .true.)
+            call mpp_set_current_pelist(no_sync=.true.)
+        endif
 
         pgrd = C_LOC(lat_deriv)
         call c_f_pointer(pgrd, grd, [howmany, ni])
@@ -553,9 +640,16 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
     endif
 
     if (.not.present(lon_deriv).and. &
-        .not.present(grid)) return
+        .not.present(grid)) then
+        call mpp_clock_end(clck_s2g)   
+        return
+    endif
 
-    call spherical_to_fourier(spherical, four3, .false.)
+    if (fpe) then
+        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call spherical_to_fourier(spherical, four3, .false.)
+        call mpp_set_current_pelist(no_sync=.true.)
+    endif
 
     if (present(grid)) then
         pgrd = C_LOC(grid)
@@ -576,6 +670,7 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
         call fourier_to_grid(four,grd)
     endif
 
+    call mpp_clock_end(clck_s2g)   
     return
 end subroutine spherical_to_grid3D
 

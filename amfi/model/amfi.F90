@@ -16,7 +16,7 @@ use fms_io_mod, only : fms_io_exit
 
 use time_manager_mod, only : time_type, set_calendar_type, operator(-)
 use time_manager_mod, only : operator(+), set_date, set_time, days_in_month
-use time_manager_mod, only : operator(/), operator(>)
+use time_manager_mod, only : operator(/), operator(>), print_date
 
 use diag_manager_mod, only: diag_manager_init, diag_manager_end
 use diag_manager_mod, only: get_base_date, DIAG_OTHER
@@ -31,10 +31,12 @@ integer :: num_atmos_calls
 character(len=32) :: resfile='INPUT/atm.res'
 character(len=512) :: err_msg
 integer :: date_init(6), date(6), calendar_type
+integer :: restart_interval(6) = 0
 integer :: dt_atmos=0, unit, m, n
 
-namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos
+integer :: clck_atmos
 
+namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos, restart_interval
 
 call mpp_init()
 call fms_init()
@@ -87,12 +89,16 @@ time_step = set_time(dt_atmos,0)
 
 num_atmos_calls = Run_length / time_step
 
+clck_atmos = mpp_clock_id('Atmos')
+
 call init_atmos(Time,real(dt_atmos))
 
+call mpp_clock_begin(clck_atmos)
 do n = 1, num_atmos_calls
     call update_atmos(Time)
     Time = Time + time_step
 enddo
+call mpp_clock_end(clck_atmos)
 
 call diag_manager_end(Time)
 
