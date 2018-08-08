@@ -35,8 +35,8 @@
 !         inputs:                                                          !
 !           (plyr,plvl,tlyr,tlvl,qlyr,olyr,gasvmr,                         !
 !            clouds,icseed,aerosols,sfcalb,                                !
-!            cosz,solcon,NDAY,idxday,                                      !
-!            npts, nlay, nlp1, iflip, lprnt,                               !
+!            cosz,solcon,idxday,                                      !
+!            nlay, nlp1, lprnt,                               !
 !         outputs:                                                         !
 !            hswc,rsdt,rsut,rsutc,rsds,rsdsc,rsus,rsusc,                   !
 !!        optional outputs:                                                !
@@ -342,8 +342,6 @@
 
       integer :: isubcol, ipsdsw
 
-      integer, parameter :: iflip=1, npts=1, nday=1, idxday(1)=1
-
 !  ---  public accessable subprograms
 
       public :: swrad, init_swrad, NBDSW
@@ -372,13 +370,13 @@
 !  ====================  defination of variables  ====================  !
 !                                                                       !
 !  input variables:                                                     !
-!   plyr (npts,nlay) : model layer mean pressure in mb                  !
-!   plvl (npts,nlp1) : model level pressure in mb                       !
-!   tlyr (npts,nlay) : model layer mean temperature in k                !
-!   tlvl (npts,nlp1) : model level temperature in k    (not in use)     !
-!   qlyr (npts,nlay) : layer specific humidity in gm/gm   *see inside   !
-!   olyr (npts,nlay) : layer ozone concentration in gm/gm               !
-!   gasvmr(npts,nlay,:): atmospheric constent gases:                    !
+!   plyr (nlay) : model layer mean pressure in mb                  !
+!   plvl (nlp1) : model level pressure in mb                       !
+!   tlyr (nlay) : model layer mean temperature in k                !
+!   tlvl (nlp1) : model level temperature in k    (not in use)     !
+!   qlyr (nlay) : layer specific humidity in gm/gm   *see inside   !
+!   olyr (nlay) : layer ozone concentration in gm/gm               !
+!   gasvmr(nlay,:): atmospheric constent gases:                    !
 !                      (check module_radiation_gases for definition)    !
 !      gasvmr(:,:,1)  - co2 volume mixing ratio                         !
 !      gasvmr(:,:,2)  - n2o volume mixing ratio                         !
@@ -389,7 +387,7 @@
 !      gasvmr(:,:,7)  - cfc12 volume mixing ratio      (not used)       !
 !      gasvmr(:,:,8)  - cfc22 volume mixing ratio      (not used)       !
 !      gasvmr(:,:,9)  - ccl4  volume mixing ratio      (not used)       !
-!   clouds(npts,nlay,:): cloud profile                                  !
+!   clouds(nlay,:): cloud profile                                  !
 !                      (check module_radiation_clouds for definition)   !
 !                ---  for  iflagliq > 0  ---                            !
 !       clouds(:,:,1)  -   layer total cloud fraction                   !
@@ -407,28 +405,25 @@
 !       clouds(:,:,2)  -   layer cloud optical depth                    !
 !       clouds(:,:,3)  -   layer cloud single scattering albedo         !
 !       clouds(:,:,4)  -   layer cloud asymmetry factor                 !
-!     icseed(npts)   : auxiliary special cloud related array            !
+!     icseed   : auxiliary special cloud related array            !
 !                      when module variable isubcol=2, it provides      !
 !                      permutation seed for each column profile that    !
 !                      are used for generating random numbers.          !
 !                      when isubcol /=2, it will not be used.           !
-!   aerosols(npts,nlay,nbdsw,:) : aerosol optical properties            !
+!   aerosols(nlay,nbdsw,:) : aerosol optical properties            !
 !                      (check module_radiation_aerosols for definition) !
 !         (:,:,:,1)   - optical depth                                   !
 !         (:,:,:,2)   - single scattering albedo                        !
 !         (:,:,:,3)   - asymmetry parameter                             !
-!   sfcalb(npts, : ) : surface albedo in fraction                       !
+!   sfcalb( : ) : surface albedo in fraction                       !
 !                      (check module_radiation_surface for definition)  !
 !         ( :, 1 )    - near ir direct beam albedo                      !
 !         ( :, 2 )    - near ir diffused albedo                         !
 !         ( :, 3 )    - uv+vis direct beam albedo                       !
 !         ( :, 4 )    - uv+vis diffused albedo                          !
-!   cosz  (npts)     : cosine of solar zenith angle                     !
+!   cosz       : cosine of solar zenith angle                     !
 !   solcon           : solar constant                      (w/m**2)     !
 !   nlay,nlp1        : vertical layer/lavel numbers                     !
-!   iflip            : control flag for direction of vertical index     !
-!                     =0: index from toa to surface                     !
-!                     =1: index from surface to toa                     !
 !   lprnt            : logical check print flag                         !
 !                                                                       !
 !  control parameters in module "module_radsw_cntr_para":               !
@@ -456,7 +451,7 @@
 !            =3: use fu's method (1996) for ice clouds                  !
 !                                                                       !
 !  output variables:                                                    !
-!   hswc  (npts,nlay): total sky heating rates (k/sec or k/day)         !
+!   hswc  (nlay): total sky heating rates (k/sec or k/day)         !
 !     rsut            - total sky upward flux at toa                   !
 !     rsdt            - total sky downward flux at toa                 !
 !     rsutc            - clear sky upward flux at toa                   !
@@ -466,9 +461,9 @@
 !     rsusc            - clear sky downward flux at sfc                 !
 !                                                                       !
 !!optional outputs variables:                                           !
-!   hswb(npts,nlay,nbdsw): spectral band total sky heating rates        !
-!   hsw0  (npts,nlay): clear sky heating rates (k/sec or k/day)         !
-!   flxprf(npts,nlp1): level radiation fluxes (w/m**2), components:     !
+!   hswb(nlay,nbdsw): spectral band total sky heating rates        !
+!   hsw0  (nlay): clear sky heating rates (k/sec or k/day)         !
+!   flxprf(nlp1): level radiation fluxes (w/m**2), components:     !
 !                      (check module_radsw_parameters for definition)   !
 !     dnfxc            - total sky downward flux at interface           !
 !     upfxc            - total sky upward flux at interface             !
@@ -546,30 +541,30 @@
 
 !  ---  inputs:
       integer, intent(in) :: nlay, nlp1, nf_albd, nf_aesw, nf_clds
-      integer, intent(in) :: nf_vgas, icseed(npts)
+      integer, intent(in) :: nf_vgas, icseed
 
-      real, dimension(npts,nlp1), intent(in) :: plvl, tlvl
-      real, dimension(npts,nlay), intent(in) :: plyr, tlyr, qlyr, olyr
-      real, dimension(npts,nf_albd), intent(in) :: sfcalb
+      real, dimension(nlp1), intent(in) :: plvl, tlvl
+      real, dimension(nlay), intent(in) :: plyr, tlyr, qlyr, olyr
+      real, dimension(nf_albd), intent(in) :: sfcalb
 
-      real, dimension(npts,nlay,nf_vgas), intent(in) :: gasvmr
-      real, dimension(npts,nlay,nf_clds), intent(in) :: clouds
-      real, dimension(npts,nlay,nbdsw,nf_aesw), intent(in) :: aerosols
+      real, dimension(nlay,nf_vgas), intent(in) :: gasvmr
+      real, dimension(nlay,nf_clds), intent(in) :: clouds
+      real, dimension(nlay,nbdsw,nf_aesw), intent(in) :: aerosols
 
-      real, intent(in) :: cosz(npts), solcon
+      real, intent(in) :: cosz, solcon
 
 !  ---  outputs:
-      real, dimension(npts,nlay), intent(out) :: hswc
+      real, dimension(nlay), intent(out) :: hswc
 
-      real, dimension(npts), intent(out) :: rsdt, rsut, rsutc
-      real, dimension(npts), intent(out) :: rsds, rsdsc, rsus, rsusc
-      real, dimension(npts), intent(out) :: ruvds, ruvdsc, rnirbm, 
+      real, intent(out) :: rsdt, rsut, rsutc
+      real, intent(out) :: rsds, rsdsc, rsus, rsusc
+      real, intent(out) :: ruvds, ruvdsc, rnirbm, 
      &                                       rnirdf, rvisbm, rvisdf
 
 !! ---  optional outputs:
-      real,dimension(npts,nlay,nbdsw), optional, intent(out):: hswb
-      real,dimension(npts,nlay),  optional, intent(out):: hsw0
-      type (profsw_type), optional, intent(out) :: flxprf(npts,nlp1)
+      real,dimension(nlay,nbdsw), optional, intent(out):: hswb
+      real,dimension(nlay),  optional, intent(out):: hsw0
+      type (profsw_type), optional, intent(out) :: flxprf(nlp1)
 
 !  ---  locals:
       real, dimension(nlay) :: pavel, tavel, delp,     
@@ -600,7 +595,7 @@
       real :: suvbf0, suvbfc
       real :: fnet0(nlp1), fnetb(nlp1,nbdsw)
 
-      integer, dimension(npts) :: ipseed
+      integer :: ipseed
       integer, dimension(nlay) :: indfor, indself, jp, jt, jt1
 
       integer :: i, ib, ipt, j1, j2, k, kk, jp1, laytrop, mb
@@ -622,13 +617,13 @@
 
 !  --- ...  initial output arrays
 
-      hswc(:,:) = f_zero
+      hswc(:) = f_zero
       rsdt = 0.;  rsut = 0.; rsutc = 0.
       rsds = 0.; rsdsc = 0.;  rsus = 0.; rsusc = 0.
       ruvds = 0.; ruvdsc = 0.; rnirbm = 0. 
       rnirdf = 0.; rvisbm = 0.; rvisdf = 0.
 
-      if (all(cosz<=0.)) return
+      if (cosz<=0.) return
 
 !! --- ...  initial optional outputs
       if ( lflxprf ) then
@@ -636,24 +631,20 @@
       endif
 
       if ( lhsw0 ) then
-        hsw0(:,:) = f_zero
+        hsw0(:) = f_zero
       endif
 
       if ( lhswb ) then
-        hswb(:,:,:) = f_zero
+        hswb(:,:) = f_zero
       endif
 
 !  --- ...  change random number seed value for each radiation invocation
 
       if     ( isubcol == 1 ) then     ! advance prescribed permutation seed
-        do i = 1, npts
-          ipseed(i) = ipsdsw + i
-        enddo
-        ipsdsw = mod( ipsdsw+npts, isdlim )
+          ipseed = ipsdsw + 1
+        ipsdsw = mod( ipsdsw+1, isdlim )
       elseif ( isubcol == 2 ) then     ! use input array of permutaion seeds
-        do i = 1, npts
-          ipseed(i) = icseed(i)
-        enddo
+          ipseed = icseed
       endif
 
 !     if ( lprnt ) then
@@ -663,13 +654,9 @@
 
 !  --- ...  loop over each daytime grid point
 
-      lab_do_ipt : do ipt = 1, NDAY
-
-        j1 = idxday(ipt)
-
-        cosz1  = cosz(j1)
-        sntz1  = f_one / cosz(j1)
-        ssolar = s0fac * cosz(j1)
+        cosz1  = cosz
+        sntz1  = f_one / cosz
+        ssolar = s0fac * cosz
         zcf0   = f_one
         zcf1   = f_one
         laytrop= nlay
@@ -677,40 +664,38 @@
         colamt(:,:) = f_zero
 
 !  --- ...  surface albedo: bm,df - dir,dif;  1,2 - nir,uvv
-        albbm(1) = sfcalb(j1,1)
-        albdf(1) = sfcalb(j1,2)
-        albbm(2) = sfcalb(j1,3)
-        albdf(2) = sfcalb(j1,4)
+        albbm(1) = sfcalb(1)
+        albdf(1) = sfcalb(2)
+        albbm(2) = sfcalb(3)
+        albdf(2) = sfcalb(4)
 
 !  --- ...  prepare atmospheric profile for use in rrtm
 !           the vertical index of internal array is from surface to top
 
-        if (iflip == 0) then        ! input from toa to sfc
 
           tem1 = 100.0 * con_g
           tem2 = 1.0e-20 * 1.0e3 * con_avgd
 
           do k = 1, nlay
-            kk = nlp1 - k
-            pavel(k) = plyr(j1,kk)
-            tavel(k) = tlyr(j1,kk)
-            delp (k) = plvl(j1,kk+1) - plvl(j1,kk)
+            pavel(k) = plyr(k)
+            tavel(k) = tlyr(k)
+            delp (k) = plvl(k) - plvl(k+1)
 
 !  --- ...  set absorber amount
 !test use
-!           h2ovmr(k)= max(f_zero,qlyr(j1,kk)*amdw)                     ! input mass mixing ratio
-!           h2ovmr(k)= max(f_zero,qlyr(j1,kk))                          ! input vol mixing ratio
-!           o3vmr (k)= max(f_zero,olyr(j1,kk))                          ! input vol mixing ratio
+!           h2ovmr(k)= max(f_zero,qlyr(k)*amdw)                    ! input mass mixing ratio
+!           h2ovmr(k)= max(f_zero,qlyr(k))                         ! input vol mixing ratio
+!           o3vmr (k)= max(f_zero,olyr(k))                         ! input vol mixing ratio
 !ncep model use
-            h2ovmr(k)= max(f_zero,qlyr(j1,kk)*amdw/(f_one-qlyr(j1,kk))) ! input specific humidity
-            o3vmr (k)= max(f_zero,olyr(j1,kk)*amdo3)                    ! input mass mixing ratio
+            h2ovmr(k)= max(f_zero,qlyr(k)*amdw/(f_one-qlyr(k))) ! input specific humidity
+            o3vmr (k)= max(f_zero,olyr(k)*amdo3)                   ! input mass mixing ratio
 
             tem0 = (f_one - h2ovmr(k))*con_amd + h2ovmr(k)*con_amw
             coldry(k) = tem2 * delp(k) / (tem1*tem0*(f_one + h2ovmr(k)))
             temcol(k) = 1.0e-12 * coldry(k)
 
             colamt(k,1) = max(f_zero,    coldry(k)*h2ovmr(k))         ! h2o
-            colamt(k,2) = max(temcol(k), coldry(k)*gasvmr(j1,kk,1))   ! co2
+            colamt(k,2) = max(temcol(k), coldry(k)*gasvmr(k,1))    ! co2
             colamt(k,3) = max(f_zero,    coldry(k)*o3vmr(k))          ! o3
           enddo
 
@@ -719,11 +704,9 @@
           if (iaersw > 0) then
             do ib = 1, nbdsw
               do k = 1, nlay
-                kk = nlp1 - k
-
-                tauae(k,ib) = aerosols(j1,kk,ib,1)
-                ssaae(k,ib) = aerosols(j1,kk,ib,2)
-                asyae(k,ib) = aerosols(j1,kk,ib,3)
+                tauae(k,ib) = aerosols(k,ib,1)
+                ssaae(k,ib) = aerosols(k,ib,2)
+                asyae(k,ib) = aerosols(k,ib,3)
               enddo
             enddo
           else
@@ -734,106 +717,34 @@
 
           if (iflagliq > 0) then   ! use prognostic cloud method
             do k = 1, nlay
-              kk = nlp1 - k
-              cfrac(k) = clouds(j1,kk,1)      ! cloud fraction
-              cliqp(k) = clouds(j1,kk,2)      ! cloud liq path
-              reliq(k) = clouds(j1,kk,3)      ! liq partical effctive radius
-              cicep(k) = clouds(j1,kk,4)      ! cloud ice path
-              reice(k) = clouds(j1,kk,5)      ! ice partical effctive radius
-              cdat1(k) = clouds(j1,kk,6)      ! cloud rain drop path
-              cdat2(k) = clouds(j1,kk,7)      ! rain partical effctive radius
-              cdat3(k) = clouds(j1,kk,8)      ! cloud snow path
-              cdat4(k) = clouds(j1,kk,9)      ! snow partical effctive radius
+              cfrac(k) = clouds(k,1)       ! cloud fraction
+              cliqp(k) = clouds(k,2)       ! cloud liq path
+              reliq(k) = clouds(k,3)       ! liq partical effctive radius
+              cicep(k) = clouds(k,4)       ! cloud ice path
+              reice(k) = clouds(k,5)       ! ice partical effctive radius
+              cdat1(k) = clouds(k,6)       ! cloud rain drop path
+              cdat2(k) = clouds(k,7)       ! rain partical effctive radius
+              cdat3(k) = clouds(k,8)       ! cloud snow path
+              cdat4(k) = clouds(k,9)       ! snow partical effctive radius
             enddo
           else                     ! use diagnostic cloud method
             do k = 1, nlay
-              kk = nlp1 - k
-              cfrac(k) = clouds(j1,kk,1)      ! cloud fraction
-              cdat1(k) = clouds(j1,kk,2)      ! cloud optical depth
-              cdat2(k) = clouds(j1,kk,3)      ! cloud single scattering albedo
-              cdat3(k) = clouds(j1,kk,4)      ! cloud asymmetry factor
+              cfrac(k) = clouds(k,1)       ! cloud fraction
+              cdat1(k) = clouds(k,2)       ! cloud optical depth
+              cdat2(k) = clouds(k,3)       ! cloud single scattering albedo
+              cdat3(k) = clouds(k,4)       ! cloud asymmetry factor
             enddo
           endif                    ! end if_iflagliq
-
-        else                        ! input from sfc to toa
-
-          tem1 = 100.0 * con_g
-          tem2 = 1.0e-20 * 1.0e3 * con_avgd
-
-          do k = 1, nlay
-            pavel(k) = plyr(j1,k)
-            tavel(k) = tlyr(j1,k)
-            delp (k) = plvl(j1,k) - plvl(j1,k+1)
-
-!  --- ...  set absorber amount
-!test use
-!           h2ovmr(k)= max(f_zero,qlyr(j1,k)*amdw)                    ! input mass mixing ratio
-!           h2ovmr(k)= max(f_zero,qlyr(j1,k))                         ! input vol mixing ratio
-!           o3vmr (k)= max(f_zero,olyr(j1,k))                         ! input vol mixing ratio
-!ncep model use
-            h2ovmr(k)= max(f_zero,qlyr(j1,k)*amdw/(f_one-qlyr(j1,k))) ! input specific humidity
-            o3vmr (k)= max(f_zero,olyr(j1,k)*amdo3)                   ! input mass mixing ratio
-
-            tem0 = (f_one - h2ovmr(k))*con_amd + h2ovmr(k)*con_amw
-            coldry(k) = tem2 * delp(k) / (tem1*tem0*(f_one + h2ovmr(k)))
-            temcol(k) = 1.0e-12 * coldry(k)
-
-            colamt(k,1) = max(f_zero,    coldry(k)*h2ovmr(k))         ! h2o
-            colamt(k,2) = max(temcol(k), coldry(k)*gasvmr(j1,k,1))    ! co2
-            colamt(k,3) = max(f_zero,    coldry(k)*o3vmr(k))          ! o3
-          enddo
-
-!  --- ...  set aerosol optical properties
-
-          if (iaersw > 0) then
-            do ib = 1, nbdsw
-              do k = 1, nlay
-                tauae(k,ib) = aerosols(j1,k,ib,1)
-                ssaae(k,ib) = aerosols(j1,k,ib,2)
-                asyae(k,ib) = aerosols(j1,k,ib,3)
-              enddo
-            enddo
-          else
-            tauae(:,:) = f_zero
-            ssaae(:,:) = f_one
-            asyae(:,:) = f_zero
-          endif
-
-          if (iflagliq > 0) then   ! use prognostic cloud method
-            do k = 1, nlay
-              cfrac(k) = clouds(j1,k,1)       ! cloud fraction
-              cliqp(k) = clouds(j1,k,2)       ! cloud liq path
-              reliq(k) = clouds(j1,k,3)       ! liq partical effctive radius
-              cicep(k) = clouds(j1,k,4)       ! cloud ice path
-              reice(k) = clouds(j1,k,5)       ! ice partical effctive radius
-              cdat1(k) = clouds(j1,k,6)       ! cloud rain drop path
-              cdat2(k) = clouds(j1,k,7)       ! rain partical effctive radius
-              cdat3(k) = clouds(j1,k,8)       ! cloud snow path
-              cdat4(k) = clouds(j1,k,9)       ! snow partical effctive radius
-            enddo
-          else                     ! use diagnostic cloud method
-            do k = 1, nlay
-              cfrac(k) = clouds(j1,k,1)       ! cloud fraction
-              cdat1(k) = clouds(j1,k,2)       ! cloud optical depth
-              cdat2(k) = clouds(j1,k,3)       ! cloud single scattering albedo
-              cdat3(k) = clouds(j1,k,4)       ! cloud asymmetry factor
-            enddo
-          endif                    ! end if_iflagliq
-
-        endif                       ! if_iflip
 
 !  --- ...  set up gas column amount, convert from volume mixing ratio
 !           to molec/cm2 based on coldry (scaled to 1.0e-20)
 
-        if (iflip == 0) then        ! input from toa to sfc
-
           if (irgassw == 1) then
             do k = 1, nlay
-              kk = nlp1 - k
-              colamt(k,4) = max(temcol(k), coldry(k)*gasvmr(j1,kk,2))  ! n2o
-              colamt(k,5) = max(temcol(k), coldry(k)*gasvmr(j1,kk,3))  ! ch4
-              colamt(k,6) = max(temcol(k), coldry(k)*gasvmr(j1,kk,4))  ! o2
-!             colamt(k,7) = max(temcol(k), coldry(k)*gasvmr(j1,kk,5))  ! co - notused
+              colamt(k,4) = max(temcol(k), coldry(k)*gasvmr(k,2))   ! n2o
+              colamt(k,5) = max(temcol(k), coldry(k)*gasvmr(k,3))   ! ch4
+              colamt(k,6) = max(temcol(k), coldry(k)*gasvmr(k,4))   ! o2
+!             colamt(k,7) = max(temcol(k), coldry(k)*gasvmr(k,5))   ! co - notused
             enddo
           else
             do k = 1, nlay
@@ -843,26 +754,6 @@
 !             colamt(k,7) = temcol(k)                                  ! co - notused
             enddo
           endif
-
-        else                        ! input from sfc to toa
-
-          if (irgassw == 1) then
-            do k = 1, nlay
-              colamt(k,4) = max(temcol(k), coldry(k)*gasvmr(j1,k,2))   ! n2o
-              colamt(k,5) = max(temcol(k), coldry(k)*gasvmr(j1,k,3))   ! ch4
-              colamt(k,6) = max(temcol(k), coldry(k)*gasvmr(j1,k,4))   ! o2
-!             colamt(k,7) = max(temcol(k), coldry(k)*gasvmr(j1,k,5))   ! co - notused
-            enddo
-          else
-            do k = 1, nlay
-              colamt(k,4) = temcol(k)                                  ! n2o
-              colamt(k,5) = temcol(k)                                  ! ch4
-              colamt(k,6) = temcol(k)                                  ! o2
-!             colamt(k,7) = temcol(k)                                  ! co - notused
-            enddo
-          endif
-
-        endif                       ! if_iflip
 
 !  --- ...  compute fractions of clear sky view
 
@@ -895,8 +786,7 @@
         call cldprop                                                    
 !  ---  inputs:
      &     ( cfrac,cliqp,reliq,cicep,reice,cdat1,cdat2,cdat3,cdat4,     
-     &       zcf1, nlay, ipseed(j1),                                    
-!    &       zcf1, nlay, ipseed(ipt),                                   
+     &       zcf1, nlay, ipseed,                                    
 !  ---  outputs:
      &       taucw, ssacw, asycw, cldfrc                                
      &     )
@@ -1012,29 +902,29 @@
 
 !! --- ...  optional uv-b surface downward flux
 
-            ruvdsc(j1) = ssolar * suvbf0
-            ruvds(j1)  = ssolar * suvbfc
+            ruvdsc = ssolar * suvbf0
+            ruvds  = ssolar * suvbfc
 
 !! --- ...  optional beam and diffuse sfc fluxes
 
-            rnirbm(j1) = ssolar * sfbmc(1)
-            rnirdf(j1) = ssolar * sfdfc(1)
-            rvisbm(j1) = ssolar * sfbmc(2)
-            rvisdf(j1) = ssolar * sfdfc(2)
+            rnirbm = ssolar * sfbmc(1)
+            rnirdf = ssolar * sfdfc(1)
+            rvisbm = ssolar * sfbmc(2)
+            rvisdf = ssolar * sfdfc(2)
 
           else                           ! std cld scheme, scale fluxes
 
 !! --- ...  optional uv-b surface downward flux
 
-            ruvdsc(j1) = ssolar * suvbf0
-            ruvds(j1)  = ssolar * (zcf1*suvbfc + zcf0*suvbf0)
+            ruvdsc = ssolar * suvbf0
+            ruvds  = ssolar * (zcf1*suvbfc + zcf0*suvbf0)
 
 !! --- ...  optional beam and diffuse sfc fluxes
 
-            rnirbm(j1) = ssolar * (zcf1*sfbmc(1) + zcf0*sfbm0(1))
-            rnirdf(j1) = ssolar * (zcf1*sfdfc(1) + zcf0*sfdf0(1))
-            rvisbm(j1) = ssolar * (zcf1*sfbmc(2) + zcf0*sfbm0(2))
-            rvisdf(j1) = ssolar * (zcf1*sfdfc(2) + zcf0*sfdf0(2))
+            rnirbm = ssolar * (zcf1*sfbmc(1) + zcf0*sfbm0(1))
+            rnirdf = ssolar * (zcf1*sfdfc(1) + zcf0*sfdf0(1))
+            rvisbm = ssolar * (zcf1*sfbmc(2) + zcf0*sfbm0(2))
+            rvisdf = ssolar * (zcf1*sfdfc(2) + zcf0*sfdf0(2))
 
           endif     ! end if_isubcol_block
         else
@@ -1087,33 +977,29 @@
 
 !  --- ...  toa and sfc fluxes
 
-        rsut(j1)  = flxuc(nlp1)
-        rsdt(j1)  = flxdc(nlp1)
-        rsutc(j1) = flxu0(nlp1)
+        rsut  = flxuc(nlp1)
+        rsdt  = flxdc(nlp1)
+        rsutc = flxu0(nlp1)
 
-        rsus(j1)  = flxuc(1)
-        rsds(j1)  = flxdc(1)
-        rsusc(j1) = flxu0(1)
-        rsusc(j1) = flxd0(1)
-
-        if (iflip == 0) then        ! output from toa to sfc
+        rsus  = flxuc(1)
+        rsds  = flxdc(1)
+        rsusc = flxu0(1)
+        rsusc = flxd0(1)
 
 !  --- ...  compute heating rates
 
           do k = 1, nlay
-            kk = nlp1 - k
-            hswc(j1,kk) = (fnetc(k+1) - fnetc(k)) * heatfac / delp(k)
+            hswc(k) = (fnetc(k+1) - fnetc(k)) * heatfac / delp(k)
           enddo
 
 !! --- ...  optional flux profiles
 
           if ( lflxprf ) then
             do k = 1, nlp1
-              kk = nlp1 - k + 1
-              flxprf(j1,kk)%upfxc = flxuc(k)
-              flxprf(j1,kk)%dnfxc = flxdc(k)
-              flxprf(j1,kk)%upfx0 = flxu0(k)
-              flxprf(j1,kk)%dnfx0 = flxd0(k)
+              flxprf(k)%upfxc = flxuc(k)
+              flxprf(k)%dnfxc = flxdc(k)
+              flxprf(k)%upfx0 = flxu0(k)
+              flxprf(k)%dnfx0 = flxd0(k)
             enddo
           endif
 
@@ -1123,51 +1009,7 @@
             fnet0(:) = flxd0(:) - flxu0(:)
 
             do k = 1, nlay
-              kk = nlp1 - k
-              hsw0(j1,kk) = (fnet0(k+1) - fnet0(k)) * heatfac / delp(k)
-            enddo
-          endif
-
-!! --- ...  optional spectral band heating rates
-
-          if ( lhswb ) then
-            fnetb(:,:) = ssolar * (flxdcb(:,:) - flxucb(:,:))
-
-            do k = 1, nlay
-              kk = nlp1 - k
-              do mb = 1, nbdsw
-                hswb(j1,kk,mb) = (fnetb(k+1,mb) - fnetb(k,mb))          
-     &                         * heatfac / delp(k)
-              enddo
-            enddo
-          endif
-
-        else                        ! output from sfc to toa
-
-!  --- ...  compute heating rates
-
-          do k = 1, nlay
-            hswc(j1,k) = (fnetc(k+1) - fnetc(k)) * heatfac / delp(k)
-          enddo
-
-!! --- ...  optional flux profiles
-
-          if ( lflxprf ) then
-            do k = 1, nlp1
-              flxprf(j1,k)%upfxc = flxuc(k)
-              flxprf(j1,k)%dnfxc = flxdc(k)
-              flxprf(j1,k)%upfx0 = flxu0(k)
-              flxprf(j1,k)%dnfx0 = flxd0(k)
-            enddo
-          endif
-
-!! --- ...  optional clear sky heating rates
-
-          if ( lhsw0 ) then
-            fnet0(:) = flxd0(:) - flxu0(:)
-
-            do k = 1, nlay
-              hsw0(j1,k) = (fnet0(k+1) - fnet0(k)) * heatfac / delp(k)
+              hsw0(k) = (fnet0(k+1) - fnet0(k)) * heatfac / delp(k)
             enddo
           endif
 
@@ -1178,15 +1020,11 @@
 
             do k = 1, nlay
               do mb = 1, nbdsw
-                hswb(j1,k,mb) = (fnetb(k+1,mb) - fnetb(k,mb))           
+                hswb(k,mb) = (fnetb(k+1,mb) - fnetb(k,mb))           
      &                        * heatfac / delp(k)
               enddo
             enddo
           endif
-
-        endif                       ! if_iflip
-
-      enddo   lab_do_ipt
 
       return
 !...................................
