@@ -1,6 +1,5 @@
         module moninp_mod
         implicit none
-        integer, parameter :: IM = 1
         contains
       SUBROUTINE MONINP(KM,ntrac,DV,DU,TAU,RTG,
      &     U1,V1,T1,Q1,
@@ -18,45 +17,45 @@
 !
 !     Arguments
       real, parameter :: FV = RVGAS/RD - 1.
-      integer KM, ntrac, KPBL(IM)
+      integer KM, ntrac, KPBL
 !
       real DELTIM
-      real DV(IM,KM),     DU(IM,KM),
-     &                     TAU(IM,KM),    RTG(IM,KM,ntrac),
-     &                     U1(IM,KM),     V1(IM,KM),
-     &                     T1(IM,KM),     Q1(IM,KM,ntrac),
-     &                     PSK(IM),       RBSOIL(IM),
-!    &                     CD(IM),        CH(IM),
-     &                     FM(IM),        FH(IM),
-     &                     QSS(IM),
-     &                                    SPD1(IM),
-!    &                     DPHI(IM),      SPD1(IM),
-     &                     PRSI(IM,KM+1), DEL(IM,KM),
-     &                     PRSL(IM,KM),   PRSLK(IM,KM),
-     &                     PHII(IM,KM+1), PHIL(IM,KM),
-     &                     DUSFC(IM),
-     &                     dvsfc(IM),     dtsfc(IM),
-     &                     DQSFC(IM),     HPBL(IM),
-     &                     HGAMT(IM),     hgamq(IM)
+      real DV(KM),     DU(KM),
+     &                     TAU(KM),    RTG(KM,ntrac),
+     &                     U1(KM),     V1(KM),
+     &                     T1(KM),     Q1(KM,ntrac),
+     &                     PSK,       RBSOIL,
+!    &                     CD,        CH,
+     &                     FM,        FH,
+     &                     QSS,
+     &                                    SPD1,
+!    &                     DPHI,      SPD1,
+     &                     PRSI(KM+1), DEL(KM),
+     &                     PRSL(KM),   PRSLK(KM),
+     &                     PHII(KM+1), PHIL(KM),
+     &                     DUSFC,
+     &                     dvsfc,     dtsfc,
+     &                     DQSFC,     HPBL,
+     &                     HGAMT,     hgamq
 !
 !    Locals
 !
-      integer i,iprt,is,iun,k,kk,kmpbl,lond
-!     real betaq(IM), betat(IM),   betaw(IM),
-      real evap(IM),  heat(IM),    phih(IM),
-     &                     phim(IM),  rbdn(IM),    rbup(IM),
-     &                     the1(IM),  stress(im),  beta(im),
-     &                     the1v(IM), thekv(IM),   thermal(IM),
-     &                     thesv(IM), ustar(IM),   wscale(IM)
-!    &                     thesv(IM), ustar(IM),   wscale(IM),  zl1(IM)
+      integer iprt,is,iun,k,kk,kmpbl,lond
+!     real betaq, betat,   betaw,
+      real evap,  heat,    phih,
+     &                     phim,  rbdn,    rbup,
+     &                     the1,  stress,  beta,
+     &                     the1v, thekv,   thermal,
+     &                     thesv, ustar,   wscale
+!    &                     thesv, ustar,   wscale,  zl1
 !
-      real RDZT(IM,KM-1),
-     &                     ZI(IM,KM+1),     ZL(IM,KM),
-     &                     DKU(IM,KM-1),    DKT(IM,KM-1),
-     &                     AL(IM,KM-1),     AD(IM,KM),
-     &                     AU(IM,KM-1),     A1(IM,KM),
-     &                     A2(IM,KM*ntrac), THETA(IM,KM)
-      logical              pblflg(IM),   sfcflg(IM), stable(IM)
+      real RDZT(KM-1),
+     &                     ZI(KM+1),     ZL(KM),
+     &                     DKU(KM-1),    DKT(KM-1),
+     &                     AL(KM-1),     AD(KM),
+     &                     AU(KM-1),     A1(KM),
+     &                     A2(KM*ntrac), THETA(KM)
+      logical              pblflg,   sfcflg, stable
 !
       real aphi16,  aphi5,  bet1,   bvf2,
      &                     cfac,    conq,   cont,   conw,
@@ -74,7 +73,7 @@
      &                     sflux,   shr2,   spdk2,  sri,
      &                     tem,     ti,     ttend,  tvd,
      &                     tvu,     utend,  vk,     vk2,
-     &                     vpert,   vtend,  xkzo(im,km),   zfac,
+     &                     vpert,   vtend,  xkzo(km),   zfac,
      &                     zfmin,   zk,     tem1, xkzm
 cc
       parameter (gravi=1.0/grav)
@@ -121,7 +120,6 @@ C
 C - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 C     COMPUTE PRELIMINARY VARIABLES
 C
-      if (IM .lt. im) stop
 !
 !     IPRT = 0
 !     IF(IPRT.EQ.1) THEN
@@ -137,284 +135,191 @@ C
       KMPBL = KM / 2
 !
       do k=1,km
-        do i=1,im
-          zi(i,k) = phii(i,k) * gravi
-          zl(i,k) = phil(i,k) * gravi
-        enddo
+          zi(k) = phii(k) * gravi
+          zl(k) = phil(k) * gravi
       enddo
 !
       do k=1,kmpbl
-        do i=1,im
-          theta(i,k) = t1(i,k) * psk(i) / prslk(i,k)
-        enddo
+          theta(k) = t1(k) * psk / prslk(k)
       enddo
 C
       DO K = 1,KM-1
-        DO I=1,IM
-          RDZT(I,K) = 1.0 / (ZL(I,K+1) - ZL(I,K))
-!         RDZT(I,K) = GOR * PRSI(I,K+1) / (PRSL(I,K) - PRSL(I,K+1))
-!         if (prsi(i,1) .gt. 60.0) then
-!           tem1    = max((prsi(i,k+1)-30.0)/(prsi(i,1)-30.0), 0.0)
-!         else
-!           tem1    = 0.0
-!         endif
-!         xkzo(i,k) = xkzm * tem1 * tem1
-!!        tem1      = (zi(i,k+1) - zi(i,1)) * 0.002
-!!        xkzo(i,k) = xkzm * exp(-tem1)
-        ENDDO
+          RDZT(K) = 1.0 / (ZL(K+1) - ZL(K))
       ENDDO
 C
-      DO I = 1,IM
-         DUSFC(I) = 0.
-         DVSFC(I) = 0.
-         DTSFC(I) = 0.
-         DQSFC(I) = 0.
-         HGAMT(I) = 0.
-         HGAMQ(I) = 0.
-         WSCALE(I) = 0.
-         KPBL(I) = 1
-         HPBL(I) = ZI(I,2)
-         PBLFLG(I) = .TRUE.
-         SFCFLG(I) = .TRUE.
-         IF(RBSOIL(I).GT.0.0) SFCFLG(I) = .FALSE.
-      ENDDO
-!!
-      DO I=1,IM
-!        RDZT1    = GOR * prSL(i,1) / DEL(i,1)
-!        BET1     = DT*RDZT1*SPD1(I)/T1(I,1)
-!        BETA(I)  = DT*RDZT1/T1(I,1)
-         BETA(I)  = DT / (zi(i,2)-zi(i,1))
-!        BETAW(I) = BET1*CD(I)
-!        BETAT(I) = BET1*CH(I)
-!        BETAQ(I) = DPHI(I)*BETAT(I)
-      ENDDO
+         DUSFC = 0.
+         DVSFC = 0.
+         DTSFC = 0.
+         DQSFC = 0.
+         HGAMT = 0.
+         HGAMQ = 0.
+         WSCALE = 0.
+         KPBL = 1
+         HPBL = ZI(2)
+         PBLFLG = .TRUE.
+         SFCFLG = .TRUE.
+         IF(RBSOIL.GT.0.0) SFCFLG = .FALSE.
+
+         BETA  = DT / (zi(2)-zi(1))
 C
-      DO I=1,IM
-!        USTAR(I) = SQRT(CD(I)*SPD1(I)**2)
-         USTAR(I) = SQRT(STRESS(I))
-      ENDDO
+         USTAR = SQRT(STRESS)
 C
-      DO I=1,IM
-         THE1(I)    = THETA(I,1)
-         THE1V(I)   = THE1(I)*(1.+FV*MAX(Q1(I,1,1),QMIN))
-         THERMAL(I) = THE1V(I)
-!        DQ1        = (MAX(Q1(I,1,1),QMIN) - MAX(QSS(I),QMIN))
-!        HEAT(I)    = -CH(I)*SPD1(I)*DTHE1
-!        EVAP(I)    = -CH(I)*SPD1(I)*DQ1
-      ENDDO
-C
-C
+         THE1    = THETA(1)
+         THE1V   = THE1*(1.+FV*MAX(Q1(1,1),QMIN))
+         THERMAL = THE1V
+
 C     COMPUTE THE FIRST GUESS OF PBL HEIGHT
-C
-      DO I=1,IM
-         STABLE(I) = .FALSE.
-!        ZL(i,1) = ZL1(i)
-         RBUP(I) = RBSOIL(I)
-      ENDDO
+
+         STABLE = .FALSE.
+         RBUP = RBSOIL
+
       DO K = 2, KMPBL
-        DO I = 1, IM
-          IF(.NOT.STABLE(I)) THEN
-             RBDN(I)   = RBUP(I)
-!            ZL(I,k)   = ZL(I,K-1) - (T1(i,k)+T1(i,K-1))/2 *
-!    &                   LOG(PRSL(I,K)/PRSL(I,K-1)) * ROG
-             THEKV(I)  = THETA(i,k)*(1.+FV*MAX(Q1(i,k,1),QMIN))
-             SPDK2     = MAX((U1(i,k)**2+V1(i,k)**2),1.)
-             RBUP(I)   = (THEKV(I)-THE1V(I))*(G*ZL(I,k)/THE1V(I))/SPDK2
-             KPBL(I)   = K
-             STABLE(I) = RBUP(I).GT.RBCR
+          IF(.NOT.STABLE) THEN
+             RBDN   = RBUP
+             THEKV  = THETA(k)*(1.+FV*MAX(Q1(k,1),QMIN))
+             SPDK2     = MAX((U1(k)**2+V1(k)**2),1.)
+             RBUP   = (THEKV-THE1V)*(G*ZL(k)/THE1V)/SPDK2
+             KPBL   = K
+             STABLE = RBUP.GT.RBCR
           ENDIF
-        ENDDO
       ENDDO
 C
-      DO I = 1,IM
-         K = KPBL(I)
-         IF(RBDN(I).GE.RBCR) THEN
+         K = KPBL
+         IF(RBDN.GE.RBCR) THEN
             RBINT = 0.
-         ELSEIF(RBUP(I).LE.RBCR) THEN
+         ELSEIF(RBUP.LE.RBCR) THEN
             RBINT = 1.
          ELSE
-            RBINT = (RBCR-RBDN(I))/(RBUP(I)-RBDN(I))
+            RBINT = (RBCR-RBDN)/(RBUP-RBDN)
          ENDIF
-         HPBL(I) = ZL(I,K-1) + RBINT*(ZL(I,K)-ZL(I,K-1))
-         IF(HPBL(I).LT.ZI(I,KPBL(I))) KPBL(I) = KPBL(I) - 1
-      ENDDO
+         HPBL = ZL(K-1) + RBINT*(ZL(K)-ZL(K-1))
+         IF(HPBL.LT.ZI(KPBL)) KPBL = KPBL - 1
 !!
-      DO I=1,IM
-           HOL = MAX(RBSOIL(I)*FM(I)*FM(I)/FH(I),RIMIN)
-           IF(SFCFLG(I)) THEN
+           HOL = MAX(RBSOIL*FM*FM/FH,RIMIN)
+           IF(SFCFLG) THEN
               HOL = MIN(HOL,-ZFMIN)
            ELSE
               HOL = MAX(HOL,ZFMIN)
            ENDIF
 C
-!          HOL = HOL*HPBL(I)/ZL1(I)*SFCFRAC
-           HOL = HOL*HPBL(I)/ZL(I,1)*SFCFRAC
-           IF(SFCFLG(I)) THEN
+!          HOL = HOL*HPBL/ZL1*SFCFRAC
+           HOL = HOL*HPBL/ZL(1)*SFCFRAC
+           IF(SFCFLG) THEN
 !             PHIM = (1.-APHI16*HOL)**(-1./4.)
 !             PHIH = (1.-APHI16*HOL)**(-1./2.)
               TEM  = 1.0 / (1. - APHI16*HOL)
-              PHIH(I) = SQRT(TEM)
-              PHIM(I) = SQRT(PHIH(I))
+              PHIH = SQRT(TEM)
+              PHIM = SQRT(PHIH)
            ELSE
-              PHIM(I) = (1.+APHI5*HOL)
-              PHIH(I) = PHIM(I)
+              PHIM = (1.+APHI5*HOL)
+              PHIH = PHIM
            ENDIF
-           WSCALE(I) = USTAR(I)/PHIM(I)
-           WSCALE(I) = MIN(WSCALE(I),USTAR(I)*APHI16)
-           WSCALE(I) = MAX(WSCALE(I),USTAR(I)/APHI5)
-      ENDDO
+           WSCALE = USTAR/PHIM
+           WSCALE = MIN(WSCALE,USTAR*APHI16)
+           WSCALE = MAX(WSCALE,USTAR/APHI5)
 C
 C     COMPUTE THE SURFACE VARIABLES FOR PBL HEIGHT ESTIMATION
 C     UNDER UNSTABLE CONDITIONS
 C
-      DO I = 1,IM
-         SFLUX  = HEAT(I) + EVAP(I)*FV*THE1(I)
-         IF(SFCFLG(I).AND.SFLUX.GT.0.0) THEN
-           HGAMT(I)   = MIN(CFAC*HEAT(I)/WSCALE(I),GAMCRT)
-           HGAMQ(I)   = MIN(CFAC*EVAP(I)/WSCALE(I),GAMCRQ)
-           VPERT      = HGAMT(I) + FV*THE1(I)*HGAMQ(I)
+         SFLUX  = HEAT + EVAP*FV*THE1
+         IF(SFCFLG.AND.SFLUX.GT.0.0) THEN
+           HGAMT   = MIN(CFAC*HEAT/WSCALE,GAMCRT)
+           HGAMQ   = MIN(CFAC*EVAP/WSCALE,GAMCRQ)
+           VPERT      = HGAMT + FV*THE1*HGAMQ
            VPERT      = MIN(VPERT,GAMCRT)
-           THERMAL(I) = THERMAL(I) + MAX(VPERT,0.)
-           HGAMT(I)   = MAX(HGAMT(I),0.0)
-           HGAMQ(I)   = MAX(HGAMQ(I),0.0)
+           THERMAL = THERMAL + MAX(VPERT,0.)
+           HGAMT   = MAX(HGAMT,0.0)
+           HGAMQ   = MAX(HGAMQ,0.0)
          ELSE
-           PBLFLG(I) = .FALSE.
+           PBLFLG = .FALSE.
          ENDIF
-      ENDDO
 C
-      DO I = 1,IM
-         IF(PBLFLG(I)) THEN
-            KPBL(I) = 1
-            HPBL(I) = ZI(I,2)
+         IF(PBLFLG) THEN
+            KPBL = 1
+            HPBL = ZI(2)
          ENDIF
-      ENDDO
 C
 C     ENHANCE THE PBL HEIGHT BY CONSIDERING THE THERMAL
 C
-      DO I = 1, IM
-         IF(PBLFLG(I)) THEN
-            STABLE(I) = .FALSE.
-            RBUP(I) = RBSOIL(I)
+         IF(PBLFLG) THEN
+            STABLE = .FALSE.
+            RBUP = RBSOIL
          ENDIF
-      ENDDO
       DO K = 2, KMPBL
-        DO I = 1, IM
-          IF(.NOT.STABLE(I).AND.PBLFLG(I)) THEN
-            RBDN(I)   = RBUP(I)
-!           ZL(I,k)   = ZL(I,K-1) - (T1(i,k)+T1(i,K-1))/2 *
-!    &                  LOG(PRSL(I,K)/PRSL(I,K-1)) * ROG
-            THEKV(I)  = THETA(i,k)*(1.+FV*MAX(Q1(i,k,1),QMIN))
-            SPDK2     = MAX((U1(i,k)**2+V1(i,k)**2),1.)
-            RBUP(I)   = (THEKV(I)-THERMAL(I))*(G*ZL(I,k)/THE1V(I))/SPDK2
-            KPBL(I)   = K
-            STABLE(I) = RBUP(I).GT.RBCR
+          IF(.NOT.STABLE.AND.PBLFLG) THEN
+            RBDN   = RBUP
+!           ZL(k)   = ZL(K-1) - (T1(k)+T1(K-1))/2 *
+!    &                  LOG(PRSL(K)/PRSL(K-1)) * ROG
+            THEKV  = THETA(k)*(1.+FV*MAX(Q1(k,1),QMIN))
+            SPDK2     = MAX((U1(k)**2+V1(k)**2),1.)
+            RBUP   = (THEKV-THERMAL)*(G*ZL(k)/THE1V)/SPDK2
+            KPBL   = K
+            STABLE = RBUP.GT.RBCR
           ENDIF
-        ENDDO
       ENDDO
 C
-      DO I = 1,IM
-         IF(PBLFLG(I)) THEN
-            K = KPBL(I)
-            IF(RBDN(I).GE.RBCR) THEN
+         IF(PBLFLG) THEN
+            K = KPBL
+            IF(RBDN.GE.RBCR) THEN
                RBINT = 0.
-            ELSEIF(RBUP(I).LE.RBCR) THEN
+            ELSEIF(RBUP.LE.RBCR) THEN
                RBINT = 1.
             ELSE
-               RBINT = (RBCR-RBDN(I))/(RBUP(I)-RBDN(I))
+               RBINT = (RBCR-RBDN)/(RBUP-RBDN)
             ENDIF
-            HPBL(I) = ZL(I,K-1) + RBINT*(ZL(I,k)-ZL(I,K-1))
-            IF(HPBL(I).LT.ZI(I,KPBL(I))) KPBL(I) = KPBL(I) - 1
-            IF(KPBL(I).LE.1) PBLFLG(I) = .FALSE.
+            HPBL = ZL(K-1) + RBINT*(ZL(k)-ZL(K-1))
+            IF(HPBL.LT.ZI(KPBL)) KPBL = KPBL - 1
+            IF(KPBL.LE.1) PBLFLG = .FALSE.
          ENDIF
-      ENDDO
 !!
-!     DO K = 1,KM-1
-!       DO I=1,IM
-!         if (rbsoil(i) .gt. 0.0 .or. (.not. pblflg(i))) then
-!           tem1    = max((prsi(i,k+1)-30.0)/(prsi(i,1)-30.0), 0.0)
-!           xkzo(i,k) = xkzm * tem1 * tem1
-!!        tem1      = (zi(i,k+1) - zi(i,1)) * 0.002
-!!        xkzo(i,k) = xkzm * exp(-tem1)
-!         else
-!           xkzo(i,k) = 0.0
-!
-!         if (pblflg(i)) then
-!         if (sfcflg(i)) then
-!           xkzo(i,k) = 0.0
-!         else
-!           tem1      = (zi(i,k+1) - zi(i,1)) * 0.0005
-!           tem1      = (100.0 - prsi(i,k+1)) * 0.075
-!           tem1      = 100.0 - prsi(i,k+1)
-!           tem1      = max(0.0, 100.0 - prsi(i,k+1))
-!           tem1      = tem1 * tem1 * 0.00075
-!           tem1      = tem1 * tem1 * 0.001
-!           tem1      = tem1 * tem1 * 0.0011
-!           tem1      = tem1 * tem1 * 0.0012
-!
-!           tem1      = 1.0 - prsi(i,k+1) / prsi(i,1)
-!           tem1      = tem1 * tem1 * 5.0
-!           tem1      = tem1 * tem1 * 7.5
-!           tem1      = tem1 * tem1 * 10.0
-!           tem1      = tem1 * tem1 * 12.0
-!
-!           xkzo(i,k) = xkzm * min(1.0, exp(-tem1))
-!           if (xkzo(i,k) .lt. 0.01) xkzo(i,k) = 0.0
-!         endif
-!       ENDDO
-!     ENDDO
-!
+
       DO K = 1,KM-1
-        DO I=1,IM
-          tem1      = 1.0 - prsi(i,k+1) / prsi(i,1)
+          tem1      = 1.0 - prsi(k+1) / prsi(1)
           tem1      = tem1 * tem1 * 10.0
-          xkzo(i,k) = xkzm * min(1.0, exp(-tem1))
-        ENDDO
+          xkzo(k) = xkzm * min(1.0, exp(-tem1))
       ENDDO
 !!
 C
 C     COMPUTE DIFFUSION COEFFICIENTS BELOW PBL
 C
       DO K = 1, KMPBL
-         DO I=1,IM
-            IF(KPBL(I).GT.K) THEN
-               PRINV = 1.0 / (PHIH(I)/PHIM(I)+CFAC*VK*.1)
+            IF(KPBL.GT.K) THEN
+               PRINV = 1.0 / (PHIH/PHIM+CFAC*VK*.1)
                PRINV = MIN(PRINV,PRMAX)
                PRINV = MAX(PRINV,PRMIN)
-!              ZFAC = MAX((1.-(ZI(I,K+1)-ZL1(I))/
-!    1                (HPBL(I)-ZL1(I))), ZFMIN)
-               ZFAC = MAX((1.-(ZI(I,K+1)-ZL(I,1))/
-     1                (HPBL(I)-ZL(I,1))), ZFMIN)
-               DKU(i,k) = XKZO(i,k) + WSCALE(I)*VK*ZI(I,K+1)
+!              ZFAC = MAX((1.-(ZI(K+1)-ZL1)/
+!    1                (HPBL-ZL1)), ZFMIN)
+               ZFAC = MAX((1.-(ZI(K+1)-ZL(1))/
+     1                (HPBL-ZL(1))), ZFMIN)
+               DKU(k) = XKZO(k) + WSCALE*VK*ZI(K+1)
      1                         * ZFAC**PFAC
-               DKT(i,k) = DKU(i,k)*PRINV
-               DKU(i,k) = MIN(DKU(i,k),DKMAX)
-               DKU(i,k) = MAX(DKU(i,k),DKMIN)
-               DKT(i,k) = MIN(DKT(i,k),DKMAX)
-               DKT(i,k) = MAX(DKT(i,k),DKMIN)
+               DKT(k) = DKU(k)*PRINV
+               DKU(k) = MIN(DKU(k),DKMAX)
+               DKU(k) = MAX(DKU(k),DKMIN)
+               DKT(k) = MIN(DKT(k),DKMAX)
+               DKT(k) = MAX(DKT(k),DKMIN)
             ENDIF
-         ENDDO
       ENDDO
 C
 C     COMPUTE DIFFUSION COEFFICIENTS OVER PBL (FREE ATMOSPHERE)
 C
       DO K = 1, KM-1
-         DO I=1,IM
-            IF(K.GE.KPBL(I)) THEN
-!              TI   = 0.5*(T1(i,k)+T1(i,K+1))
-               TI   = 2.0 / (T1(i,k)+T1(i,K+1))
-!              RDZ  = RDZT(I,K)/TI
-!              RDZ  = RDZT(I,K) * TI
-               RDZ  = RDZT(I,K)
+            IF(K.GE.KPBL) THEN
+!              TI   = 0.5*(T1(k)+T1(K+1))
+               TI   = 2.0 / (T1(k)+T1(K+1))
+!              RDZ  = RDZT(K)/TI
+!              RDZ  = RDZT(K) * TI
+               RDZ  = RDZT(K)
 
-               DW2  = (U1(i,k)-U1(i,K+1))**2
-     &                      + (V1(i,k)-V1(i,K+1))**2
+               DW2  = (U1(k)-U1(K+1))**2
+     &                      + (V1(k)-V1(K+1))**2
                SHR2 = MAX(DW2,DW2MIN)*RDZ*RDZ
-               TVD  = T1(i,k)*(1.+FV*MAX(Q1(i,k,1),QMIN))
-               TVU  = T1(i,K+1)*(1.+FV*MAX(Q1(i,K+1,1),QMIN))
+               TVD  = T1(k)*(1.+FV*MAX(Q1(k,1),QMIN))
+               TVU  = T1(K+1)*(1.+FV*MAX(Q1(K+1,1),QMIN))
 !              BVF2 = G*(GOCP+RDZ*(TVU-TVD))/TI
                BVF2 = G*(GOCP+RDZ*(TVU-TVD)) * TI
                RI   = MAX(BVF2/SHR2,RIMIN)
-               ZK   = VK*ZI(I,K+1)
+               ZK   = VK*ZI(K+1)
 !              RL2  = (ZK*RLAM/(RLAM+ZK))**2
 !              DK   = RL2*SQRT(SHR2)
 !              RL2  = ZK*RLAM/(RLAM+ZK)
@@ -423,276 +328,227 @@ C
                   RL2      = ZK*RLAMUN/(RLAMUN+ZK)
                   DK       = RL2*RL2*SQRT(SHR2)
                   SRI      = SQRT(-RI)
-                  DKU(i,k) = XKZO(i,k) + DK*(1+8.*(-RI)/(1+1.746*SRI))
-                  DKT(i,k) = XKZO(i,k) + DK*(1+8.*(-RI)/(1+1.286*SRI))
+                  DKU(k) = XKZO(k) + DK*(1+8.*(-RI)/(1+1.746*SRI))
+                  DKT(k) = XKZO(k) + DK*(1+8.*(-RI)/(1+1.286*SRI))
                ELSE             ! STABLE REGIME
                   RL2       = ZK*RLAM/(RLAM+ZK)
-!                 tem       = rlam * sqrt(0.01*prsi(i,k))
+!                 tem       = rlam * sqrt(0.01*prsi(k))
 !                 RL2       = ZK*tem/(tem+ZK)
                   DK        = RL2*RL2*SQRT(SHR2)
-                  DKT(i,k)  = XKZO(i,k) + DK/(1+5.*RI)**2
+                  DKT(k)  = XKZO(k) + DK/(1+5.*RI)**2
                   PRNUM     = 1.0 + 2.1*RI
                   PRNUM     = MIN(PRNUM,PRMAX)
-                  DKU(i,k)  = (DKT(i,k)-XKZO(i,k))*PRNUM + XKZO(i,k)
+                  DKU(k)  = (DKT(k)-XKZO(k))*PRNUM + XKZO(k)
                ENDIF
 C
-               DKU(i,k) = MIN(DKU(i,k),DKMAX)
-               DKU(i,k) = MAX(DKU(i,k),DKMIN)
-               DKT(i,k) = MIN(DKT(i,k),DKMAX)
-               DKT(i,k) = MAX(DKT(i,k),DKMIN)
-C
-CCC   IF(I.EQ.LOND.AND.LAT.EQ.LATD) THEN
-CCC   PRNUM = DKU(k)/DKT(k)
-CCC   WRITE(IUN,610) K,PRNUM,DKT(k),DKU(k),RL2,RI,
-CCC   1              BVF2,SHR2
-CCC   ENDIF
-C
+               DKU(k) = MIN(DKU(k),DKMAX)
+               DKU(k) = MAX(DKU(k),DKMIN)
+               DKT(k) = MIN(DKT(k),DKMAX)
+               DKT(k) = MAX(DKT(k),DKMIN)
             ENDIF
-         ENDDO
       ENDDO
 C
 C     COMPUTE TRIDIAGONAL MATRIX ELEMENTS FOR HEAT AND MOISTURE
 C
-      DO I=1,IM
-         AD(I,1) = 1.
-         A1(I,1) = T1(i,1)   + BETA(i) * HEAT(I)
-         A2(I,1) = Q1(i,1,1) + BETA(i) * EVAP(I)
-!        A2(I,1) = Q1(i,1,1)-BETAQ(I)*
-!    &           (MAX(Q1(i,1,1),QMIN)-MAX(QSS(I),QMIN))
-      ENDDO
+         AD(1) = 1.
+         A1(1) = T1(1)   + BETA * HEAT
+         A2(1) = Q1(1,1) + BETA * EVAP
+
       if(ntrac.ge.2) then
         do k = 2, ntrac
           is = (k-1) * km
-          do i = 1, im
-            A2(I,1+is) = Q1(i,1,k)
-          enddo
+            A2(1+is) = Q1(1,k)
         enddo
       endif
 C
       DO K = 1,KM-1
-        DO I = 1,IM
-          DTODSD = DT/DEL(I,K)
-          DTODSU = DT/DEL(I,K+1)
-          DSIG   = PRSL(I,K)-PRSL(I,K+1)
-!         RDZ    = RDZT(I,K)*2./(T1(i,k)+T1(i,K+1))
-          RDZ    = RDZT(I,K)
-          tem1   = DSIG * DKT(i,k) * RDZ
-          IF(PBLFLG(I).AND.K.LT.KPBL(I)) THEN
-!            DSDZT = DSIG*DKT(i,k)*RDZ*(GOCP-HGAMT(I)/HPBL(I))
-!            DSDZQ = DSIG*DKT(i,k)*RDZ*(-HGAMQ(I)/HPBL(I))
-             tem   = 1.0 / HPBL(I)
-             DSDZT = tem1 * (GOCP-HGAMT(I)*tem)
-             DSDZQ = tem1 * (-HGAMQ(I)*tem)
-             A2(I,k)   = A2(I,k)+DTODSD*DSDZQ
-             A2(I,k+1) = Q1(i,k+1,1)-DTODSU*DSDZQ
+          DTODSD = DT/DEL(K)
+          DTODSU = DT/DEL(K+1)
+          DSIG   = PRSL(K)-PRSL(K+1)
+          RDZ    = RDZT(K)
+          tem1   = DSIG * DKT(k) * RDZ
+          IF(PBLFLG.AND.K.LT.KPBL) THEN
+             tem   = 1.0 / HPBL
+             DSDZT = tem1 * (GOCP-HGAMT*tem)
+             DSDZQ = tem1 * (-HGAMQ*tem)
+             A2(k)   = A2(k)+DTODSD*DSDZQ
+             A2(k+1) = Q1(k+1,1)-DTODSU*DSDZQ
           ELSE
-!            DSDZT = DSIG*DKT(i,k)*RDZ*(GOCP)
              DSDZT = tem1 * GOCP
-             A2(I,k+1) = Q1(i,k+1,1)
+             A2(k+1) = Q1(k+1,1)
           ENDIF
-!         DSDZ2 = DSIG*DKT(i,k)*RDZ*RDZ
           DSDZ2     = tem1 * RDZ
-          AU(I,k)   = -DTODSD*DSDZ2
-          AL(I,k)   = -DTODSU*DSDZ2
-          AD(I,k)   = AD(I,k)-AU(I,k)
-          AD(I,k+1) = 1.-AL(I,k)
-          A1(I,k)   = A1(I,k)+DTODSD*DSDZT
-          A1(I,k+1) = T1(i,k+1)-DTODSU*DSDZT
-        ENDDO
+          AU(k)   = -DTODSD*DSDZ2
+          AL(k)   = -DTODSU*DSDZ2
+          AD(k)   = AD(k)-AU(k)
+          AD(k+1) = 1.-AL(k)
+          A1(k)   = A1(k)+DTODSD*DSDZT
+          A1(k+1) = T1(k+1)-DTODSU*DSDZT
       ENDDO
+
       if(ntrac.ge.2) then
         do kk = 2, ntrac
           is = (kk-1) * km
           do k = 1, km - 1
-            do i = 1, im
-              A2(I,k+1+is) = Q1(i,k+1,kk)
-            enddo
+              A2(k+1+is) = Q1(k+1,kk)
           enddo
         enddo
       endif
 C
 C     SOLVE TRIDIAGONAL PROBLEM FOR HEAT AND MOISTURE
 C
-      CALL TRIDIN(IM,KM,ntrac,AL,AD,AU,A1,A2,AU,A1,A2)
+      CALL TRIDIN(KM,ntrac,AL,AD,AU,A1,A2,AU,A1,A2)
 C
 C     RECOVER TENDENCIES OF HEAT AND MOISTURE
 C
       DO  K = 1,KM
-         DO I = 1,IM
-            TTEND      = (A1(I,k)-T1(i,k))*RDT
-            QTEND      = (A2(I,k)-Q1(i,k,1))*RDT
-            TAU(i,k)   = TAU(i,k)+TTEND
-            RTG(I,k,1) = RTG(i,k,1)+QTEND
-            DTSFC(I)   = DTSFC(I)+CONT*DEL(I,K)*TTEND
-            DQSFC(I)   = DQSFC(I)+CONQ*DEL(I,K)*QTEND
-         ENDDO
+            TTEND      = (A1(k)-T1(k))*RDT
+            QTEND      = (A2(k)-Q1(k,1))*RDT
+            TAU(k)   = TAU(k)+TTEND
+            RTG(k,1) = RTG(k,1)+QTEND
+            DTSFC   = DTSFC+CONT*DEL(K)*TTEND
+            DQSFC   = DQSFC+CONQ*DEL(K)*QTEND
       ENDDO
       if(ntrac.ge.2) then
         do kk = 2, ntrac
           is = (kk-1) * km
           do k = 1, km 
-            do i = 1, im
-              QTEND = (A2(I,K+is)-Q1(i,K,kk))*RDT
-              RTG(i,K,kk) = RTG(i,K,kk)+QTEND
-            enddo
+              QTEND = (A2(K+is)-Q1(K,kk))*RDT
+              RTG(K,kk) = RTG(K,kk)+QTEND
           enddo
         enddo
       endif
 C
 C     COMPUTE TRIDIAGONAL MATRIX ELEMENTS FOR MOMENTUM
 C
-      DO I=1,IM
-!        AD(I,1) = 1.+BETAW(I)
-         AD(I,1) = 1.0 + BETA(i) * STRESS(I) / SPD1(I)
-         A1(I,1) = U1(i,1)
-         A2(I,1) = V1(i,1)
-!        AD(I,1) = 1.0
-!        tem     = 1.0 + BETA(I) * STRESS(I) / SPD1(I)
-!        A1(I,1) = U1(i,1) * tem
-!        A2(I,1) = V1(i,1) * tem
-      ENDDO
+         AD(1) = 1.0 + BETA * STRESS / SPD1
+         A1(1) = U1(1)
+         A2(1) = V1(1)
 C
       DO K = 1,KM-1
-        DO I=1,IM
-          DTODSD    = DT/DEL(I,K)
-          DTODSU    = DT/DEL(I,K+1)
-          DSIG      = PRSL(I,K)-PRSL(I,K+1)
-!         RDZ       = RDZT(I,K)*2./(T1(i,k)+T1(i,k+1))
-          RDZ       = RDZT(I,K)
-          DSDZ2     = DSIG*DKU(i,k)*RDZ*RDZ
-          AU(I,k)   = -DTODSD*DSDZ2
-          AL(I,k)   = -DTODSU*DSDZ2
-          AD(I,k)   = AD(I,k)-AU(I,k)
-          AD(I,k+1) = 1.-AL(I,k)
-          A1(I,k+1) = U1(i,k+1)
-          A2(I,k+1) = V1(i,k+1)
-        ENDDO
+          DTODSD    = DT/DEL(K)
+          DTODSU    = DT/DEL(K+1)
+          DSIG      = PRSL(K)-PRSL(K+1)
+          RDZ       = RDZT(K)
+          DSDZ2     = DSIG*DKU(k)*RDZ*RDZ
+          AU(k)   = -DTODSD*DSDZ2
+          AL(k)   = -DTODSU*DSDZ2
+          AD(k)   = AD(k)-AU(k)
+          AD(k+1) = 1.-AL(k)
+          A1(k+1) = U1(k+1)
+          A2(k+1) = V1(k+1)
       ENDDO
 C
 C     SOLVE TRIDIAGONAL PROBLEM FOR MOMENTUM
 C
-      CALL TRIDI2(IM,KM,AL,AD,AU,A1,A2,AU,A1,A2)
+      CALL TRIDI2(KM,AL,AD,AU,A1,A2,AU,A1,A2)
 C
 C     RECOVER TENDENCIES OF MOMENTUM
 C
       DO K = 1,KM
-         DO I = 1,IM
             CONWRC = CONW
-            UTEND = (A1(I,k)-U1(i,k))*RDT
-            VTEND = (A2(I,k)-V1(i,k))*RDT
-            DU(i,k)  = DU(i,k)+UTEND
-            DV(i,k)  = DV(i,k)+VTEND
-            DUSFC(I) = DUSFC(I)+CONWRC*DEL(I,K)*UTEND
-            DVSFC(I) = DVSFC(I)+CONWRC*DEL(I,K)*VTEND
-         ENDDO
+            UTEND = (A1(k)-U1(k))*RDT
+            VTEND = (A2(k)-V1(k))*RDT
+            DU(k)  = DU(k)+UTEND
+            DV(k)  = DV(k)+VTEND
+            DUSFC = DUSFC+CONWRC*DEL(K)*UTEND
+            DVSFC = DVSFC+CONWRC*DEL(K)*VTEND
       ENDDO
 !!
       RETURN
       END SUBROUTINE
-CFPP$ NOCONCUR R
+
+
+
 C-----------------------------------------------------------------------
-      SUBROUTINE TRIDI2(L,N,CL,CM,CU,R1,R2,AU,A1,A2)
-csela %INCLUDE DBTRIDI2;
-cc
+      SUBROUTINE TRIDI2(N,CL,CM,CU,R1,R2,AU,A1,A2)
+C-----------------------------------------------------------------------
       implicit none
-      integer             k,n,l,i
+      integer             k,n
       real fk
-cc
-      real CL(L,2:N),CM(L,N),CU(L,N-1),R1(L,N),R2(L,N),
-     &          AU(L,N-1),A1(L,N),A2(L,N)
-C-----------------------------------------------------------------------
-      DO I=1,L
-        FK      = 1./CM(I,1)
-        AU(I,1) = FK*CU(I,1)
-        A1(I,1) = FK*R1(I,1)
-        A2(I,1) = FK*R2(I,1)
-      ENDDO
+
+      real CL(2:N),CM(N),CU(N-1),R1(N),R2(N),
+     &          AU(N-1),A1(N),A2(N)
+
+
+        FK      = 1./CM(1)
+        AU(1) = FK*CU(1)
+        A1(1) = FK*R1(1)
+        A2(1) = FK*R2(1)
+
+
       DO K=2,N-1
-        DO I=1,L
-          FK      = 1./(CM(I,K)-CL(I,K)*AU(I,K-1))
-          AU(I,K) = FK*CU(I,K)
-          A1(I,K) = FK*(R1(I,K)-CL(I,K)*A1(I,K-1))
-          A2(I,K) = FK*(R2(I,K)-CL(I,K)*A2(I,K-1))
-        ENDDO
+          FK      = 1./(CM(K)-CL(K)*AU(K-1))
+          AU(K) = FK*CU(K)
+          A1(K) = FK*(R1(K)-CL(K)*A1(K-1))
+          A2(K) = FK*(R2(K)-CL(K)*A2(K-1))
       ENDDO
-      DO I=1,L
-        FK      = 1./(CM(I,N)-CL(I,N)*AU(I,N-1))
-        A1(I,N) = FK*(R1(I,N)-CL(I,N)*A1(I,N-1))
-        A2(I,N) = FK*(R2(I,N)-CL(I,N)*A2(I,N-1))
-      ENDDO
+
+        FK      = 1./(CM(N)-CL(N)*AU(N-1))
+        A1(N) = FK*(R1(N)-CL(N)*A1(N-1))
+        A2(N) = FK*(R2(N)-CL(N)*A2(N-1))
+
       DO K=N-1,1,-1
-        DO I=1,L
-          A1(I,K) = A1(I,K)-AU(I,K)*A1(I,K+1)
-          A2(I,K) = A2(I,K)-AU(I,K)*A2(I,K+1)
-        ENDDO
+          A1(K) = A1(K)-AU(K)*A1(K+1)
+          A2(K) = A2(K)-AU(K)*A2(K+1)
       ENDDO
-C-----------------------------------------------------------------------
+
       RETURN
-      END SUBROUTINE
-CFPP$ NOCONCUR R
+      END SUBROUTINE TRIDI2
+
+
 C-----------------------------------------------------------------------
-      SUBROUTINE TRIDIN(L,N,nt,CL,CM,CU,R1,R2,AU,A1,A2)
-csela %INCLUDE DBTRIDI2;
-cc
+      SUBROUTINE TRIDIN(N,nt,CL,CM,CU,R1,R2,AU,A1,A2)
+C-----------------------------------------------------------------------
       implicit none
-      integer             is,k,kk,n,nt,l,i
-      real fk(L)
-cc
-      real CL(L,2:N), CM(L,N), CU(L,N-1),
-     &                     R1(L,N),   R2(L,N*nt),
-     &                     AU(L,N-1), A1(L,N), A2(L,N*nt),
-     &                     FKK(L,2:N-1)
-C-----------------------------------------------------------------------
-      DO I=1,L
-        FK(I)   = 1./CM(I,1)
-        AU(I,1) = FK(I)*CU(I,1)
-        A1(I,1) = FK(I)*R1(I,1)
-      ENDDO
+      integer             is,k,kk,n,nt
+      real fk
+      real CL(2:N), CM(N), CU(N-1),
+     &                     R1(N),   R2(N*nt),
+     &                     AU(N-1), A1(N), A2(N*nt),
+     &                     FKK(2:N-1)
+        FK   = 1./CM(1)
+        AU(1) = FK*CU(1)
+        A1(1) = FK*R1(1)
+
       do k = 1, nt
         is = (k-1) * n
-        do i = 1, l
-          a2(i,1+is) = fk(I) * r2(i,1+is)
-        enddo
+        a2(1+is) = fk * r2(1+is)
       enddo
+
       DO K=2,N-1
-        DO I=1,L
-          FKK(I,K) = 1./(CM(I,K)-CL(I,K)*AU(I,K-1))
-          AU(I,K)  = FKK(I,K)*CU(I,K)
-          A1(I,K)  = FKK(I,K)*(R1(I,K)-CL(I,K)*A1(I,K-1))
-        ENDDO
+          FKK(K) = 1./(CM(K)-CL(K)*AU(K-1))
+          AU(K)  = FKK(K)*CU(K)
+          A1(K)  = FKK(K)*(R1(K)-CL(K)*A1(K-1))
       ENDDO
+
       do kk = 1, nt
         is = (kk-1) * n
         DO K=2,N-1
-          DO I=1,L
-            A2(I,K+is) = FKK(I,K)*(R2(I,K+is)-CL(I,K)*A2(I,K+is-1))
-          ENDDO
+            A2(K+is) = FKK(K)*(R2(K+is)-CL(K)*A2(K+is-1))
         ENDDO
       ENDDO
-      DO I=1,L
-        FK(I)   = 1./(CM(I,N)-CL(I,N)*AU(I,N-1))
-        A1(I,N) = FK(I)*(R1(I,N)-CL(I,N)*A1(I,N-1))
-      ENDDO
+
+        FK   = 1./(CM(N)-CL(N)*AU(N-1))
+        A1(N) = FK*(R1(N)-CL(N)*A1(N-1))
+
       do k = 1, nt
         is = (k-1) * n
-        do i = 1, l
-          A2(I,N+is) = FK(I)*(R2(I,N+is)-CL(I,N)*A2(I,N+is-1))
-        enddo
+          A2(N+is) = FK*(R2(N+is)-CL(N)*A2(N+is-1))
       enddo
+
       DO K=N-1,1,-1
-        DO I=1,L
-          A1(I,K) = A1(I,K) - AU(I,K)*A1(I,K+1)
-        ENDDO
+          A1(K) = A1(K) - AU(K)*A1(K+1)
       ENDDO
+
       do kk = 1, nt
         is = (kk-1) * n
         DO K=n-1,1,-1
-          DO I=1,L
-            A2(I,K+is) = A2(I,K+is) - AU(I,K)*A2(I,K+is+1)
-          ENDDO
+            A2(K+is) = A2(K+is) - AU(K)*A2(K+is+1)
         ENDDO
       ENDDO
-C-----------------------------------------------------------------------
+
       RETURN
-      END SUBROUTINE
-        end module moninp_mod
+      END SUBROUTINE TRIDIN
+
+      end module moninp_mod

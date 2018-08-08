@@ -56,7 +56,7 @@ subroutine do_vertical_diffusion (imax,levs,ntrac,dvdt,dudt,dtdt,dqdt,ugrs,vgrs,
 
     do i = 1, imax
         call moninp(levs, ntrac, dvdt(:,i), dudt(:,i), dtdt(:,i), dqdt1(:,:,i), ugrs(:,i), vgrs(:,i), &
-                    tgrs(:,i), qgrs1(:,:,i), prsik(:,i), rb(i), ffmm(i), ffhh(i), qss(i), &
+                    tgrs(:,i), qgrs1(:,:,i), prsik(1,i), rb(i), ffmm(i), ffhh(i), qss(i), &
                     hflx(i), evap(i), stress(i), wind(i), kpbl(i), prsi(:,i), del(:,i), &
                     prsl(:,i), prslk(:,i), phii(:,i), phil(:,i), dtp, dusfc1(i), &
                     dvsfc1(i), dtsfc1(i), dqsfc1(i), hpbl(i), gamt(i), gamq(i), xkzm(i))
