@@ -82,6 +82,8 @@ integer :: id_dtmp, id_dqmp, id_lprmp, id_fprmp
 integer :: id_dtphy, id_dqphy, id_lpr, id_fpr, id_pr, id_duphy, id_dvphy
 integer :: id_tr1
 
+integer :: clck_phys, clck_rad, clck_sfc, clck_vd, clck_gwd, clck_cu, clck_sc, clck_mp, clck_gwdc
+
 logical :: initialized=.false.
 
 namelist/phys_nml/dt_rad
@@ -218,6 +220,17 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
 
     deallocate(fland)
 
+    clck_phys = mpp_clock_id('Physics')
+    clck_rad  = mpp_clock_id('  Radiation')
+    clck_sfc  = mpp_clock_id('  Surface')
+    clck_vd   = mpp_clock_id('  Vertical Diffusion')
+    clck_gwd  = mpp_clock_id('  GW Drag')
+    clck_gwdc = mpp_clock_id('  CGW Drag')
+    clck_cu   = mpp_clock_id('  Cumulus Convection')
+    clck_sc   = mpp_clock_id('  Shallow Convection')
+    clck_mp   = mpp_clock_id('  Micro Physics')
+    
+
     ! Diag out
     ! -------------------------------------------------------------------------------- 
     
@@ -348,6 +361,9 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     integer :: k, imax
     logical :: used
 
+
+    call mpp_clock_begin(clck_phys)
+
     imax = size(p,1)*size(p,2)
 
     dtdt = 0.; dudt = 0.; dvdt = 0.; dqdt = 0.
@@ -359,6 +375,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     !Radiation
     !--------------------------------------------------------------------------------   
+    call mpp_clock_begin(clck_rad)
     if (rad_time==Time) then
         call print_date(Time,'Calling Radiation at:')
         coszen(:,:) = 0.0
@@ -400,6 +417,8 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     used = send_data(id_sfcemis, sfcemis, Time) 
     used = send_data(id_dtrd, dtdt1, Time) 
     used = send_data(id_dtlw, htlw, Time) 
+
+    call mpp_clock_end(clck_rad)
     !End Radiation
     !--------------------------------------------------------------------------------   
 
@@ -410,12 +429,15 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     call get_phi(topo1, tlyr1, tr1(:,:,:,ind_q), plvl, plvlk, plyr, plyrk, phii, phil)
 
     !Surface Fluxes
+    call mpp_clock_begin(clck_sfc)
     call do_surface(Time, p1(:,:), u1(1,:,:), v1(1,:,:), tlyr1(1,:,:), &
             tr1(1,:,:,ind_q), plyr(1,:,:), prslki(1,:,:), rsds, rsns, rldsg, &
             fprcp, lprcp, rb, ffmm, ffhh, qss, hflx, evap, stress, wind)
+    call mpp_clock_end(clck_sfc)
     !End surface Fluxes
 
     !Vertical Diffusion
+    call mpp_clock_begin(clck_vd)
     dtdt1 = 0.; dudt1 = 0.; dvdt1 = 0.; dqdt1 = 0.
     dusfc1 = 0.; dvsfc1 = 0.; dtsfc1 = 0.; dqsfc1 = 0.
     call do_vertical_diffusion(imax, nlev, ntrac, dvdt1, dudt1, dtdt1, dqdt1, u1, &
@@ -438,9 +460,11 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     dudt = dudt + dudt1 
     dvdt = dvdt + dvdt1 
     dqdt = dqdt + dqdt1 
+    call mpp_clock_end(clck_vd)
     !End Vertical Diffusion
 
     !Gravity Wave Drag
+    call mpp_clock_begin(clck_gwd)
     dudt1 = 0.; dvdt1 = 0.
     call gwdrag(dvdt1, dudt1, u1, v1, tlyr1, tr1(:,:,:,ind_q), kpbl, &
                 plvl, delp, plyr, plyrk, phii, phil, dt_phys, dusfc1, dvsfc1)
@@ -450,6 +474,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     dudt = dudt + dudt1 
     dvdt = dvdt + dvdt1 
+    call mpp_clock_end(clck_gwd)
     !End Gravity Wave Drag
 
     dtdt = tlyr1 + dtdt*dt_phys 
@@ -460,6 +485,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     call get_phi(topo1, dtdt, dqdt(:,:,:,ind_q), plvl, plvlk, plyr, plyrk, phii, phil)
 
     !Cumulus convection
+    call mpp_clock_begin(clck_cu)
     dtdt1 = dtdt
     dudt1 = dudt
     dvdt1 = dvdt
@@ -495,10 +521,12 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     rain = rain + rain1
     snow = snow + snow1
+    call mpp_clock_end(clck_cu)
     !End Cumulus Convection
 
 
     ! Convective Gravity Wave Drag
+    call mpp_clock_begin(clck_gwdc)
     dudt1 = 0.
     dvdt1 = 0.
     dusfc1 = 0.
@@ -510,10 +538,12 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     dudt = dudt + dt_phys*dudt1
     dvdt = dvdt + dt_phys*dvdt1
+    call mpp_clock_end(clck_gwdc)
     !End Convective Gravity Wave Drag
 
 
     ! Shallow Convection
+    call mpp_clock_begin(clck_sc)
     dtdt1 = dtdt
     dqdt1 = dqdt !Initialize
     call shallow_conv(imax, nlev, dt_phys, delp, plvl, plyr, plyrk, kcnv, &
@@ -523,9 +553,11 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
                                             - dqdt(:,:,:,ind_q)), Time)
     dtdt = dtdt1
     dqdt = dqdt1
+    call mpp_clock_end(clck_sc)
     !End Shallow Convection
 
     !Micro Physics
+    call mpp_clock_begin(clck_mp)
     dtdt1 = dtdt
     dqdt1 = dqdt 
 
@@ -542,6 +574,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     dqdt = dqdt1
     rain = rain + rain1
     snow = snow + snow1
+    call mpp_clock_end(clck_mp)
     !End Micro Physics
 
     lprcp = rain * rdt_phys
@@ -558,6 +591,8 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     if (id_dvphy>0) used = send_data(id_dvphy, rdt_phys*(dvdt-v1), Time)
 
     if (id_tr1>0) used = send_data(id_tr1, tr1(:,:,:,1), Time)
+
+    call mpp_clock_end(clck_phys)
 
     return
 end subroutine phys
