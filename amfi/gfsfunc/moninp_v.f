@@ -11,25 +11,17 @@
      &,             HVAP => HLV, RVGAS
 
       implicit none
-!
-!     include 'constant.h'
-!
-!
-!     Arguments
       real, parameter :: FV = RVGAS/RD - 1.
       integer KM, ntrac, KPBL
-!
       real DELTIM
       real DV(KM),     DU(KM),
      &                     TAU(KM),    RTG(KM,ntrac),
      &                     U1(KM),     V1(KM),
      &                     T1(KM),     Q1(KM,ntrac),
      &                     PSK,       RBSOIL,
-!    &                     CD,        CH,
      &                     FM,        FH,
      &                     QSS,
      &                                    SPD1,
-!    &                     DPHI,      SPD1,
      &                     PRSI(KM+1), DEL(KM),
      &                     PRSL(KM),   PRSLK(KM),
      &                     PHII(KM+1), PHIL(KM),
@@ -37,18 +29,12 @@
      &                     dvsfc,     dtsfc,
      &                     DQSFC,     HPBL,
      &                     HGAMT,     hgamq
-!
-!    Locals
-!
       integer iprt,is,iun,k,kk,kmpbl,lond
-!     real betaq, betat,   betaw,
       real evap,  heat,    phih,
      &                     phim,  rbdn,    rbup,
      &                     the1,  stress,  beta,
      &                     the1v, thekv,   thermal,
      &                     thesv, ustar,   wscale
-!    &                     thesv, ustar,   wscale,  zl1
-!
       real RDZT(KM-1),
      &                     ZI(KM+1),     ZL(KM),
      &                     DKU(KM-1),    DKT(KM-1),
@@ -56,7 +42,6 @@
      &                     AU(KM-1),     A1(KM),
      &                     A2(KM*ntrac), THETA(KM)
       logical              pblflg,   sfcflg, stable
-!
       real aphi16,  aphi5,  bet1,   bvf2,
      &                     cfac,    conq,   cont,   conw,
      &                     conwrc,  dk,     dkmax,  dkmin,
@@ -67,7 +52,6 @@
      &                     hol,     pfac,   prmax,  prmin, prinv,
      &                     prnum,   qmin,   qtend,  rbcr,
      &                     rbint,   rdt,    rdz,
-!    &                     rbint,   rdt,    rdz,    rdzt1,
      &                     ri,      rimin,  rl2,    rlam,  rlamun,
      &                     rone,   rzero,   sfcfrac,
      &                     sflux,   shr2,   spdk2,  sri,
@@ -75,78 +59,30 @@
      &                     tvu,     utend,  vk,     vk2,
      &                     vpert,   vtend,  xkzo(km),   zfac,
      &                     zfmin,   zk,     tem1, xkzm
-cc
       parameter (gravi=1.0/grav)
       PARAMETER(g=grav)
       PARAMETER(GOR=G/RD,GOCP=G/CP)
       PARAMETER(CONT=1000.*CP/G,CONQ=1000.*HVAP/G,CONW=1000./G)
-!     PARAMETER(RLAM=150.0,VK=0.4,VK2=VK*VK,PRMIN=1.0,PRMAX=4.)
       PARAMETER(RLAM=30.0,VK=0.4,VK2=VK*VK,PRMIN=1.0,PRMAX=4.)
-!     PARAMETER(RLAM=50.0,VK=0.4,VK2=VK*VK,PRMIN=1.0,PRMAX=4.)
       PARAMETER(DW2MIN=0.0001,DKMIN=0.0,DKMAX=1000.,RIMIN=-100.)
       PARAMETER(RBCR=0.25,CFAC=7.8,PFAC=2.0,SFCFRAC=0.1)
-!     PARAMETER(RBCR=0.5,CFAC=7.8,PFAC=2.0,SFCFRAC=0.1)
-!     PARAMETER(QMIN=1.E-8,XKZM=3.0,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(QMIN=1.E-8,XKZM=2.0,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(QMIN=1.E-8,XKZM=1.0,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
       PARAMETER(QMIN=1.E-8,         ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(QMIN=1.E-8,XKZM=0.5,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(QMIN=1.E-8,XKZM=0.25,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(QMIN=1.E-8,XKZM=0.10,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(QMIN=1.E-8,XKZM=0.0,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
-!     PARAMETER(GAMCRT=3.,GAMCRQ=2.E-3)
       PARAMETER(GAMCRT=3.,GAMCRQ=0., RLAMUN=150.0)
-!     PARAMETER(GAMCRT=3.,GAMCRQ=0., RLAMUN=30.0)
       PARAMETER(IUN=84)
-!
-C
-C-----------------------------------------------------------------------
-C
- 601  FORMAT(1X,' MONINP LAT LON STEP HOUR ',3I6,F6.1)
- 602      FORMAT(1X,'    K','        Z','        T','       TH',
-     1     '      TVH','        Q','        U','        V',
-     2     '       SP')
- 603      FORMAT(1X,I5,8F9.1)
- 604      FORMAT(1X,'  SFC',9X,F9.1,18X,F9.1)
- 605      FORMAT(1X,'    K      ZL    SPD2   THEKV   THE1V'
-     1         ,' THERMAL    RBUP')
- 606      FORMAT(1X,I5,6F8.2)
- 607      FORMAT(1X,' KPBL    HPBL      FM      FH   HGAMT',
-     1         '   HGAMQ      WS   USTAR      CD      CH')
- 608      FORMAT(1X,I5,9F8.2)
- 609      FORMAT(1X,' K PR DKT DKU ',I5,3F8.2)
- 610      FORMAT(1X,' K PR DKT DKU ',I5,3F8.2,' L2 RI T2',
-     1         ' SR2  ',2F8.2,2E10.2)
-C - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-C     COMPUTE PRELIMINARY VARIABLES
-C
-!
-!     IPRT = 0
-!     IF(IPRT.EQ.1) THEN
-CCC   LATD = 0
-!     LOND = 0
-!     ELSE
-CCC   LATD = 0
-!     LOND = 0
-!     ENDIF
-C
+
       DT    = 2. * DELTIM
       RDT   = 1. / DT
       KMPBL = KM / 2
-!
       do k=1,km
           zi(k) = phii(k) * gravi
           zl(k) = phil(k) * gravi
       enddo
-!
       do k=1,kmpbl
           theta(k) = t1(k) * psk / prslk(k)
       enddo
-C
       DO K = 1,KM-1
           RDZT(K) = 1.0 / (ZL(K+1) - ZL(K))
       ENDDO
-C
          DUSFC = 0.
          DVSFC = 0.
          DTSFC = 0.
@@ -161,14 +97,11 @@ C
          IF(RBSOIL.GT.0.0) SFCFLG = .FALSE.
 
          BETA  = DT / (zi(2)-zi(1))
-C
          USTAR = SQRT(STRESS)
-C
          THE1    = THETA(1)
          THE1V   = THE1*(1.+FV*MAX(Q1(1,1),QMIN))
          THERMAL = THE1V
 
-C     COMPUTE THE FIRST GUESS OF PBL HEIGHT
 
          STABLE = .FALSE.
          RBUP = RBSOIL
@@ -183,7 +116,6 @@ C     COMPUTE THE FIRST GUESS OF PBL HEIGHT
              STABLE = RBUP.GT.RBCR
           ENDIF
       ENDDO
-C
          K = KPBL
          IF(RBDN.GE.RBCR) THEN
             RBINT = 0.
@@ -194,19 +126,14 @@ C
          ENDIF
          HPBL = ZL(K-1) + RBINT*(ZL(K)-ZL(K-1))
          IF(HPBL.LT.ZI(KPBL)) KPBL = KPBL - 1
-!!
            HOL = MAX(RBSOIL*FM*FM/FH,RIMIN)
            IF(SFCFLG) THEN
               HOL = MIN(HOL,-ZFMIN)
            ELSE
               HOL = MAX(HOL,ZFMIN)
            ENDIF
-C
-!          HOL = HOL*HPBL/ZL1*SFCFRAC
            HOL = HOL*HPBL/ZL(1)*SFCFRAC
            IF(SFCFLG) THEN
-!             PHIM = (1.-APHI16*HOL)**(-1./4.)
-!             PHIH = (1.-APHI16*HOL)**(-1./2.)
               TEM  = 1.0 / (1. - APHI16*HOL)
               PHIH = SQRT(TEM)
               PHIM = SQRT(PHIH)
@@ -217,10 +144,6 @@ C
            WSCALE = USTAR/PHIM
            WSCALE = MIN(WSCALE,USTAR*APHI16)
            WSCALE = MAX(WSCALE,USTAR/APHI5)
-C
-C     COMPUTE THE SURFACE VARIABLES FOR PBL HEIGHT ESTIMATION
-C     UNDER UNSTABLE CONDITIONS
-C
          SFLUX  = HEAT + EVAP*FV*THE1
          IF(SFCFLG.AND.SFLUX.GT.0.0) THEN
            HGAMT   = MIN(CFAC*HEAT/WSCALE,GAMCRT)
@@ -233,14 +156,10 @@ C
          ELSE
            PBLFLG = .FALSE.
          ENDIF
-C
          IF(PBLFLG) THEN
             KPBL = 1
             HPBL = ZI(2)
          ENDIF
-C
-C     ENHANCE THE PBL HEIGHT BY CONSIDERING THE THERMAL
-C
          IF(PBLFLG) THEN
             STABLE = .FALSE.
             RBUP = RBSOIL
@@ -248,8 +167,6 @@ C
       DO K = 2, KMPBL
           IF(.NOT.STABLE.AND.PBLFLG) THEN
             RBDN   = RBUP
-!           ZL(k)   = ZL(K-1) - (T1(k)+T1(K-1))/2 *
-!    &                  LOG(PRSL(K)/PRSL(K-1)) * ROG
             THEKV  = THETA(k)*(1.+FV*MAX(Q1(k,1),QMIN))
             SPDK2     = MAX((U1(k)**2+V1(k)**2),1.)
             RBUP   = (THEKV-THERMAL)*(G*ZL(k)/THE1V)/SPDK2
@@ -257,7 +174,6 @@ C
             STABLE = RBUP.GT.RBCR
           ENDIF
       ENDDO
-C
          IF(PBLFLG) THEN
             K = KPBL
             IF(RBDN.GE.RBCR) THEN
@@ -271,24 +187,17 @@ C
             IF(HPBL.LT.ZI(KPBL)) KPBL = KPBL - 1
             IF(KPBL.LE.1) PBLFLG = .FALSE.
          ENDIF
-!!
 
       DO K = 1,KM-1
           tem1      = 1.0 - prsi(k+1) / prsi(1)
           tem1      = tem1 * tem1 * 10.0
           xkzo(k) = xkzm * min(1.0, exp(-tem1))
       ENDDO
-!!
-C
-C     COMPUTE DIFFUSION COEFFICIENTS BELOW PBL
-C
       DO K = 1, KMPBL
             IF(KPBL.GT.K) THEN
                PRINV = 1.0 / (PHIH/PHIM+CFAC*VK*.1)
                PRINV = MIN(PRINV,PRMAX)
                PRINV = MAX(PRINV,PRMIN)
-!              ZFAC = MAX((1.-(ZI(K+1)-ZL1)/
-!    1                (HPBL-ZL1)), ZFMIN)
                ZFAC = MAX((1.-(ZI(K+1)-ZL(1))/
      1                (HPBL-ZL(1))), ZFMIN)
                DKU(k) = XKZO(k) + WSCALE*VK*ZI(K+1)
@@ -300,15 +209,9 @@ C
                DKT(k) = MAX(DKT(k),DKMIN)
             ENDIF
       ENDDO
-C
-C     COMPUTE DIFFUSION COEFFICIENTS OVER PBL (FREE ATMOSPHERE)
-C
       DO K = 1, KM-1
             IF(K.GE.KPBL) THEN
-!              TI   = 0.5*(T1(k)+T1(K+1))
                TI   = 2.0 / (T1(k)+T1(K+1))
-!              RDZ  = RDZT(K)/TI
-!              RDZ  = RDZT(K) * TI
                RDZ  = RDZT(K)
 
                DW2  = (U1(k)-U1(K+1))**2
@@ -316,14 +219,9 @@ C
                SHR2 = MAX(DW2,DW2MIN)*RDZ*RDZ
                TVD  = T1(k)*(1.+FV*MAX(Q1(k,1),QMIN))
                TVU  = T1(K+1)*(1.+FV*MAX(Q1(K+1,1),QMIN))
-!              BVF2 = G*(GOCP+RDZ*(TVU-TVD))/TI
                BVF2 = G*(GOCP+RDZ*(TVU-TVD)) * TI
                RI   = MAX(BVF2/SHR2,RIMIN)
                ZK   = VK*ZI(K+1)
-!              RL2  = (ZK*RLAM/(RLAM+ZK))**2
-!              DK   = RL2*SQRT(SHR2)
-!              RL2  = ZK*RLAM/(RLAM+ZK)
-!              DK   = RL2*RL2*SQRT(SHR2)
                IF(RI.LT.0.) THEN ! UNSTABLE REGIME
                   RL2      = ZK*RLAMUN/(RLAMUN+ZK)
                   DK       = RL2*RL2*SQRT(SHR2)
@@ -332,24 +230,18 @@ C
                   DKT(k) = XKZO(k) + DK*(1+8.*(-RI)/(1+1.286*SRI))
                ELSE             ! STABLE REGIME
                   RL2       = ZK*RLAM/(RLAM+ZK)
-!                 tem       = rlam * sqrt(0.01*prsi(k))
-!                 RL2       = ZK*tem/(tem+ZK)
                   DK        = RL2*RL2*SQRT(SHR2)
                   DKT(k)  = XKZO(k) + DK/(1+5.*RI)**2
                   PRNUM     = 1.0 + 2.1*RI
                   PRNUM     = MIN(PRNUM,PRMAX)
                   DKU(k)  = (DKT(k)-XKZO(k))*PRNUM + XKZO(k)
                ENDIF
-C
                DKU(k) = MIN(DKU(k),DKMAX)
                DKU(k) = MAX(DKU(k),DKMIN)
                DKT(k) = MIN(DKT(k),DKMAX)
                DKT(k) = MAX(DKT(k),DKMIN)
             ENDIF
       ENDDO
-C
-C     COMPUTE TRIDIAGONAL MATRIX ELEMENTS FOR HEAT AND MOISTURE
-C
          AD(1) = 1.
          A1(1) = T1(1)   + BETA * HEAT
          A2(1) = Q1(1,1) + BETA * EVAP
@@ -360,7 +252,6 @@ C
             A2(1+is) = Q1(1,k)
         enddo
       endif
-C
       DO K = 1,KM-1
           DTODSD = DT/DEL(K)
           DTODSU = DT/DEL(K+1)
@@ -394,13 +285,7 @@ C
           enddo
         enddo
       endif
-C
-C     SOLVE TRIDIAGONAL PROBLEM FOR HEAT AND MOISTURE
-C
       CALL TRIDIN(KM,ntrac,AL,AD,AU,A1,A2,AU,A1,A2)
-C
-C     RECOVER TENDENCIES OF HEAT AND MOISTURE
-C
       DO  K = 1,KM
             TTEND      = (A1(k)-T1(k))*RDT
             QTEND      = (A2(k)-Q1(k,1))*RDT
@@ -418,13 +303,9 @@ C
           enddo
         enddo
       endif
-C
-C     COMPUTE TRIDIAGONAL MATRIX ELEMENTS FOR MOMENTUM
-C
          AD(1) = 1.0 + BETA * STRESS / SPD1
          A1(1) = U1(1)
          A2(1) = V1(1)
-C
       DO K = 1,KM-1
           DTODSD    = DT/DEL(K)
           DTODSU    = DT/DEL(K+1)
@@ -438,13 +319,7 @@ C
           A1(k+1) = U1(k+1)
           A2(k+1) = V1(k+1)
       ENDDO
-C
-C     SOLVE TRIDIAGONAL PROBLEM FOR MOMENTUM
-C
       CALL TRIDI2(KM,AL,AD,AU,A1,A2,AU,A1,A2)
-C
-C     RECOVER TENDENCIES OF MOMENTUM
-C
       DO K = 1,KM
             CONWRC = CONW
             UTEND = (A1(k)-U1(k))*RDT
@@ -454,15 +329,12 @@ C
             DUSFC = DUSFC+CONWRC*DEL(K)*UTEND
             DVSFC = DVSFC+CONWRC*DEL(K)*VTEND
       ENDDO
-!!
       RETURN
       END SUBROUTINE
 
 
 
-C-----------------------------------------------------------------------
       SUBROUTINE TRIDI2(N,CL,CM,CU,R1,R2,AU,A1,A2)
-C-----------------------------------------------------------------------
       implicit none
       integer             k,n
       real fk
@@ -497,9 +369,7 @@ C-----------------------------------------------------------------------
       END SUBROUTINE TRIDI2
 
 
-C-----------------------------------------------------------------------
       SUBROUTINE TRIDIN(N,nt,CL,CM,CU,R1,R2,AU,A1,A2)
-C-----------------------------------------------------------------------
       implicit none
       integer             is,k,kk,n,nt
       real fk

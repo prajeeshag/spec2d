@@ -2,14 +2,17 @@
        implicit none
         private
         public :: SASCNV 
-        integer, parameter :: im = 1
-       contains 
+
+       contains
+
       SUBROUTINE SASCNV(KM,DELT,DEL,PRSL,PS,PHIL,QL,
      &       Q1,T1,U1,V1,CLDWRK,RN,KBOT,KTOP,KUO,SLIMSK,
      &       DOT,XKT2,ncloud)
+
       USE constants_mod, only: grav, CP => CP_AIR, HVAP => HLV 
      &,             RV => RVGAS, T0C => KELVIN, CLIQ => CP_WATER
      &,             RDGAS, CVAP => CP_VAPOR
+
       implicit none
       
       real, parameter :: FV = RV/RDGAS-1.
@@ -18,14 +21,14 @@
 !
 !
       integer            KM, ncloud,
-     &                   KBOT(IM), KTOP(IM), KUO(IM)
+     &                   KBOT, KTOP, KUO
       real DELT
-      real PS(IM),     DEL(im,KM),  PRSL(im,KM),
-!     real             DEL(im,KM),  PRSL(im,KM),
-     &                     QL(im,KM,2),Q1(im,KM),   T1(im,KM),
-     &                     U1(im,KM),  V1(im,KM),  
-     &                     CLDWRK(IM), RN(IM),      SLIMSK(IM),
-     &                     DOT(im,KM), XKT2(IM),    PHIL(im,KM)
+      real PS,     DEL(KM),  PRSL(KM),
+!     real             DEL(KM),  PRSL(KM),
+     &                     QL(KM,2),Q1(KM),   T1(KM),
+     &                     U1(KM),  V1(KM),  
+     &                     CLDWRK, RN,      SLIMSK,
+     &                     DOT(KM), XKT2,    PHIL(KM)
 !
       integer              I, INDX, jmn, k, knumb, latd, lond, km1
 !
@@ -57,27 +60,27 @@
      &                     tem
 !
 !
-      integer              JMIN(IM), KB(IM), KBCON(IM), KBDTR(IM),
-     &                     KT2(IM),  KTCON(IM), LMIN(IM),
-     &                     kbm(IM),  kbmax(IM), kmax(IM)
+      integer              JMIN, KB, KBCON, KBDTR,
+     &                     KT2,  KTCON, LMIN,
+     &                     kbm,  kbmax, kmax
 !
-      real AA1(IM),     ACRT(IM),   ACRTFCT(IM),
-     &                     DELHBAR(IM), DELQ(IM),   DELQ2(IM),
-     &                     DELQBAR(IM), DELQEV(IM), DELTBAR(IM),
-     &                     DELTV(IM),   DTCONV(IM), EDT(IM),
-     &                     EDTO(IM),    EDTX(IM),   FLD(IM),
-     &                     HCDO(IM),    HKBO(IM),   HMAX(IM),
-     &                     HMIN(IM),    HSBAR(IM),  UCDO(IM),
-     &                     UKBO(IM),    VCDO(IM),   VKBO(IM),
-     &                     PBCDIF(IM),  PDOT(IM),   PO(IM,KM),
-     &                                  PWAVO(IM),  PWEVO(IM),
-!    &                     PSFC(IM),    PWAVO(IM),  PWEVO(IM),
-     &                     QCDO(IM),    QCOND(IM),  QEVAP(IM),
-     &                     QKBO(IM),    RNTOT(IM),  VSHEAR(IM),
-     &                     XAA0(IM),    XHCD(IM),   XHKB(IM),
-     &                     XK(IM),      XLAMB(IM),  XLAMD(IM),
-     &                     XMB(IM),     XMBMAX(IM), XPWAV(IM),
-     &                     XPWEV(IM),   XQCD(IM),   XQKB(IM)
+      real AA1,     ACRT,   ACRTFCT,
+     &                     DELHBAR, DELQ,   DELQ2,
+     &                     DELQBAR, DELQEV, DELTBAR,
+     &                     DELTV,   DTCONV, EDT,
+     &                     EDTO,    EDTX,   FLD,
+     &                     HCDO,    HKBO,   HMAX,
+     &                     HMIN,    HSBAR,  UCDO,
+     &                     UKBO,    VCDO,   VKBO,
+     &                     PBCDIF,  PDOT,   PO(KM),
+     &                                  PWAVO,  PWEVO,
+!    &                     PSFC,    PWAVO,  PWEVO,
+     &                     QCDO,    QCOND,  QEVAP,
+     &                     QKBO,    RNTOT,  VSHEAR,
+     &                     XAA0,    XHCD,   XHKB,
+     &                     XK,      XLAMB,  XLAMD,
+     &                     XMB,     XMBMAX, XPWAV,
+     &                     XPWEV,   XQCD,   XQKB
 cc
 C  PHYSICAL PARAMETERS
       PARAMETER(G=grav)
@@ -86,20 +89,20 @@ C  PHYSICAL PARAMETERS
       PARAMETER(TERR=0.,C0=.002,DELTA=fv)
       PARAMETER(FACT1=(CVAP-CLIQ)/RV,FACT2=HVAP/RV-FACT1*T0C)
 C  LOCAL VARIABLES AND ARRAYS
-      real PFLD(IM,KM),    TO(IM,KM),     QO(IM,KM),
-     &                     UO(IM,KM),      VO(IM,KM),     QESO(IM,KM)
+      real PFLD(KM),    TO(KM),     QO(KM),
+     &                     UO(KM),      VO(KM),     QESO(KM)
 c  cloud water
-      real QLKO_KTCON(IM), DELLAL(IM),    TVO(IM,KM),
-     &                     DBYO(IM,KM),    ZO(IM,KM),     SUMZ(IM,KM),
-     &                     SUMH(IM,KM),    HEO(IM,KM),    HESO(IM,KM),
-     &                     QRCD(IM,KM),    DELLAH(IM,KM), DELLAQ(IM,KM),
-     &                     DELLAU(IM,KM),  DELLAV(IM,KM), HCKO(IM,KM),
-     &                     UCKO(IM,KM),    VCKO(IM,KM),   QCKO(IM,KM),
-     &                     ETA(IM,KM),     ETAU(IM,KM),   ETAD(IM,KM),
-     &                     QRCDO(IM,KM),   PWO(IM,KM),    PWDO(IM,KM),
-     &                     RHBAR(IM),      TX1(IM)
+      real QLKO_KTCON, DELLAL,    TVO(KM),
+     &                     DBYO(KM),    ZO(KM),     SUMZ(KM),
+     &                     SUMH(KM),    HEO(KM),    HESO(KM),
+     &                     QRCD(KM),    DELLAH(KM), DELLAQ(KM),
+     &                     DELLAU(KM),  DELLAV(KM), HCKO(KM),
+     &                     UCKO(KM),    VCKO(KM),   QCKO(KM),
+     &                     ETA(KM),     ETAU(KM),   ETAD(KM),
+     &                     QRCDO(KM),   PWO(KM),    PWDO(KM),
+     &                     RHBAR,      TX1
 !
-      LOGICAL TOTFLG, CNVFLG(IM), DWNFLG(IM), DWNFLG2(IM), FLG(IM)
+      LOGICAL TOTFLG, CNVFLG, DWNFLG, DWNFLG2, FLG
 !
       real PCRIT(15), ACRITT(15), ACRIT(15)
 cmy      SAVE PCRIT, ACRITT
@@ -123,19 +126,17 @@ c--------------------------------------------------------------------
       km1 = km - 1
 C  INITIALIZE ARRAYS
 C
-      DO I=1,IM
-        RN(I)=0.
-        KBOT(I)=KM+1
-        KTOP(I)=0
-!       KUO(I)=0
-        CNVFLG(I) = .TRUE.
-        DTCONV(I) = 3600.
-        CLDWRK(I) = 0.
-        PDOT(I) = 0.
-        KT2(I) = 0
-        QLKO_KTCON(I) = 0.
-        DELLAL(I) = 0.
-      ENDDO
+        RN=0.
+        KBOT=KM+1
+        KTOP=0
+!       KUO=0
+        CNVFLG = .TRUE.
+        DTCONV = 3600.
+        CLDWRK = 0.
+        PDOT = 0.
+        KT2 = 0
+        QLKO_KTCON = 0.
+        DELLAL = 0.
 !!
       DO K = 1, 15
         ACRIT(K) = ACRITT(K) * (975. - PCRIT(K))
@@ -184,43 +185,35 @@ C
 C  DEFINE TOP LAYER FOR SEARCH OF THE DOWNDRAFT ORIGINATING LAYER
 C  AND THE MAXIMUM THETAE FOR UPDRAFT
 C
-      DO I=1,IM
-        KBMAX(I) = KM
-        KBM(I)   = KM
-        KMAX(I)  = KM
-        TX1(I)   = 1.0 / PS(I)
-      ENDDO
+        KBMAX = KM
+        KBM   = KM
+        KMAX  = KM
+        TX1   = 1.0 / PS
 !
       DO K = 1, KM
-        DO I=1,IM
-          IF (prSL(I,K)*tx1(I) .GT. 0.45) KBMAX(I) = K + 1
-          IF (prSL(I,K)*tx1(I) .GT. 0.70) KBM(I)   = K + 1
-          IF (prSL(I,K)*tx1(I) .GT. 0.04) KMAX(I)  = K + 1
-        ENDDO
+          IF (prSL(K)*tx1 .GT. 0.45) KBMAX = K + 1
+          IF (prSL(K)*tx1 .GT. 0.70) KBM   = K + 1
+          IF (prSL(K)*tx1 .GT. 0.04) KMAX  = K + 1
       ENDDO
-      DO I=1,IM
-        KBMAX(I) = MIN(KBMAX(I),KMAX(I))
-        KBM(I)   = MIN(KBM(I),KMAX(I))
-      ENDDO
+        KBMAX = MIN(KBMAX,KMAX)
+        KBM   = MIN(KBM,KMAX)
 C
 C   CONVERT SURFACE PRESSURE TO MB FROM CB
 C
 !!
       DO K = 1, KM
-        DO I=1,IM
-          if (K .le. kmax(i)) then
-            PFLD(I,k) = PRSL(I,K) * 10.0
-            PWO(I,k)  = 0.
-            PWDO(I,k) = 0.
-            TO(I,k)   = T1(I,k)
-            QO(I,k)   = Q1(I,k)
-            UO(I,k)   = U1(I,k)
-            VO(I,k)   = V1(I,k)
-            DBYO(I,k) = 0.
-            SUMZ(I,k) = 0.
-            SUMH(I,k) = 0.
+          if (K .le. kmax) then
+            PFLD(k) = PRSL(K) * 10.0
+            PWO(k)  = 0.
+            PWDO(k) = 0.
+            TO(k)   = T1(k)
+            QO(k)   = Q1(k)
+            UO(k)   = U1(k)
+            VO(k)   = V1(k)
+            DBYO(k) = 0.
+            SUMZ(k) = 0.
+            SUMH(k) = 0.
           endif
-        ENDDO
       ENDDO
 C
 C  COLUMN VARIABLES
@@ -231,499 +224,405 @@ C  TO IS TEMPERATURE AT T+DT (K)... THIS IS AFTER ADVECTION AND TURBULAN
 C  QO IS MIXING RATIO AT T+DT (KG/KG)..Q1
 C
       DO K = 1, KM
-        DO I=1,IM
-          if (k .le. kmax(i)) then
-!jfe        QESO(I,k) = 10. * FPVS(T1(I,k))
+          if (k .le. kmax) then
+!jfe        QESO(k) = 10. * FPVS(T1(k))
 !
-            QESO(I,k) = 0.01 * fpvs(T1(I,K))      ! fpvs is in Pa
+            QESO(k) = 0.01 * fpvs(T1(K))      ! fpvs is in Pa
 !
-            QESO(I,k) = EPS * QESO(I,k) / (PFLD(I,k) + EPSM1*QESO(I,k))
+            QESO(k) = EPS * QESO(k) / (PFLD(k) + EPSM1*QESO(k))
             val1      =             1.E-8
-            QESO(I,k) = MAX(QESO(I,k), val1)
+            QESO(k) = MAX(QESO(k), val1)
             val2      =           1.e-10
-            QO(I,k)   = max(QO(I,k), val2 )
-c           QO(I,k)   = MIN(QO(I,k),QESO(I,k))
-            TVO(I,k)  = TO(I,k) + DELTA * TO(I,k) * QO(I,k)
+            QO(k)   = max(QO(k), val2 )
+c           QO(k)   = MIN(QO(k),QESO(k))
+            TVO(k)  = TO(k) + DELTA * TO(k) * QO(k)
           endif
-        ENDDO
       ENDDO
 C
 C  HYDROSTATIC HEIGHT ASSUME ZERO TERR
 C
       DO K = 1, KM
-        DO I=1,IM
-          ZO(I,k) = PHIL(I,k) / G
-        ENDDO
+          ZO(k) = PHIL(k) / G
       ENDDO
 C  COMPUTE MOIST STATIC ENERGY
       DO K = 1, KM
-        DO I=1,IM
-          if (K .le. kmax(i)) then
-!           tem       = G * ZO(I,k) + CP * TO(I,k)
-            tem       = PHIL(I,k) + CP * TO(I,k)
-            HEO(I,k)  = tem  + HVAP * QO(I,k)
-            HESO(I,k) = tem  + HVAP * QESO(I,k)
-C           HEO(I,k)  = MIN(HEO(I,k),HESO(I,k))
+          if (K .le. kmax) then
+!           tem       = G * ZO(k) + CP * TO(k)
+            tem       = PHIL(k) + CP * TO(k)
+            HEO(k)  = tem  + HVAP * QO(k)
+            HESO(k) = tem  + HVAP * QESO(k)
+C           HEO(k)  = MIN(HEO(k),HESO(k))
           endif
-        ENDDO
       ENDDO
 C
 C  DETERMINE LEVEL WITH LARGEST MOIST STATIC ENERGY
 C  THIS IS THE LEVEL WHERE UPDRAFT STARTS
 C
-      DO I=1,IM
-        HMAX(I) = HEO(I,1)
-        KB(I) = 1
-      ENDDO
+        HMAX = HEO(1)
+        KB = 1
 !!
       DO K = 2, KM
-        DO I=1,IM
-          if (k .le. kbm(i)) then
-            IF(HEO(I,k).GT.HMAX(I).AND.CNVFLG(I)) THEN
-              KB(I)   = K
-              HMAX(I) = HEO(I,k)
+          if (k .le. kbm) then
+            IF(HEO(k).GT.HMAX.AND.CNVFLG) THEN
+              KB   = K
+              HMAX = HEO(k)
             ENDIF
           endif
-        ENDDO
       ENDDO
 C     DO K = 1, KMAX - 1
-C         TOL(k) = .5 * (TO(I,k) + TO(I,k+1))
-C         QOL(k) = .5 * (QO(I,k) + QO(I,k+1))
-C         QESOL(I,k) = .5 * (QESO(I,k) + QESO(I,k+1))
-C         HEOL(I,k) = .5 * (HEO(I,k) + HEO(I,k+1))
-C         HESOL(I,k) = .5 * (HESO(I,k) + HESO(I,k+1))
+C         TOL(k) = .5 * (TO(k) + TO(k+1))
+C         QOL(k) = .5 * (QO(k) + QO(k+1))
+C         QESOL(k) = .5 * (QESO(k) + QESO(k+1))
+C         HEOL(k) = .5 * (HEO(k) + HEO(k+1))
+C         HESOL(k) = .5 * (HESO(k) + HESO(k+1))
 C     ENDDO
       DO K = 1, KM1
-        DO I=1,IM
-          if (k .le. kmax(i)-1) then
-            DZ      = .5 * (ZO(I,k+1) - ZO(I,k))
-            DP      = .5 * (PFLD(I,k+1) - PFLD(I,k))
-!jfe        ES      = 10. * FPVS(TO(I,k+1))
+          if (k .le. kmax-1) then
+            DZ      = .5 * (ZO(k+1) - ZO(k))
+            DP      = .5 * (PFLD(k+1) - PFLD(k))
+!jfe        ES      = 10. * FPVS(TO(k+1))
 !
-            ES      = 0.01 * fpvs(TO(I,K+1))      ! fpvs is in Pa
+            ES      = 0.01 * fpvs(TO(K+1))      ! fpvs is in Pa
 !
-            PPRIME  = PFLD(I,k+1) + EPSM1 * ES
+            PPRIME  = PFLD(k+1) + EPSM1 * ES
             QS      = EPS * ES / PPRIME
             DQSDP   = - QS / PPRIME
-            DESDT   = ES * (FACT1 / TO(I,k+1) + FACT2 / (TO(I,k+1)**2))
-            DQSDT   = QS * PFLD(I,k+1) * DESDT / (ES * PPRIME)
-            GAMMA   = EL2ORC * QESO(I,k+1) / (TO(I,k+1)**2)
+            DESDT   = ES * (FACT1 / TO(k+1) + FACT2 / (TO(k+1)**2))
+            DQSDT   = QS * PFLD(k+1) * DESDT / (ES * PPRIME)
+            GAMMA   = EL2ORC * QESO(k+1) / (TO(k+1)**2)
             DT      = (G * DZ + HVAP * DQSDP * DP) / (CP * (1. + GAMMA))
             DQ      = DQSDT * DT + DQSDP * DP
-            TO(I,k) = TO(I,k+1) + DT
-            QO(I,k) = QO(I,k+1) + DQ
-            PO(I,k) = .5 * (PFLD(I,k) + PFLD(I,k+1))
+            TO(k) = TO(k+1) + DT
+            QO(k) = QO(k+1) + DQ
+            PO(k) = .5 * (PFLD(k) + PFLD(k+1))
           endif
-        ENDDO
       ENDDO
 !
       DO K = 1, KM1
-        DO I=1,IM
-          if (k .le. kmax(I)-1) then
-!jfe        QESO(I,k) = 10. * FPVS(TO(I,k))
+          if (k .le. kmax-1) then
+!jfe        QESO(k) = 10. * FPVS(TO(k))
 !
-            QESO(I,k) = 0.01 * fpvs(TO(I,K))      ! fpvs is in Pa
+            QESO(k) = 0.01 * fpvs(TO(K))      ! fpvs is in Pa
 !
-            QESO(I,k) = EPS * QESO(I,k) / (PO(I,k) + EPSM1*QESO(I,k))
+            QESO(k) = EPS * QESO(k) / (PO(k) + EPSM1*QESO(k))
             val1      =             1.E-8
-            QESO(I,k) = MAX(QESO(I,k), val1)
+            QESO(k) = MAX(QESO(k), val1)
             val2      =           1.e-10
-            QO(I,k)   = max(QO(I,k), val2 )
-c           QO(I,k)   = MIN(QO(I,k),QESO(I,k))
-            HEO(I,k)  = .5 * G * (ZO(I,k) + ZO(I,k+1)) +
-     &                  CP * TO(I,k) + HVAP * QO(I,k)
-            HESO(I,k) = .5 * G * (ZO(I,k) + ZO(I,k+1)) +
-     &                  CP * TO(I,k) + HVAP * QESO(I,k)
-            UO(I,k)   = .5 * (UO(I,k) + UO(I,k+1))
-            VO(I,k)   = .5 * (VO(I,k) + VO(I,k+1))
+            QO(k)   = max(QO(k), val2 )
+c           QO(k)   = MIN(QO(k),QESO(k))
+            HEO(k)  = .5 * G * (ZO(k) + ZO(k+1)) +
+     &                  CP * TO(k) + HVAP * QO(k)
+            HESO(k) = .5 * G * (ZO(k) + ZO(k+1)) +
+     &                  CP * TO(k) + HVAP * QESO(k)
+            UO(k)   = .5 * (UO(k) + UO(k+1))
+            VO(k)   = .5 * (VO(k) + VO(k+1))
           endif
-        ENDDO
       ENDDO
 c     k = kmax
-c       HEO(I,k) = HEO(I,k)
-c       hesol(k) = HESO(I,k)
-c      IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I)) THEN
+c       HEO(k) = HEO(k)
+c       hesol(k) = HESO(k)
+c      IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG) THEN
 c        PRINT *, '   HEO ='
-c        PRINT 6001, (HEO(I,K),K=1,KMAX)
+c        PRINT 6001, (HEO(K),K=1,KMAX)
 c        PRINT *, '   HESO ='
-c        PRINT 6001, (HESO(I,K),K=1,KMAX)
+c        PRINT 6001, (HESO(K),K=1,KMAX)
 c        PRINT *, '   TO ='
-c        PRINT 6002, (TO(I,K)-273.16,K=1,KMAX)
+c        PRINT 6002, (TO(K)-273.16,K=1,KMAX)
 c        PRINT *, '   QO ='
-c        PRINT 6003, (QO(I,K),K=1,KMAX)
+c        PRINT 6003, (QO(K),K=1,KMAX)
 c        PRINT *, '   QSO ='
-c        PRINT 6003, (QESO(I,K),K=1,KMAX)
+c        PRINT 6003, (QESO(K),K=1,KMAX)
 c      ENDIF
 C
 C  LOOK FOR CONVECTIVE CLOUD BASE AS THE LEVEL OF FREE CONVECTION
 C
-      DO I=1,IM
-        IF(CNVFLG(I)) THEN
-          INDX    = KB(I)
-          HKBO(I) = HEO(I,INDX)
-          QKBO(I) = QO(I,INDX)
-          UKBO(I) = UO(I,INDX)
-          VKBO(I) = VO(I,INDX)
+        IF(CNVFLG) THEN
+          INDX    = KB
+          HKBO = HEO(INDX)
+          QKBO = QO(INDX)
+          UKBO = UO(INDX)
+          VKBO = VO(INDX)
         ENDIF
-        FLG(I)    = CNVFLG(I)
-        KBCON(I)  = KMAX(I)
-      ENDDO
+        FLG    = CNVFLG
+        KBCON  = KMAX
 !!
       DO K = 1, KM
-        DO I=1,IM
-          if (k .le. kbmax(i)) then
-            IF(FLG(I).AND.K.GT.KB(I)) THEN
-              HSBAR(I)   = HESO(I,k)
-              IF(HKBO(I).GT.HSBAR(I)) THEN
-                FLG(I)   = .FALSE.
-                KBCON(I) = K
+          if (k .le. kbmax) then
+            IF(FLG.AND.K.GT.KB) THEN
+              HSBAR   = HESO(k)
+              IF(HKBO.GT.HSBAR) THEN
+                FLG   = .FALSE.
+                KBCON = K
               ENDIF
             ENDIF
           endif
-        ENDDO
       ENDDO
-      DO I=1,IM
-        IF(CNVFLG(I)) THEN
-          PBCDIF(I) = -PFLD(I,KBCON(I)) + PFLD(I,KB(I))
-          PDOT(I)   = 10.* DOT(I,KBCON(I))
-          IF(PBCDIF(I).GT.150.)    CNVFLG(I) = .FALSE.
-          IF(KBCON(I).EQ.KMAX(I))  CNVFLG(I) = .FALSE.
+      
+        IF(CNVFLG) THEN
+          PBCDIF = -PFLD(KBCON) + PFLD(KB)
+          PDOT   = 10.* DOT(KBCON)
+          IF(PBCDIF.GT.150.)    CNVFLG = .FALSE.
+          IF(KBCON.EQ.KMAX)  CNVFLG = .FALSE.
         ENDIF
-      ENDDO
 !!
       TOTFLG = .TRUE.
-      DO I=1,IM
-        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG(I))
-      ENDDO
+        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG)
       IF(TOTFLG) RETURN
-C  FOUND LFC, CAN DEFINE REST OF VARIABLES
+
  6001 FORMAT(2X,-2P10F12.2)
  6002 FORMAT(2X,10F12.2)
  6003 FORMAT(2X,3P10F12.2)
 C
 C  DETERMINE ENTRAINMENT RATE BETWEEN KB AND KBCON
 C
-      DO I = 1, IM
         alpha = alphas
-        if(SLIMSK(I).eq.1.) alpha = alphal
-        IF(CNVFLG(I)) THEN
-          IF(KB(I).EQ.1) THEN
-            DZ = .5 * (ZO(I,KBCON(I)) + ZO(I,KBCON(I)-1)) - ZO(I,1)
+        if(SLIMSK.eq.1.) alpha = alphal
+        IF(CNVFLG) THEN
+          IF(KB.EQ.1) THEN
+            DZ = .5 * (ZO(KBCON) + ZO(KBCON-1)) - ZO(1)
           ELSE
-            DZ = .5 * (ZO(I,KBCON(I)) + ZO(I,KBCON(I)-1))
-     &         - .5 * (ZO(I,KB(I)) + ZO(I,KB(I)-1))
+            DZ = .5 * (ZO(KBCON) + ZO(KBCON-1))
+     &         - .5 * (ZO(KB) + ZO(KB-1))
           ENDIF
-          IF(KBCON(I).NE.KB(I)) THEN
-            XLAMB(I) = - LOG(ALPHA) / DZ
+          IF(KBCON.NE.KB) THEN
+            XLAMB = - LOG(ALPHA) / DZ
           ELSE
-            XLAMB(I) = 0.
+            XLAMB = 0.
           ENDIF
         ENDIF
-      ENDDO
+
 C  DETERMINE UPDRAFT MASS FLUX
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i) .and. CNVFLG(I)) then
-            ETA(I,k)  = 1.
-            ETAU(I,k) = 1.
+          if (k .le. kmax .and. CNVFLG) then
+            ETA(k)  = 1.
+            ETAU(k) = 1.
           ENDIF
-        ENDDO
       ENDDO
       DO K = KM1, 2, -1
-        DO I = 1, IM
-          if (k .le. kbmax(i)) then
-            IF(CNVFLG(I).AND.K.LT.KBCON(I).AND.K.GE.KB(I)) THEN
-              DZ        = .5 * (ZO(I,k+1) - ZO(I,k-1))
-              ETA(I,k)  = ETA(I,k+1) * EXP(-XLAMB(I) * DZ)
-              ETAU(I,k) = ETA(I,k)
+          if (k .le. kbmax) then
+            IF(CNVFLG.AND.K.LT.KBCON.AND.K.GE.KB) THEN
+              DZ        = .5 * (ZO(k+1) - ZO(k-1))
+              ETA(k)  = ETA(k+1) * EXP(-XLAMB * DZ)
+              ETAU(k) = ETA(k)
             ENDIF
           endif
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I).AND.KB(I).EQ.1.AND.KBCON(I).GT.1) THEN
-          DZ = .5 * (ZO(I,2) - ZO(I,1))
-          ETA(I,1) = ETA(I,2) * EXP(-XLAMB(I) * DZ)
-          ETAU(I,1) = ETA(I,1)
+        IF(CNVFLG.AND.KB.EQ.1.AND.KBCON.GT.1) THEN
+          DZ = .5 * (ZO(2) - ZO(1))
+          ETA(1) = ETA(2) * EXP(-XLAMB * DZ)
+          ETAU(1) = ETA(1)
         ENDIF
-      ENDDO
 C
 C  WORK UP UPDRAFT CLOUD PROPERTIES
 C
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          INDX         = KB(I)
-          HCKO(I,INDX) = HKBO(I)
-          QCKO(I,INDX) = QKBO(I)
-          UCKO(I,INDX) = UKBO(I)
-          VCKO(I,INDX) = VKBO(I)
-          PWAVO(I)     = 0.
+        IF(CNVFLG) THEN
+          INDX         = KB
+          HCKO(INDX) = HKBO
+          QCKO(INDX) = QKBO
+          UCKO(INDX) = UKBO
+          VCKO(INDX) = VKBO
+          PWAVO     = 0.
         ENDIF
-      ENDDO
 C
 C  CLOUD PROPERTY BELOW CLOUD BASE IS MODIFIED BY THE ENTRAINMENT PROCES
 C
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(CNVFLG(I).AND.K.GT.KB(I).AND.K.LE.KBCON(I)) THEN
-              FACTOR = ETA(I,k-1) / ETA(I,k)
+          if (k .le. kmax-1) then
+            IF(CNVFLG.AND.K.GT.KB.AND.K.LE.KBCON) THEN
+              FACTOR = ETA(k-1) / ETA(k)
               ONEMF = 1. - FACTOR
-              HCKO(I,k) = FACTOR * HCKO(I,k-1) + ONEMF *
-     &                    .5 * (HEO(I,k) + HEO(I,k+1))
-              UCKO(I,k) = FACTOR * UCKO(I,k-1) + ONEMF *
-     &                    .5 * (UO(I,k) + UO(I,k+1))
-              VCKO(I,k) = FACTOR * VCKO(I,k-1) + ONEMF *
-     &                    .5 * (VO(I,k) + VO(I,k+1))
-              DBYO(I,k) = HCKO(I,k) - HESO(I,k)
+              HCKO(k) = FACTOR * HCKO(k-1) + ONEMF *
+     &                    .5 * (HEO(k) + HEO(k+1))
+              UCKO(k) = FACTOR * UCKO(k-1) + ONEMF *
+     &                    .5 * (UO(k) + UO(k+1))
+              VCKO(k) = FACTOR * VCKO(k-1) + ONEMF *
+     &                    .5 * (VO(k) + VO(k+1))
+              DBYO(k) = HCKO(k) - HESO(k)
             ENDIF
-            IF(CNVFLG(I).AND.K.GT.KBCON(I)) THEN
-              HCKO(I,k) = HCKO(I,k-1)
-              UCKO(I,k) = UCKO(I,k-1)
-              VCKO(I,k) = VCKO(I,k-1)
-              DBYO(I,k) = HCKO(I,k) - HESO(I,k)
+            IF(CNVFLG.AND.K.GT.KBCON) THEN
+              HCKO(k) = HCKO(k-1)
+              UCKO(k) = UCKO(k-1)
+              VCKO(k) = VCKO(k-1)
+              DBYO(k) = HCKO(k) - HESO(k)
             ENDIF
           endif
-        ENDDO
       ENDDO
 C  DETERMINE CLOUD TOP
-      DO I = 1, IM
-        FLG(I) = CNVFLG(I)
-        KTCON(I) = 1
-      ENDDO
-C     DO K = 2, KMAX
-C       KK = KMAX - K + 1
-C         IF(DBYO(I,kK).GE.0..AND.FLG(I).AND.KK.GT.KBCON(I)) THEN
-C           KTCON(I) = KK + 1
-C           FLG(I) = .FALSE.
-C         ENDIF
-C     ENDDO
+        FLG = CNVFLG
+        KTCON = 1
       DO K = 2, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(DBYO(I,k).LT.0..AND.FLG(I).AND.K.GT.KBCON(I)) THEN
-              KTCON(I) = K
-              FLG(I) = .FALSE.
+          if (k .le. kmax) then
+            IF(DBYO(k).LT.0..AND.FLG.AND.K.GT.KBCON) THEN
+              KTCON = K
+              FLG = .FALSE.
             ENDIF
           endif
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I).AND.(PFLD(I,KBCON(I)) - PFLD(I,KTCON(I))).LT.150.)
-     &  CNVFLG(I) = .FALSE.
-      ENDDO
+        IF(CNVFLG.AND.(PFLD(KBCON) - PFLD(KTCON)).LT.150.)
+     &  CNVFLG = .FALSE.
       TOTFLG = .TRUE.
-      DO I = 1, IM
-        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG(I))
-      ENDDO
+        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG)
       IF(TOTFLG) RETURN
 C
 C  SEARCH FOR DOWNDRAFT ORIGINATING LEVEL ABOVE THETA-E MINIMUM
 C
-      DO I = 1, IM
-        HMIN(I) = HEO(I,KBCON(I))
-        LMIN(I) = KBMAX(I)
-        JMIN(I) = KBMAX(I)
-      ENDDO
-      DO I = 1, IM
-        DO K = KBCON(I), KBMAX(I)
-          IF(HEO(I,k).LT.HMIN(I).AND.CNVFLG(I)) THEN
-            LMIN(I) = K + 1
-            HMIN(I) = HEO(I,k)
+        HMIN = HEO(KBCON)
+        LMIN = KBMAX
+        JMIN = KBMAX
+        DO K = KBCON, KBMAX
+          IF(HEO(k).LT.HMIN.AND.CNVFLG) THEN
+            LMIN = K + 1
+            HMIN = HEO(k)
           ENDIF
         ENDDO
-      ENDDO
 C
-C  Make sure that JMIN(I) is within the cloud
+C  Make sure that JMIN is within the cloud
 C
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          JMIN(I) = MIN(LMIN(I),KTCON(I)-1)
-          XMBMAX(I) = .1
-          JMIN(I) = MAX(JMIN(I),KBCON(I)+1)
+        IF(CNVFLG) THEN
+          JMIN = MIN(LMIN,KTCON-1)
+          XMBMAX = .1
+          JMIN = MAX(JMIN,KBCON+1)
         ENDIF
-      ENDDO
 C
 C  ENTRAINING CLOUD
 C
       do k = 2, km1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            if(CNVFLG(I).and.k.gt.JMIN(I).and.k.le.KTCON(I)) THEN
-              SUMZ(I,k) = SUMZ(I,k-1) + .5 * (ZO(I,k+1) - ZO(I,k-1))
-              SUMH(I,k) = SUMH(I,k-1) + .5 * (ZO(I,k+1) - ZO(I,k-1))
-     &                  * HEO(I,k)
+          if (k .le. kmax-1) then
+            if(CNVFLG.and.k.gt.JMIN.and.k.le.KTCON) THEN
+              SUMZ(k) = SUMZ(k-1) + .5 * (ZO(k+1) - ZO(k-1))
+              SUMH(k) = SUMH(k-1) + .5 * (ZO(k+1) - ZO(k-1))
+     &                  * HEO(k)
             ENDIF
           endif
-        enddo
       enddo
 !!
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
+        IF(CNVFLG) THEN
 c         call random_number(XKT2)
 c         call srand(fhour)
-c         XKT2(I) = rand()
-          KT2(I) = nint(XKT2(I)*float(KTCON(I)-JMIN(I))-.5)+JMIN(I)+1
-!         KT2(I) = nint(sqrt(XKT2(I))*float(KTCON(I)-JMIN(I))-.5) + JMIN(I) + 1
-c         KT2(I) = nint(ranf() *float(KTCON(I)-JMIN(I))-.5) + JMIN(I) + 1
-          tem1 = (HCKO(I,JMIN(I)) - HESO(I,KT2(I)))
-          tem2 = (SUMZ(I,KT2(I)) * HESO(I,KT2(I)) - SUMH(I,KT2(I)))
+c         XKT2 = rand()
+          KT2 = nint(XKT2*float(KTCON-JMIN)-.5)+JMIN+1
+!         KT2 = nint(sqrt(XKT2)*float(KTCON-JMIN)-.5) + JMIN + 1
+c         KT2 = nint(ranf() *float(KTCON-JMIN)-.5) + JMIN + 1
+          tem1 = (HCKO(JMIN) - HESO(KT2))
+          tem2 = (SUMZ(KT2) * HESO(KT2) - SUMH(KT2))
           if (abs(tem2) .gt. 0.000001) THEN
-            XLAMB(I) = tem1 / tem2
+            XLAMB = tem1 / tem2
           else
-            CNVFLG(I) = .false.
+            CNVFLG = .false.
           ENDIF
-!         XLAMB(I) = (HCKO(I,JMIN(I)) - HESO(I,KT2(I)))
-!    &          / (SUMZ(I,KT2(I)) * HESO(I,KT2(I)) - SUMH(I,KT2(I)))
-          XLAMB(I) = max(XLAMB(I),cons_0)
-          XLAMB(I) = min(XLAMB(I),2.3/SUMZ(I,KT2(I)))
+!         XLAMB = (HCKO(JMIN) - HESO(KT2))
+!    &          / (SUMZ(KT2) * HESO(KT2) - SUMH(KT2))
+          XLAMB = max(XLAMB,cons_0)
+          XLAMB = min(XLAMB,2.3/SUMZ(KT2))
         ENDIF
-      ENDDO
 !!
-      DO I = 1, IM
-       DWNFLG(I)  = CNVFLG(I)
-       DWNFLG2(I) = CNVFLG(I)
-       IF(CNVFLG(I)) THEN
-        if(KT2(I).ge.KTCON(I)) DWNFLG(I) = .false.
-      if(XLAMB(I).le.1.e-30.or.HCKO(I,JMIN(I))-HESO(I,KT2(I)).le.1.e-30)
-     &  DWNFLG(I) = .false.
-        do k = JMIN(I), KT2(I)
-          if(DWNFLG(I).and.HEO(I,k).gt.HESO(I,KT2(I))) DWNFLG(I)=.false.
+       DWNFLG  = CNVFLG
+       DWNFLG2 = CNVFLG
+       IF(CNVFLG) THEN
+        if(KT2.ge.KTCON) DWNFLG = .false.
+      if(XLAMB.le.1.e-30.or.HCKO(JMIN)-HESO(KT2).le.1.e-30)
+     &  DWNFLG = .false.
+        do k = JMIN, KT2
+          if(DWNFLG.and.HEO(k).gt.HESO(KT2)) DWNFLG=.false.
         enddo
-c       IF(CNVFLG(I).AND.(PFLD(KBCON(I))-PFLD(KTCON(I))).GT.PDETRN)
-c    &     DWNFLG(I)=.FALSE.
-        IF(CNVFLG(I).AND.(PFLD(I,KBCON(I))-PFLD(I,KTCON(I))).LT.PDPDWN)
-     &     DWNFLG2(I)=.FALSE.
+c       IF(CNVFLG.AND.(PFLD(KBCON)-PFLD(KTCON)).GT.PDETRN)
+c    &     DWNFLG=.FALSE.
+        IF(CNVFLG.AND.(PFLD(KBCON)-PFLD(KTCON)).LT.PDPDWN)
+     &     DWNFLG2=.FALSE.
        ENDIF
-      ENDDO
 !!
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(DWNFLG(I).AND.K.GT.JMIN(I).AND.K.LE.KT2(I)) THEN
-              DZ        = .5 * (ZO(I,k+1) - ZO(I,k-1))
-c             ETA(I,k)  = ETA(I,k-1) * EXP( XLAMB(I) * DZ)
+          if (k .le. kmax-1) then
+            IF(DWNFLG.AND.K.GT.JMIN.AND.K.LE.KT2) THEN
+              DZ        = .5 * (ZO(k+1) - ZO(k-1))
+c             ETA(k)  = ETA(k-1) * EXP( XLAMB * DZ)
 c  to simplify matter, we will take the linear approach here
 c
-              ETA(I,k)  = ETA(I,k-1) * (1. + XLAMB(I) * dz)
-              ETAU(I,k) = ETAU(I,k-1) * (1. + (XLAMB(I)+xlambu) * dz)
+              ETA(k)  = ETA(k-1) * (1. + XLAMB * dz)
+              ETAU(k) = ETAU(k-1) * (1. + (XLAMB+xlambu) * dz)
             ENDIF
           endif
-        ENDDO
       ENDDO
 !!
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-c           IF(.NOT.DWNFLG(I).AND.K.GT.JMIN(I).AND.K.LE.KT2(I)) THEN
-            IF(.NOT.DWNFLG(I).AND.K.GT.JMIN(I).AND.K.LE.KTCON(I)) THEN
-              DZ        = .5 * (ZO(I,k+1) - ZO(I,k-1))
-              ETAU(I,k) = ETAU(I,k-1) * (1. + xlambu * dz)
+          if (k .le. kmax-1) then
+c           IF(.NOT.DWNFLG.AND.K.GT.JMIN.AND.K.LE.KT2) THEN
+            IF(.NOT.DWNFLG.AND.K.GT.JMIN.AND.K.LE.KTCON) THEN
+              DZ        = .5 * (ZO(k+1) - ZO(k-1))
+              ETAU(k) = ETAU(k-1) * (1. + xlambu * dz)
             ENDIF
           endif
-        ENDDO
       ENDDO
-c      IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I)) THEN
-c        PRINT *, ' LMIN(I), KT2(I)=', LMIN(I), KT2(I)
-c        PRINT *, ' KBOT, KTOP, JMIN(I) =', KBCON(I), KTCON(I), JMIN(I)
-c      ENDIF
-c     IF(LAT.EQ.LATD.AND.lon.eq.lond) THEN
-c       print *, ' xlamb =', xlamb
-c       print *, ' eta =', (eta(k),k=1,KT2(I))
-c       print *, ' ETAU =', (ETAU(I,k),k=1,KT2(I))
-c       print *, ' HCKO =', (HCKO(I,k),k=1,KT2(I))
-c       print *, ' SUMZ =', (SUMZ(I,k),k=1,KT2(I))
-c       print *, ' SUMH =', (SUMH(I,k),k=1,KT2(I))
-c     ENDIF
-      DO I = 1, IM
-        if(DWNFLG(I)) THEN
-          KTCON(I) = KT2(I)
+
+        if(DWNFLG) THEN
+          KTCON = KT2
         ENDIF
-      ENDDO
 C
 C  CLOUD PROPERTY ABOVE CLOUD Base IS MODIFIED BY THE DETRAINMENT PROCESS
 C
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-cjfe
-            IF(CNVFLG(I).AND.K.GT.KBCON(I).AND.K.LE.KTCON(I)) THEN
-cjfe      IF(K.GT.KBCON(I).AND.K.LE.KTCON(I)) THEN
-              FACTOR    = ETA(I,k-1) / ETA(I,k)
+          if (k .le. kmax-1) then
+            IF(CNVFLG.AND.K.GT.KBCON.AND.K.LE.KTCON) THEN
+              FACTOR    = ETA(k-1) / ETA(k)
               ONEMF     = 1. - FACTOR
-              fuv       = ETAU(I,k-1) / ETAU(I,k)
+              fuv       = ETAU(k-1) / ETAU(k)
               onemfu    = 1. - fuv
-              HCKO(I,k) = FACTOR * HCKO(I,k-1) + ONEMF *
-     &                    .5 * (HEO(I,k) + HEO(I,k+1))
-              UCKO(I,k) = fuv * UCKO(I,k-1) + ONEMFu *
-     &                    .5 * (UO(I,k) + UO(I,k+1))
-              VCKO(I,k) = fuv * VCKO(I,k-1) + ONEMFu *
-     &                    .5 * (VO(I,k) + VO(I,k+1))
-              DBYO(I,k) = HCKO(I,k) - HESO(I,k)
+              HCKO(k) = FACTOR * HCKO(k-1) + ONEMF *
+     &                    .5 * (HEO(k) + HEO(k+1))
+              UCKO(k) = fuv * UCKO(k-1) + ONEMFu *
+     &                    .5 * (UO(k) + UO(k+1))
+              VCKO(k) = fuv * VCKO(k-1) + ONEMFu *
+     &                    .5 * (VO(k) + VO(k+1))
+              DBYO(k) = HCKO(k) - HESO(k)
             ENDIF
           endif
-        ENDDO
       ENDDO
-c      IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I)) THEN
-c        PRINT *, ' UCKO=', (UCKO(I,k),k=KBCON(I)+1,KTCON(I))
-c        PRINT *, ' uenv=', (.5*(UO(I,k)+UO(I,k-1)),k=KBCON(I)+1,KTCON(I))
-c      ENDIF
-      DO I = 1, IM
-        if(CNVFLG(I).and.DWNFLG2(I).and.JMIN(I).le.KBCON(I))
+        if(CNVFLG.and.DWNFLG2.and.JMIN.le.KBCON)
      &     THEN
-          CNVFLG(I) = .false.
-          DWNFLG(I) = .false.
-          DWNFLG2(I) = .false.
+          CNVFLG = .false.
+          DWNFLG = .false.
+          DWNFLG2 = .false.
         ENDIF
-      ENDDO
 !!
       TOTFLG = .TRUE.
-      DO I = 1, IM
-        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG(I))
-      ENDDO
+        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG)
       IF(TOTFLG) RETURN
 !!
 C
 C  COMPUTE CLOUD MOISTURE PROPERTY AND PRECIPITATION
 C
-      DO I = 1, IM
-          AA1(I) = 0.
-          RHBAR(I) = 0.
-      ENDDO
+          AA1 = 0.
+          RHBAR = 0.
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).AND.K.GT.KB(I).AND.K.LT.KTCON(I)) THEN
-              DZ = .5 * (ZO(I,k+1) - ZO(I,k-1))
-              DZ1 = (ZO(I,k) - ZO(I,k-1))
-              GAMMA = EL2ORC * QESO(I,k) / (TO(I,k)**2)
-              QRCH = QESO(I,k)
-     &             + GAMMA * DBYO(I,k) / (HVAP * (1. + GAMMA))
-              FACTOR = ETA(I,k-1) / ETA(I,k)
+          if (k .le. kmax) then
+            IF(CNVFLG.AND.K.GT.KB.AND.K.LT.KTCON) THEN
+              DZ = .5 * (ZO(k+1) - ZO(k-1))
+              DZ1 = (ZO(k) - ZO(k-1))
+              GAMMA = EL2ORC * QESO(k) / (TO(k)**2)
+              QRCH = QESO(k)
+     &             + GAMMA * DBYO(k) / (HVAP * (1. + GAMMA))
+              FACTOR = ETA(k-1) / ETA(k)
               ONEMF = 1. - FACTOR
-              QCKO(I,k) = FACTOR * QCKO(I,k-1) + ONEMF *
-     &                    .5 * (QO(I,k) + QO(I,k+1))
-              DQ = ETA(I,k) * QCKO(I,k) - ETA(I,k) * QRCH
-              RHBAR(I) = RHBAR(I) + QO(I,k) / QESO(I,k)
+              QCKO(k) = FACTOR * QCKO(k-1) + ONEMF *
+     &                    .5 * (QO(k) + QO(k+1))
+              DQ = ETA(k) * QCKO(k) - ETA(k) * QRCH
+              RHBAR = RHBAR + QO(k) / QESO(k)
 C
 C  BELOW LFC CHECK IF THERE IS EXCESS MOISTURE TO RELEASE LATENT HEAT
 C
               IF(DQ.GT.0.) THEN
-                ETAH = .5 * (ETA(I,k) + ETA(I,k-1))
-                QLK = DQ / (ETA(I,k) + ETAH * C0 * DZ)
-                AA1(I) = AA1(I) - DZ1 * G * QLK
+                ETAH = .5 * (ETA(k) + ETA(k-1))
+                QLK = DQ / (ETA(k) + ETAH * C0 * DZ)
+                AA1 = AA1 - DZ1 * G * QLK
                 QC = QLK + QRCH
-                PWO(I,k) = ETAH * C0 * DZ * QLK
-                QCKO(I,k) = QC
-                PWAVO(I) = PWAVO(I) + PWO(I,k)
+                PWO(k) = ETAH * C0 * DZ * QLK
+                QCKO(k) = QC
+                PWAVO = PWAVO + PWO(k)
               ENDIF
             ENDIF
           endif
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        RHBAR(I) = RHBAR(I) / float(KTCON(I) - KB(I) - 1)
-      ENDDO
+        RHBAR = RHBAR / float(KTCON - KB - 1)
 c
 c  this section is ready for cloud water
 c
@@ -731,240 +630,190 @@ c
 c
 c  compute liquid and vapor separation at cloud top
 c
-      DO I = 1, IM
-        k = KTCON(I)
-        IF(CNVFLG(I)) THEN
-          GAMMA = EL2ORC * QESO(I,K) / (TO(I,K)**2)
-          QRCH = QESO(I,K)
-     &         + GAMMA * DBYO(I,K) / (HVAP * (1. + GAMMA))
-          DQ = QCKO(I,K-1) - QRCH
+        k = KTCON
+        IF(CNVFLG) THEN
+          GAMMA = EL2ORC * QESO(K) / (TO(K)**2)
+          QRCH = QESO(K)
+     &         + GAMMA * DBYO(K) / (HVAP * (1. + GAMMA))
+          DQ = QCKO(K-1) - QRCH
 C
 C  CHECK IF THERE IS EXCESS MOISTURE TO RELEASE LATENT HEAT
 C
           IF(DQ.GT.0.) THEN
-            QLKO_KTCON(I) = dq
-            QCKO(I,K-1) = QRCH
+            QLKO_KTCON = dq
+            QCKO(K-1) = QRCH
           ENDIF
         ENDIF
-      ENDDO
       ENDIF
 C
 C  CALCULATE CLOUD WORK FUNCTION AT T+DT
 C
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).AND.K.GT.KBCON(I).AND.K.LE.KTCON(I)) THEN
-              DZ1 = ZO(I,k) - ZO(I,k-1)
-              GAMMA = EL2ORC * QESO(I,k-1) / (TO(I,k-1)**2)
+          if (k .le. kmax) then
+            IF(CNVFLG.AND.K.GT.KBCON.AND.K.LE.KTCON) THEN
+              DZ1 = ZO(k) - ZO(k-1)
+              GAMMA = EL2ORC * QESO(k-1) / (TO(k-1)**2)
               RFACT =  1. + DELTA * CP * GAMMA
-     &                 * TO(I,k-1) / HVAP
-              AA1(I) = AA1(I) +
-     &                 DZ1 * (G / (CP * TO(I,k-1)))
-     &                 * DBYO(I,k-1) / (1. + GAMMA)
+     &                 * TO(k-1) / HVAP
+              AA1 = AA1 +
+     &                 DZ1 * (G / (CP * TO(k-1)))
+     &                 * DBYO(k-1) / (1. + GAMMA)
      &                 * RFACT
               val = 0.
-              AA1(I)=AA1(I)+
+              AA1=AA1+
      &                 DZ1 * G * DELTA *
-     &                 MAX(val,(QESO(I,k-1) - QO(I,k-1)))
+     &                 MAX(val,(QESO(k-1) - QO(k-1)))
             ENDIF
           endif
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I).AND.AA1(I).LE.0.) DWNFLG(I)  = .FALSE.
-        IF(CNVFLG(I).AND.AA1(I).LE.0.) DWNFLG2(I) = .FALSE.
-        IF(CNVFLG(I).AND.AA1(I).LE.0.) CNVFLG(I)  = .FALSE.
-      ENDDO
+        IF(CNVFLG.AND.AA1.LE.0.) DWNFLG  = .FALSE.
+        IF(CNVFLG.AND.AA1.LE.0.) DWNFLG2 = .FALSE.
+        IF(CNVFLG.AND.AA1.LE.0.) CNVFLG  = .FALSE.
 !!
       TOTFLG = .TRUE.
-      DO I = 1, IM
-        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG(I))
-      ENDDO
+        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG)
       IF(TOTFLG) RETURN
 !!
-ccccc IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I)) THEN
-ccccc   PRINT *, ' AA1(I) BEFORE DWNDRFT =', AA1(I)
-ccccc ENDIF
-C
-C------- DOWNDRAFT CALCULATIONS
-C
-C
-C--- DETERMINE DOWNDRAFT STRENGTH IN TERMS OF WINDSHEAR
-C
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          VSHEAR(I) = 0.
+        IF(CNVFLG) THEN
+          VSHEAR = 0.
         ENDIF
-      ENDDO
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(K.GE.KB(I).AND.K.LE.KTCON(I).AND.CNVFLG(I)) THEN
-              shear= sqrt((UO(I,k+1)-UO(I,k)) ** 2
-     &                          + (VO(I,k+1)-VO(I,k)) ** 2)
-              VSHEAR(I) = VSHEAR(I) + SHEAR
+          if (k .le. kmax) then
+            IF(K.GE.KB.AND.K.LE.KTCON.AND.CNVFLG) THEN
+              shear= sqrt((UO(k+1)-UO(k)) ** 2
+     &                          + (VO(k+1)-VO(k)) ** 2)
+              VSHEAR = VSHEAR + SHEAR
             ENDIF
           endif
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        EDT(I) = 0.
-        IF(CNVFLG(I)) THEN
-          KNUMB = KTCON(I) - KB(I) + 1
+        EDT = 0.
+        IF(CNVFLG) THEN
+          KNUMB = KTCON - KB + 1
           KNUMB = MAX(KNUMB,1)
-          VSHEAR(I) = 1.E3 * VSHEAR(I) / (ZO(I,KTCON(I))-ZO(I,KB(I)))
-          E1=1.591-.639*VSHEAR(I)
-     &       +.0953*(VSHEAR(I)**2)-.00496*(VSHEAR(I)**3)
-          EDT(I)=1.-E1
+          VSHEAR = 1.E3 * VSHEAR / (ZO(KTCON)-ZO(KB))
+          E1=1.591-.639*VSHEAR
+     &       +.0953*(VSHEAR**2)-.00496*(VSHEAR**3)
+          EDT=1.-E1
           val =         .9
-          EDT(I) = MIN(EDT(I),val)
+          EDT = MIN(EDT,val)
           val =         .0
-          EDT(I) = MAX(EDT(I),val)
-          EDTO(I)=EDT(I)
-          EDTX(I)=EDT(I)
+          EDT = MAX(EDT,val)
+          EDTO=EDT
+          EDTX=EDT
         ENDIF
-      ENDDO
 C  DETERMINE DETRAINMENT RATE BETWEEN 1 AND KBDTR
-      DO I = 1, IM
-        KBDTR(I) = KBCON(I)
+        KBDTR = KBCON
         beta = betas
-        if(SLIMSK(I).eq.1.) beta = betal
-        IF(CNVFLG(I)) THEN
-          KBDTR(I) = KBCON(I)
-          KBDTR(I) = MAX(KBDTR(I),1)
-          XLAMD(I) = 0.
-          IF(KBDTR(I).GT.1) THEN
-            DZ = .5 * ZO(I,KBDTR(I)) + .5 * ZO(I,KBDTR(I)-1)
-     &         - ZO(I,1)
-            XLAMD(I) =  LOG(BETA) / DZ
+        if(SLIMSK.eq.1.) beta = betal
+        IF(CNVFLG) THEN
+          KBDTR = KBCON
+          KBDTR = MAX(KBDTR,1)
+          XLAMD = 0.
+          IF(KBDTR.GT.1) THEN
+            DZ = .5 * ZO(KBDTR) + .5 * ZO(KBDTR-1)
+     &         - ZO(1)
+            XLAMD =  LOG(BETA) / DZ
           ENDIF
         ENDIF
-      ENDDO
 C  DETERMINE DOWNDRAFT MASS FLUX
       DO K = 1, KM
-        DO I = 1, IM
-          IF(k .le. kmax(i)) then
-            IF(CNVFLG(I)) THEN
-              ETAD(I,k) = 1.
+          IF(k .le. kmax) then
+            IF(CNVFLG) THEN
+              ETAD(k) = 1.
             ENDIF
-            QRCDO(I,k) = 0.
+            QRCDO(k) = 0.
           endif
-        ENDDO
       ENDDO
       DO K = KM1, 2, -1
-        DO I = 1, IM
-          if (k .le. kbmax(i)) then
-            IF(CNVFLG(I).AND.K.LT.KBDTR(I)) THEN
-              DZ        = .5 * (ZO(I,k+1) - ZO(I,k-1))
-              ETAD(I,k) = ETAD(I,k+1) * EXP(XLAMD(I) * DZ)
+          if (k .le. kbmax) then
+            IF(CNVFLG.AND.K.LT.KBDTR) THEN
+              DZ        = .5 * (ZO(k+1) - ZO(k-1))
+              ETAD(k) = ETAD(k+1) * EXP(XLAMD * DZ)
             ENDIF
           endif
-        ENDDO
       ENDDO
       K = 1
-      DO I = 1, IM
-        IF(CNVFLG(I).AND.KBDTR(I).GT.1) THEN
-          DZ = .5 * (ZO(I,2) - ZO(I,1))
-          ETAD(I,k) = ETAD(I,k+1) * EXP(XLAMD(I) * DZ)
+        IF(CNVFLG.AND.KBDTR.GT.1) THEN
+          DZ = .5 * (ZO(2) - ZO(1))
+          ETAD(k) = ETAD(k+1) * EXP(XLAMD * DZ)
         ENDIF
-      ENDDO
 C
 C--- DOWNDRAFT MOISTURE PROPERTIES
 C
-      DO I = 1, IM
-        PWEVO(I) = 0.
-        FLG(I) = CNVFLG(I)
-      ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          JMN = JMIN(I)
-          HCDO(I) = HEO(I,JMN)
-          QCDO(I) = QO(I,JMN)
-          QRCDO(I,JMN) = QESO(I,JMN)
-          UCDO(I) = UO(I,JMN)
-          VCDO(I) = VO(I,JMN)
+        PWEVO = 0.
+        FLG = CNVFLG
+        IF(CNVFLG) THEN
+          JMN = JMIN
+          HCDO = HEO(JMN)
+          QCDO = QO(JMN)
+          QRCDO(JMN) = QESO(JMN)
+          UCDO = UO(JMN)
+          VCDO = VO(JMN)
         ENDIF
-      ENDDO
       DO K = KM1, 1, -1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(CNVFLG(I).AND.K.LT.JMIN(I)) THEN
-              DQ = QESO(I,k)
-              DT = TO(I,k)
+          if (k .le. kmax-1) then
+            IF(CNVFLG.AND.K.LT.JMIN) THEN
+              DQ = QESO(k)
+              DT = TO(k)
               GAMMA      = EL2ORC * DQ / DT**2
-              DH         = HCDO(I) - HESO(I,k)
-              QRCDO(I,k) = DQ+(1./HVAP)*(GAMMA/(1.+GAMMA))*DH
-              DETAD      = ETAD(I,k+1) - ETAD(I,k)
-              PWDO(I,k)  = ETAD(I,k+1) * QCDO(I) -
-     &                     ETAD(I,k) * QRCDO(I,k)
-              PWDO(I,k)  = PWDO(I,k) - DETAD *
-     &                    .5 * (QRCDO(I,k) + QRCDO(I,k+1))
-              QCDO(I)    = QRCDO(I,k)
-              PWEVO(I)   = PWEVO(I) + PWDO(I,k)
+              DH         = HCDO - HESO(k)
+              QRCDO(k) = DQ+(1./HVAP)*(GAMMA/(1.+GAMMA))*DH
+              DETAD      = ETAD(k+1) - ETAD(k)
+              PWDO(k)  = ETAD(k+1) * QCDO -
+     &                     ETAD(k) * QRCDO(k)
+              PWDO(k)  = PWDO(k) - DETAD *
+     &                    .5 * (QRCDO(k) + QRCDO(k+1))
+              QCDO    = QRCDO(k)
+              PWEVO   = PWEVO + PWDO(k)
             ENDIF
           endif
-        ENDDO
       ENDDO
-C     IF(LAT.EQ.LATD.AND.lon.eq.lond.and.DWNFLG(I)) THEN
-C       PRINT *, ' PWAVO(I), PWEVO(I) =', PWAVO(I), PWEVO(I)
-C     ENDIF
 C
 C--- FINAL DOWNDRAFT STRENGTH DEPENDENT ON PRECIP
 C--- EFFICIENCY (EDT), NORMALIZED CONDENSATE (PWAV), AND
 C--- EVAPORATE (PWEV)
 C
-      DO I = 1, IM
         edtmax = edtmaxl
-        if(SLIMSK(I).eq.0.) edtmax = edtmaxs
-        IF(DWNFLG2(I)) THEN
-          IF(PWEVO(I).LT.0.) THEN
-            EDTO(I) = -EDTO(I) * PWAVO(I) / PWEVO(I)
-            EDTO(I) = MIN(EDTO(I),EDTMAX)
+        if(SLIMSK.eq.0.) edtmax = edtmaxs
+        IF(DWNFLG2) THEN
+          IF(PWEVO.LT.0.) THEN
+            EDTO = -EDTO * PWAVO / PWEVO
+            EDTO = MIN(EDTO,EDTMAX)
           ELSE
-            EDTO(I) = 0.
+            EDTO = 0.
           ENDIF
         ELSE
-          EDTO(I) = 0.
+          EDTO = 0.
         ENDIF
-      ENDDO
 C
 C
 C--- DOWNDRAFT CLOUDWORK FUNCTIONS
 C
 C
       DO K = KM1, 1, -1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(DWNFLG2(I).AND.K.LT.JMIN(I)) THEN
-              GAMMA = EL2ORC * QESO(I,k+1) / TO(I,k+1)**2
-              DHH=HCDO(I)
-              DT=TO(I,k+1)
+          if (k .le. kmax-1) then
+            IF(DWNFLG2.AND.K.LT.JMIN) THEN
+              GAMMA = EL2ORC * QESO(k+1) / TO(k+1)**2
+              DHH=HCDO
+              DT=TO(k+1)
               DG=GAMMA
-              DH=HESO(I,k+1)
-              DZ=-1.*(ZO(I,k+1)-ZO(I,k))
-              AA1(I)=AA1(I)+EDTO(I)*DZ*(G/(CP*DT))*((DHH-DH)/(1.+DG))
+              DH=HESO(k+1)
+              DZ=-1.*(ZO(k+1)-ZO(k))
+              AA1=AA1+EDTO*DZ*(G/(CP*DT))*((DHH-DH)/(1.+DG))
      &               *(1.+DELTA*CP*DG*DT/HVAP)
               val=0.
-              AA1(I)=AA1(I)+EDTO(I)*
-     &        DZ*G*DELTA*MAX(val,(QESO(I,k+1)-QO(I,k+1)))
+              AA1=AA1+EDTO*
+     &        DZ*G*DELTA*MAX(val,(QESO(k+1)-QO(k+1)))
             ENDIF
           endif
-        ENDDO
       ENDDO
-ccccc IF(LAT.EQ.LATD.AND.lon.eq.lond.and.DWNFLG2(I)) THEN
-ccccc   PRINT *, '  AA1(I) AFTER DWNDRFT =', AA1(I)
-ccccc ENDIF
-      DO I = 1, IM
-        IF(AA1(I).LE.0.) CNVFLG(I)  = .FALSE.
-        IF(AA1(I).LE.0.) DWNFLG(I)  = .FALSE.
-        IF(AA1(I).LE.0.) DWNFLG2(I) = .FALSE.
-      ENDDO
+
+        IF(AA1.LE.0.) CNVFLG  = .FALSE.
+        IF(AA1.LE.0.) DWNFLG  = .FALSE.
+        IF(AA1.LE.0.) DWNFLG2 = .FALSE.
 !!
       TOTFLG = .TRUE.
-      DO I = 1, IM
-        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG(I))
-      ENDDO
+        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG)
       IF(TOTFLG) RETURN
 !!
 C
@@ -973,127 +822,118 @@ C--- WHAT WOULD THE CHANGE BE, THAT A CLOUD WITH UNIT MASS
 C--- WILL DO TO THE ENVIRONMENT?
 C
       DO K = 1, KM
-        DO I = 1, IM
-          IF(k .le. kmax(i) .and. CNVFLG(I)) THEN
-            DELLAH(I,k) = 0.
-            DELLAQ(I,k) = 0.
-            DELLAU(I,k) = 0.
-            DELLAV(I,k) = 0.
+          IF(k .le. kmax .and. CNVFLG) THEN
+            DELLAH(k) = 0.
+            DELLAQ(k) = 0.
+            DELLAU(k) = 0.
+            DELLAV(k) = 0.
           ENDIF
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          DP = 1000. * DEL(I,1)
-          DELLAH(I,1) = EDTO(I) * ETAD(I,1) * (HCDO(I)
-     &                - HEO(I,1)) * G / DP
-          DELLAQ(I,1) = EDTO(I) * ETAD(I,1) * (QCDO(I)
-     &                - QO(I,1)) * G / DP
-          DELLAU(I,1) = EDTO(I) * ETAD(I,1) * (UCDO(I)
-     &                - UO(I,1)) * G / DP
-          DELLAV(I,1) = EDTO(I) * ETAD(I,1) * (VCDO(I)
-     &                - VO(I,1)) * G / DP
+
+        IF(CNVFLG) THEN
+          DP = 1000. * DEL(1)
+          DELLAH(1) = EDTO * ETAD(1) * (HCDO
+     &                - HEO(1)) * G / DP
+          DELLAQ(1) = EDTO * ETAD(1) * (QCDO
+     &                - QO(1)) * G / DP
+          DELLAU(1) = EDTO * ETAD(1) * (UCDO
+     &                - UO(1)) * G / DP
+          DELLAV(1) = EDTO * ETAD(1) * (VCDO
+     &                - VO(1)) * G / DP
         ENDIF
-      ENDDO
 C
 C--- CHANGED DUE TO SUBSIDENCE AND ENTRAINMENT
 C
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(CNVFLG(I).AND.K.LT.KTCON(I)) THEN
+          if (k .le. kmax-1) then
+            IF(CNVFLG.AND.K.LT.KTCON) THEN
               AUP = 1.
-              IF(K.LE.KB(I)) AUP = 0.
+              IF(K.LE.KB) AUP = 0.
               ADW = 1.
-              IF(K.GT.JMIN(I)) ADW = 0.
-              DV1= HEO(I,k)
-              DV2 = .5 * (HEO(I,k) + HEO(I,k+1))
-              DV3= HEO(I,k-1)
-              DV1Q= QO(I,k)
-              DV2Q = .5 * (QO(I,k) + QO(I,k+1))
-              DV3Q= QO(I,k-1)
-              DV1U= UO(I,k)
-              DV2U = .5 * (UO(I,k) + UO(I,k+1))
-              DV3U= UO(I,k-1)
-              DV1V= VO(I,k)
-              DV2V = .5 * (VO(I,k) + VO(I,k+1))
-              DV3V= VO(I,k-1)
-              DP = 1000. * DEL(I,K)
-              DZ = .5 * (ZO(I,k+1) - ZO(I,k-1))
-              DETA = ETA(I,k) - ETA(I,k-1)
-              DETAD = ETAD(I,k) - ETAD(I,k-1)
-              DELLAH(I,k) = DELLAH(I,k) +
-     &            ((AUP * ETA(I,k) - ADW * EDTO(I) * ETAD(I,k)) * DV1
-     &        - (AUP * ETA(I,k-1) - ADW * EDTO(I) * ETAD(I,k-1))* DV3
+              IF(K.GT.JMIN) ADW = 0.
+              DV1= HEO(k)
+              DV2 = .5 * (HEO(k) + HEO(k+1))
+              DV3= HEO(k-1)
+              DV1Q= QO(k)
+              DV2Q = .5 * (QO(k) + QO(k+1))
+              DV3Q= QO(k-1)
+              DV1U= UO(k)
+              DV2U = .5 * (UO(k) + UO(k+1))
+              DV3U= UO(k-1)
+              DV1V= VO(k)
+              DV2V = .5 * (VO(k) + VO(k+1))
+              DV3V= VO(k-1)
+              DP = 1000. * DEL(K)
+              DZ = .5 * (ZO(k+1) - ZO(k-1))
+              DETA = ETA(k) - ETA(k-1)
+              DETAD = ETAD(k) - ETAD(k-1)
+              DELLAH(k) = DELLAH(k) +
+     &            ((AUP * ETA(k) - ADW * EDTO * ETAD(k)) * DV1
+     &        - (AUP * ETA(k-1) - ADW * EDTO * ETAD(k-1))* DV3
      &                    - AUP * DETA * DV2
-     &                    + ADW * EDTO(I) * DETAD * HCDO(I)) * G / DP
-              DELLAQ(I,k) = DELLAQ(I,k) +
-     &            ((AUP * ETA(I,k) - ADW * EDTO(I) * ETAD(I,k)) * DV1Q
-     &        - (AUP * ETA(I,k-1) - ADW * EDTO(I) * ETAD(I,k-1))* DV3Q
+     &                    + ADW * EDTO * DETAD * HCDO) * G / DP
+              DELLAQ(k) = DELLAQ(k) +
+     &            ((AUP * ETA(k) - ADW * EDTO * ETAD(k)) * DV1Q
+     &        - (AUP * ETA(k-1) - ADW * EDTO * ETAD(k-1))* DV3Q
      &                    - AUP * DETA * DV2Q
-     &       +ADW*EDTO(I)*DETAD*.5*(QRCDO(I,k)+QRCDO(I,k-1))) * G / DP
-              DELLAU(I,k) = DELLAU(I,k) +
-     &            ((AUP * ETA(I,k) - ADW * EDTO(I) * ETAD(I,k)) * DV1U
-     &        - (AUP * ETA(I,k-1) - ADW * EDTO(I) * ETAD(I,k-1))* DV3U
+     &       +ADW*EDTO*DETAD*.5*(QRCDO(k)+QRCDO(k-1))) * G / DP
+              DELLAU(k) = DELLAU(k) +
+     &            ((AUP * ETA(k) - ADW * EDTO * ETAD(k)) * DV1U
+     &        - (AUP * ETA(k-1) - ADW * EDTO * ETAD(k-1))* DV3U
      &                     - AUP * DETA * DV2U
-     &                    + ADW * EDTO(I) * DETAD * UCDO(I)
+     &                    + ADW * EDTO * DETAD * UCDO
      &                    ) * G / DP
-              DELLAV(I,k) = DELLAV(I,k) +
-     &            ((AUP * ETA(I,k) - ADW * EDTO(I) * ETAD(I,k)) * DV1V
-     &        - (AUP * ETA(I,k-1) - ADW * EDTO(I) * ETAD(I,k-1))* DV3V
+              DELLAV(k) = DELLAV(k) +
+     &            ((AUP * ETA(k) - ADW * EDTO * ETAD(k)) * DV1V
+     &        - (AUP * ETA(k-1) - ADW * EDTO * ETAD(k-1))* DV3V
      &                     - AUP * DETA * DV2V
-     &                    + ADW * EDTO(I) * DETAD * VCDO(I)
+     &                    + ADW * EDTO * DETAD * VCDO
      &                    ) * G / DP
             ENDIF
           endif
-        ENDDO
       ENDDO
 C
 C------- CLOUD TOP
 C
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          INDX = KTCON(I)
-          DP = 1000. * DEL(I,INDX)
-          DV1 = HEO(I,INDX-1)
-          DELLAH(I,INDX) = ETA(I,INDX-1) *
-     &                     (HCKO(I,INDX-1) - DV1) * G / DP
-          DVQ1 = QO(I,INDX-1)
-          DELLAQ(I,INDX) = ETA(I,INDX-1) *
-     &                     (QCKO(I,INDX-1) - DVQ1) * G / DP
-          DV1U = UO(I,INDX-1)
-          DELLAU(I,INDX) = ETA(I,INDX-1) *
-     &                     (UCKO(I,INDX-1) - DV1U) * G / DP
-          DV1V = VO(I,INDX-1)
-          DELLAV(I,INDX) = ETA(I,INDX-1) *
-     &                     (VCKO(I,INDX-1) - DV1V) * G / DP
+        IF(CNVFLG) THEN
+          INDX = KTCON
+          DP = 1000. * DEL(INDX)
+          DV1 = HEO(INDX-1)
+          DELLAH(INDX) = ETA(INDX-1) *
+     &                     (HCKO(INDX-1) - DV1) * G / DP
+          DVQ1 = QO(INDX-1)
+          DELLAQ(INDX) = ETA(INDX-1) *
+     &                     (QCKO(INDX-1) - DVQ1) * G / DP
+          DV1U = UO(INDX-1)
+          DELLAU(INDX) = ETA(INDX-1) *
+     &                     (UCKO(INDX-1) - DV1U) * G / DP
+          DV1V = VO(INDX-1)
+          DELLAV(INDX) = ETA(INDX-1) *
+     &                     (VCKO(INDX-1) - DV1V) * G / DP
 c
 c  cloud water
 c
-          DELLAL(I) = ETA(I,INDX-1) * QLKO_KTCON(I) * g / dp
+          DELLAL = ETA(INDX-1) * QLKO_KTCON * g / dp
         ENDIF
-      ENDDO
 C
 C------- FINAL CHANGED VARIABLE PER UNIT MASS FLUX
 C
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).and.k.gt.KTCON(I)) THEN
-              QO(I,k) = Q1(I,k)
-              TO(I,k) = T1(I,k)
-              UO(I,k) = U1(I,k)
-              VO(I,k) = V1(I,k)
+          if (k .le. kmax) then
+            IF(CNVFLG.and.k.gt.KTCON) THEN
+              QO(k) = Q1(k)
+              TO(k) = T1(k)
+              UO(k) = U1(k)
+              VO(k) = V1(k)
             ENDIF
-            IF(CNVFLG(I).AND.K.LE.KTCON(I)) THEN
-              QO(I,k) = DELLAQ(I,k) * MBDT + Q1(I,k)
-              DELLAT = (DELLAH(I,k) - HVAP * DELLAQ(I,k)) / CP
-              TO(I,k) = DELLAT * MBDT + T1(I,k)
+            IF(CNVFLG.AND.K.LE.KTCON) THEN
+              QO(k) = DELLAQ(k) * MBDT + Q1(k)
+              DELLAT = (DELLAH(k) - HVAP * DELLAQ(k)) / CP
+              TO(k) = DELLAT * MBDT + T1(k)
               val   =           1.e-10
-              QO(I,k) = max(QO(I,k), val  )
+              QO(k) = max(QO(k), val  )
             ENDIF
           endif
-        ENDDO
       ENDDO
 C!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 C
@@ -1107,106 +947,76 @@ C
 C--- ENVIRONMENTAL CONDITIONS AGAIN, FIRST HEIGHTS
 C
       DO K = 1, KM
-        DO I = 1, IM
-          IF(k .le. kmax(i) .and. CNVFLG(I)) THEN
-!jfe        QESO(I,k) = 10. * FPVS(TO(I,k))
+          IF(k .le. kmax .and. CNVFLG) THEN
+!jfe        QESO(k) = 10. * FPVS(TO(k))
 !
-            QESO(I,k) = 0.01 * fpvs(TO(I,K))      ! fpvs is in Pa
+            QESO(k) = 0.01 * fpvs(TO(K))      ! fpvs is in Pa
 !
-            QESO(I,k) = EPS * QESO(I,k) / (PFLD(I,k)+EPSM1*QESO(I,k))
+            QESO(k) = EPS * QESO(k) / (PFLD(k)+EPSM1*QESO(k))
             val       =             1.E-8
-            QESO(I,k) = MAX(QESO(I,k), val )
-            TVO(I,k)  = TO(I,k) + DELTA * TO(I,k) * QO(I,k)
+            QESO(k) = MAX(QESO(k), val )
+            TVO(k)  = TO(k) + DELTA * TO(k) * QO(k)
           ENDIF
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          XAA0(I) = 0.
-          XPWAV(I) = 0.
+        IF(CNVFLG) THEN
+          XAA0 = 0.
+          XPWAV = 0.
         ENDIF
-      ENDDO
-C
-C  HYDROSTATIC HEIGHT ASSUME ZERO TERR
-C
-!     DO I = 1, IM
-!       IF(CNVFLG(I)) THEN
-!         DLNSIG =  LOG(PRSL(I,1)/PS(I))
-!         ZO(I,1) = TERR - DLNSIG * RD / G * TVO(I,1)
-!       ENDIF
-!     ENDDO
-!     DO K = 2, KM
-!       DO I = 1, IM
-!         IF(k .le. kmax(i) .and. CNVFLG(I)) THEN
-!           DLNSIG =  LOG(PRSL(I,K) / PRSL(I,K-1))
-!           ZO(I,k) = ZO(I,k-1) - DLNSIG * RD / G
-!    &             * .5 * (TVO(I,k) + TVO(I,k-1))
-!         ENDIF
-!       ENDDO
-!     ENDDO
 C
 C--- MOIST STATIC ENERGY
 C
       DO K = 1, KM1
-        DO I = 1, IM
-          IF(k .le. kmax(i)-1 .and. CNVFLG(I)) THEN
-            DZ = .5 * (ZO(I,k+1) - ZO(I,k))
-            DP = .5 * (PFLD(I,k+1) - PFLD(I,k))
-cjfe        ES = 10. * FPVS(TO(I,k+1))
+          IF(k .le. kmax-1 .and. CNVFLG) THEN
+            DZ = .5 * (ZO(k+1) - ZO(k))
+            DP = .5 * (PFLD(k+1) - PFLD(k))
+cjfe        ES = 10. * FPVS(TO(k+1))
 !
-            ES = 0.01 * fpvs(TO(I,K+1))      ! fpvs is in Pa
+            ES = 0.01 * fpvs(TO(K+1))      ! fpvs is in Pa
 !
-            PPRIME = PFLD(I,k+1) + EPSM1 * ES
+            PPRIME = PFLD(k+1) + EPSM1 * ES
             QS = EPS * ES / PPRIME
             DQSDP = - QS / PPRIME
-            DESDT = ES * (FACT1 / TO(I,k+1) + FACT2 / (TO(I,k+1)**2))
-            DQSDT = QS * PFLD(I,k+1) * DESDT / (ES * PPRIME)
-            GAMMA = EL2ORC * QESO(I,k+1) / (TO(I,k+1)**2)
+            DESDT = ES * (FACT1 / TO(k+1) + FACT2 / (TO(k+1)**2))
+            DQSDT = QS * PFLD(k+1) * DESDT / (ES * PPRIME)
+            GAMMA = EL2ORC * QESO(k+1) / (TO(k+1)**2)
             DT = (G * DZ + HVAP * DQSDP * DP) / (CP * (1. + GAMMA))
             DQ = DQSDT * DT + DQSDP * DP
-            TO(I,k) = TO(I,k+1) + DT
-            QO(I,k) = QO(I,k+1) + DQ
-            PO(I,k) = .5 * (PFLD(I,k) + PFLD(I,k+1))
+            TO(k) = TO(k+1) + DT
+            QO(k) = QO(k+1) + DQ
+            PO(k) = .5 * (PFLD(k) + PFLD(k+1))
           ENDIF
-        ENDDO
       ENDDO
       DO K = 1, KM1
-        DO I = 1, IM
-          IF(k .le. kmax(i)-1 .and. CNVFLG(I)) THEN
-cjfe        QESO(I,k) = 10. * FPVS(TO(I,k))
+          IF(k .le. kmax-1 .and. CNVFLG) THEN
+cjfe        QESO(k) = 10. * FPVS(TO(k))
 !
-            QESO(I,k) = 0.01 * fpvs(TO(I,K))      ! fpvs is in Pa
+            QESO(k) = 0.01 * fpvs(TO(K))      ! fpvs is in Pa
 !
-            QESO(I,k) = EPS * QESO(I,k) / (PO(I,k) + EPSM1 * QESO(I,k))
+            QESO(k) = EPS * QESO(k) / (PO(k) + EPSM1 * QESO(k))
             val1      =             1.E-8
-            QESO(I,k) = MAX(QESO(I,k), val1)
+            QESO(k) = MAX(QESO(k), val1)
             val2      =           1.e-10
-            QO(I,k)   = max(QO(I,k), val2 )
-c           QO(I,k)   = MIN(QO(I,k),QESO(I,k))
-            HEO(I,k)   = .5 * G * (ZO(I,k) + ZO(I,k+1)) +
-     &                    CP * TO(I,k) + HVAP * QO(I,k)
-            HESO(I,k) = .5 * G * (ZO(I,k) + ZO(I,k+1)) +
-     &                  CP * TO(I,k) + HVAP * QESO(I,k)
+            QO(k)   = max(QO(k), val2 )
+c           QO(k)   = MIN(QO(k),QESO(k))
+            HEO(k)   = .5 * G * (ZO(k) + ZO(k+1)) +
+     &                    CP * TO(k) + HVAP * QO(k)
+            HESO(k) = .5 * G * (ZO(k) + ZO(k+1)) +
+     &                  CP * TO(k) + HVAP * QESO(k)
           ENDIF
-        ENDDO
       ENDDO
-      DO I = 1, IM
-        k = kmax(i)
-        IF(CNVFLG(I)) THEN
-          HEO(I,k) = G * ZO(I,k) + CP * TO(I,k) + HVAP * QO(I,k)
-          HESO(I,k) = G * ZO(I,k) + CP * TO(I,k) + HVAP * QESO(I,k)
-c         HEO(I,k) = MIN(HEO(I,k),HESO(I,k))
+        k = kmax
+        IF(CNVFLG) THEN
+          HEO(k) = G * ZO(k) + CP * TO(k) + HVAP * QO(k)
+          HESO(k) = G * ZO(k) + CP * TO(k) + HVAP * QESO(k)
+c         HEO(k) = MIN(HEO(k),HESO(k))
         ENDIF
-      ENDDO
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
-          INDX = KB(I)
-          XHKB(I) = HEO(I,INDX)
-          XQKB(I) = QO(I,INDX)
-          HCKO(I,INDX) = XHKB(I)
-          QCKO(I,INDX) = XQKB(I)
+        IF(CNVFLG) THEN
+          INDX = KB
+          XHKB = HEO(INDX)
+          XQKB = QO(INDX)
+          HCKO(INDX) = XHKB
+          QCKO(INDX) = XQKB
         ENDIF
-      ENDDO
 C
 C
 C**************************** STATIC CONTROL
@@ -1215,120 +1025,105 @@ C
 C------- MOISTURE AND CLOUD WORK FUNCTIONS
 C
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-C           IF(CNVFLG(I).AND.K.GT.KB(I).AND.K.LE.KBCON(I)) THEN
-            IF(CNVFLG(I).AND.K.GT.KB(I).AND.K.LE.KTCON(I)) THEN
-              FACTOR = ETA(I,k-1) / ETA(I,k)
+          if (k .le. kmax-1) then
+C           IF(CNVFLG.AND.K.GT.KB.AND.K.LE.KBCON) THEN
+            IF(CNVFLG.AND.K.GT.KB.AND.K.LE.KTCON) THEN
+              FACTOR = ETA(k-1) / ETA(k)
               ONEMF = 1. - FACTOR
-              HCKO(I,k) = FACTOR * HCKO(I,k-1) + ONEMF *
-     &                    .5 * (HEO(I,k) + HEO(I,k+1))
+              HCKO(k) = FACTOR * HCKO(k-1) + ONEMF *
+     &                    .5 * (HEO(k) + HEO(k+1))
             ENDIF
-C           IF(CNVFLG(I).AND.K.GT.KBCON(I)) THEN
-C             HEO(I,k) = HEO(I,k-1)
+C           IF(CNVFLG.AND.K.GT.KBCON) THEN
+C             HEO(k) = HEO(k-1)
 C           ENDIF
           endif
-        ENDDO
       ENDDO
       DO K = 2, KM1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(CNVFLG(I).AND.K.GT.KB(I).AND.K.LT.KTCON(I)) THEN
-              DZ = .5 * (ZO(I,k+1) - ZO(I,k-1))
-              GAMMA = EL2ORC * QESO(I,k) / (TO(I,k)**2)
-              XDBY = HCKO(I,k) - HESO(I,k)
+          if (k .le. kmax-1) then
+            IF(CNVFLG.AND.K.GT.KB.AND.K.LT.KTCON) THEN
+              DZ = .5 * (ZO(k+1) - ZO(k-1))
+              GAMMA = EL2ORC * QESO(k) / (TO(k)**2)
+              XDBY = HCKO(k) - HESO(k)
               val  =          0.
               XDBY = MAX(XDBY,val)
-              XQRCH = QESO(I,k)
+              XQRCH = QESO(k)
      &              + GAMMA * XDBY / (HVAP * (1. + GAMMA))
-              FACTOR = ETA(I,k-1) / ETA(I,k)
+              FACTOR = ETA(k-1) / ETA(k)
               ONEMF = 1. - FACTOR
-              QCKO(I,k) = FACTOR * QCKO(I,k-1) + ONEMF *
-     &                    .5 * (QO(I,k) + QO(I,k+1))
-              DQ = ETA(I,k) * QCKO(I,k) - ETA(I,k) * XQRCH
+              QCKO(k) = FACTOR * QCKO(k-1) + ONEMF *
+     &                    .5 * (QO(k) + QO(k+1))
+              DQ = ETA(k) * QCKO(k) - ETA(k) * XQRCH
               IF(DQ.GT.0.) THEN
-                ETAH = .5 * (ETA(I,k) + ETA(I,k-1))
-                QLK = DQ / (ETA(I,k) + ETAH * C0 * DZ)
-                XAA0(I) = XAA0(I) - (ZO(I,k) - ZO(I,k-1)) * G * QLK
+                ETAH = .5 * (ETA(k) + ETA(k-1))
+                QLK = DQ / (ETA(k) + ETAH * C0 * DZ)
+                XAA0 = XAA0 - (ZO(k) - ZO(k-1)) * G * QLK
                 XQC = QLK + XQRCH
                 XPW = ETAH * C0 * DZ * QLK
-                QCKO(I,k) = XQC
-                XPWAV(I) = XPWAV(I) + XPW
+                QCKO(k) = XQC
+                XPWAV = XPWAV + XPW
               ENDIF
             ENDIF
-c           IF(CNVFLG(I).AND.K.GT.KBCON(I).AND.K.LT.KTCON(I)) THEN
-            IF(CNVFLG(I).AND.K.GT.KBCON(I).AND.K.LE.KTCON(I)) THEN
-              DZ1 = ZO(I,k) - ZO(I,k-1)
-              GAMMA = EL2ORC * QESO(I,k-1) / (TO(I,k-1)**2)
+c           IF(CNVFLG.AND.K.GT.KBCON.AND.K.LT.KTCON) THEN
+            IF(CNVFLG.AND.K.GT.KBCON.AND.K.LE.KTCON) THEN
+              DZ1 = ZO(k) - ZO(k-1)
+              GAMMA = EL2ORC * QESO(k-1) / (TO(k-1)**2)
               RFACT =  1. + DELTA * CP * GAMMA
-     &                 * TO(I,k-1) / HVAP
-              XDBY = HCKO(I,k-1) - HESO(I,k-1)
-              XAA0(I) = XAA0(I)
-     &                + DZ1 * (G / (CP * TO(I,k-1)))
+     &                 * TO(k-1) / HVAP
+              XDBY = HCKO(k-1) - HESO(k-1)
+              XAA0 = XAA0
+     &                + DZ1 * (G / (CP * TO(k-1)))
      &                * XDBY / (1. + GAMMA)
      &                * RFACT
               val=0.
-              XAA0(I)=XAA0(I)+
+              XAA0=XAA0+
      &                 DZ1 * G * DELTA *
-     &                 MAX(val,(QESO(I,k-1) - QO(I,k-1)))
+     &                 MAX(val,(QESO(k-1) - QO(k-1)))
             ENDIF
           endif
-        ENDDO
       ENDDO
-ccccc IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I)) THEN
-ccccc   PRINT *, ' XAA BEFORE DWNDRFT =', XAA0(I)
-ccccc ENDIF
 C
 C------- DOWNDRAFT CALCULATIONS
 C
 C
 C--- DOWNDRAFT MOISTURE PROPERTIES
 C
-      DO I = 1, IM
-        XPWEV(I) = 0.
-      ENDDO
-      DO I = 1, IM
-        IF(DWNFLG2(I)) THEN
-          JMN = JMIN(I)
-          XHCD(I) = HEO(I,JMN)
-          XQCD(I) = QO(I,JMN)
-          QRCD(I,JMN) = QESO(I,JMN)
+        XPWEV = 0.
+        IF(DWNFLG2) THEN
+          JMN = JMIN
+          XHCD = HEO(JMN)
+          XQCD = QO(JMN)
+          QRCD(JMN) = QESO(JMN)
         ENDIF
-      ENDDO
       DO K = KM1, 1, -1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(DWNFLG2(I).AND.K.LT.JMIN(I)) THEN
-              DQ = QESO(I,k)
-              DT = TO(I,k)
+          if (k .le. kmax-1) then
+            IF(DWNFLG2.AND.K.LT.JMIN) THEN
+              DQ = QESO(k)
+              DT = TO(k)
               GAMMA    = EL2ORC * DQ / DT**2
-              DH       = XHCD(I) - HESO(I,k)
-              QRCD(I,k)=DQ+(1./HVAP)*(GAMMA/(1.+GAMMA))*DH
-              DETAD    = ETAD(I,k+1) - ETAD(I,k)
-              XPWD     = ETAD(I,k+1) * QRCD(I,k+1) -
-     &                   ETAD(I,k) * QRCD(I,k)
+              DH       = XHCD - HESO(k)
+              QRCD(k)=DQ+(1./HVAP)*(GAMMA/(1.+GAMMA))*DH
+              DETAD    = ETAD(k+1) - ETAD(k)
+              XPWD     = ETAD(k+1) * QRCD(k+1) -
+     &                   ETAD(k) * QRCD(k)
               XPWD     = XPWD - DETAD *
-     &                 .5 * (QRCD(I,k) + QRCD(I,k+1))
-              XPWEV(I) = XPWEV(I) + XPWD
+     &                 .5 * (QRCD(k) + QRCD(k+1))
+              XPWEV = XPWEV + XPWD
             ENDIF
           endif
-        ENDDO
       ENDDO
 C
-      DO I = 1, IM
         edtmax = edtmaxl
-        if(SLIMSK(I).eq.0.) edtmax = edtmaxs
-        IF(DWNFLG2(I)) THEN
-          IF(XPWEV(I).GE.0.) THEN
-            EDTX(I) = 0.
+        if(SLIMSK.eq.0.) edtmax = edtmaxs
+        IF(DWNFLG2) THEN
+          IF(XPWEV.GE.0.) THEN
+            EDTX = 0.
           ELSE
-            EDTX(I) = -EDTX(I) * XPWAV(I) / XPWEV(I)
-            EDTX(I) = MIN(EDTX(I),EDTMAX)
+            EDTX = -EDTX * XPWAV / XPWEV
+            EDTX = MIN(EDTX,EDTMAX)
           ENDIF
         ELSE
-          EDTX(I) = 0.
+          EDTX = 0.
         ENDIF
-      ENDDO
 C
 C
 C
@@ -1336,54 +1131,47 @@ C--- DOWNDRAFT CLOUDWORK FUNCTIONS
 C
 C
       DO K = KM1, 1, -1
-        DO I = 1, IM
-          if (k .le. kmax(i)-1) then
-            IF(DWNFLG2(I).AND.K.LT.JMIN(I)) THEN
-              GAMMA = EL2ORC * QESO(I,k+1) / TO(I,k+1)**2
-              DHH=XHCD(I)
-              DT= TO(I,k+1)
+          if (k .le. kmax-1) then
+            IF(DWNFLG2.AND.K.LT.JMIN) THEN
+              GAMMA = EL2ORC * QESO(k+1) / TO(k+1)**2
+              DHH=XHCD
+              DT= TO(k+1)
               DG= GAMMA
-              DH= HESO(I,k+1)
-              DZ=-1.*(ZO(I,k+1)-ZO(I,k))
-              XAA0(I)=XAA0(I)+EDTX(I)*DZ*(G/(CP*DT))*((DHH-DH)/(1.+DG))
+              DH= HESO(k+1)
+              DZ=-1.*(ZO(k+1)-ZO(k))
+              XAA0=XAA0+EDTX*DZ*(G/(CP*DT))*((DHH-DH)/(1.+DG))
      &                *(1.+DELTA*CP*DG*DT/HVAP)
               val=0.
-              XAA0(I)=XAA0(I)+EDTX(I)*
-     &        DZ*G*DELTA*MAX(val,(QESO(I,k+1)-QO(I,k+1)))
+              XAA0=XAA0+EDTX*
+     &        DZ*G*DELTA*MAX(val,(QESO(k+1)-QO(k+1)))
             ENDIF
           endif
-        ENDDO
       ENDDO
-ccccc IF(LAT.EQ.LATD.AND.lon.eq.lond.and.DWNFLG2(I)) THEN
-ccccc   PRINT *, '  XAA AFTER DWNDRFT =', XAA0(I)
-ccccc ENDIF
 C
 C  CALCULATE CRITICAL CLOUD WORK FUNCTION
 C
-      DO I = 1, IM
-        ACRT(I) = 0.
-        IF(CNVFLG(I)) THEN
-C       IF(CNVFLG(I).AND.SLIMSK(I).NE.1.) THEN
-          IF(PFLD(I,KTCON(I)).LT.PCRIT(15))THEN
-            ACRT(I)=ACRIT(15)*(975.-PFLD(I,KTCON(I)))
+        ACRT = 0.
+        IF(CNVFLG) THEN
+C       IF(CNVFLG.AND.SLIMSK.NE.1.) THEN
+          IF(PFLD(KTCON).LT.PCRIT(15))THEN
+            ACRT=ACRIT(15)*(975.-PFLD(KTCON))
      &              /(975.-PCRIT(15))
-          ELSE IF(PFLD(I,KTCON(I)).GT.PCRIT(1))THEN
-            ACRT(I)=ACRIT(1)
+          ELSE IF(PFLD(KTCON).GT.PCRIT(1))THEN
+            ACRT=ACRIT(1)
           ELSE
-            K =  int((850. - PFLD(I,KTCON(I)))/50.) + 2
+            K =  int((850. - PFLD(KTCON))/50.) + 2
             K = MIN(K,15)
             K = MAX(K,2)
-            ACRT(I)=ACRIT(K)+(ACRIT(K-1)-ACRIT(K))*
-     *           (PFLD(I,KTCON(I))-PCRIT(K))/(PCRIT(K-1)-PCRIT(K))
+            ACRT=ACRIT(K)+(ACRIT(K-1)-ACRIT(K))*
+     *           (PFLD(KTCON)-PCRIT(K))/(PCRIT(K-1)-PCRIT(K))
            ENDIF
 C        ELSE
-C          ACRT(I) = .5 * (PFLD(I,KBCON(I)) - PFLD(I,KTCON(I)))
+C          ACRT = .5 * (PFLD(KBCON) - PFLD(KTCON))
          ENDIF
-      ENDDO
-      DO I = 1, IM
-        ACRTFCT(I) = 1.
-        IF(CNVFLG(I)) THEN
-          if(SLIMSK(I).eq.1.) THEN
+      
+        ACRTFCT = 1.
+        IF(CNVFLG) THEN
+          if(SLIMSK.eq.1.) THEN
             w1 = w1l
             w2 = w2l
             w3 = w3l
@@ -1394,93 +1182,67 @@ C          ACRT(I) = .5 * (PFLD(I,KBCON(I)) - PFLD(I,KTCON(I)))
             w3 = w3s
             w4 = w4s
           ENDIF
-C       IF(CNVFLG(I).AND.SLIMSK(I).EQ.1.) THEN
-C         ACRTFCT(I) = PDOT(I) / W3
 c
 c  modify critical cloud workfunction by cloud base vertical velocity
 c
-          IF(PDOT(I).LE.W4) THEN
-            ACRTFCT(I) = (PDOT(I) - W4) / (W3 - W4)
-          ELSEIF(PDOT(I).GE.-W4) THEN
-            ACRTFCT(I) = - (PDOT(I) + W4) / (W4 - W3)
+          IF(PDOT.LE.W4) THEN
+            ACRTFCT = (PDOT - W4) / (W3 - W4)
+          ELSEIF(PDOT.GE.-W4) THEN
+            ACRTFCT = - (PDOT + W4) / (W4 - W3)
           ELSE
-            ACRTFCT(I) = 0.
+            ACRTFCT = 0.
           ENDIF
           val1    =             -1.
-          ACRTFCT(I) = MAX(ACRTFCT(I),val1)
+          ACRTFCT = MAX(ACRTFCT,val1)
           val2    =             1.
-          ACRTFCT(I) = MIN(ACRTFCT(I),val2)
-          ACRTFCT(I) = 1. - ACRTFCT(I)
-c
-c  modify ACRTFCT(I) by colume mean rh if RHBAR(I) is greater than 80 percent
-c
-c         if(RHBAR(I).ge..8) THEN
-c           ACRTFCT(I) = ACRTFCT(I) * (.9 - min(RHBAR(I),.9)) * 10.
-c         ENDIF
-c
-c  modify adjustment time scale by cloud base vertical velocity
-c
-          DTCONV(I) = DT2 + max((1800. - DT2),cons_0) *
-     &                (PDOT(I) - W2) / (W1 - W2)
-c         DTCONV(I) = MAX(DTCONV(I), DT2)
-c         DTCONV(I) = 1800. * (PDOT(I) - w2) / (w1 - w2)
-          DTCONV(I) = max(DTCONV(I),dtmin)
-          DTCONV(I) = min(DTCONV(I),dtmax)
+          ACRTFCT = MIN(ACRTFCT,val2)
+          ACRTFCT = 1. - ACRTFCT
+          DTCONV = DT2 + max((1800. - DT2),cons_0) *
+     &                (PDOT - W2) / (W1 - W2)
+          DTCONV = max(DTCONV,dtmin)
+          DTCONV = min(DTCONV,dtmax)
  
         ENDIF
-      ENDDO
 C
 C--- LARGE SCALE FORCING
 C
-      DO I= 1, IM
-        FLG(I) = CNVFLG(I)
-        IF(CNVFLG(I)) THEN
-C         F = AA1(I) / DTCONV(I)
-          FLD(I) = (AA1(I) - ACRT(I) * ACRTFCT(I)) / DTCONV(I)
-          IF(FLD(I).LE.0.) FLG(I) = .FALSE.
+        FLG = CNVFLG
+        IF(CNVFLG) THEN
+C         F = AA1 / DTCONV
+          FLD = (AA1 - ACRT * ACRTFCT) / DTCONV
+          IF(FLD.LE.0.) FLG = .FALSE.
         ENDIF
-        CNVFLG(I) = FLG(I)
-        IF(CNVFLG(I)) THEN
-C         XAA0(I) = MAX(XAA0(I),0.)
-          XK(I) = (XAA0(I) - AA1(I)) / MBDT
-          IF(XK(I).GE.0.) FLG(I) = .FALSE.
+        CNVFLG = FLG
+        IF(CNVFLG) THEN
+C         XAA0 = MAX(XAA0,0.)
+          XK = (XAA0 - AA1) / MBDT
+          IF(XK.GE.0.) FLG = .FALSE.
         ENDIF
 C
 C--- KERNEL, CLOUD BASE MASS FLUX
 C
-        CNVFLG(I) = FLG(I)
-        IF(CNVFLG(I)) THEN
-          XMB(I) = -FLD(I) / XK(I)
-          XMB(I) = MIN(XMB(I),XMBMAX(I))
+        CNVFLG = FLG
+        IF(CNVFLG) THEN
+          XMB = -FLD / XK
+          XMB = MIN(XMB,XMBMAX)
         ENDIF
-      ENDDO
-c      IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I)) THEN
-c        print *, ' RHBAR(I), ACRTFCT(I) =', RHBAR(I), ACRTFCT(I)
-c        PRINT *, '  A1, XA =', AA1(I), XAA0(I)
-c        PRINT *, ' XMB(I), ACRT =', XMB(I), ACRT
-c      ENDIF
       TOTFLG = .TRUE.
-      DO I = 1, IM
-        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG(I))
-      ENDDO
+        TOTFLG = TOTFLG .AND. (.NOT. CNVFLG)
       IF(TOTFLG) RETURN
 c
 c  restore t0 and QO to t1 and q1 in case convection stops
 c
       do k = 1, km
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            TO(I,k) = T1(I,k)
-            QO(I,k) = Q1(I,k)
-!jfe        QESO(I,k) = 10. * FPVS(T1(I,k))
+          if (k .le. kmax) then
+            TO(k) = T1(k)
+            QO(k) = Q1(k)
 !
-            QESO(I,k) = 0.01 * fpvs(T1(I,K))      ! fpvs is in Pa
+            QESO(k) = 0.01 * fpvs(T1(K))      ! fpvs is in Pa
 !
-            QESO(I,k) = EPS * QESO(I,k) / (PFLD(I,k) + EPSM1*QESO(I,k))
+            QESO(k) = EPS * QESO(k) / (PFLD(k) + EPSM1*QESO(k))
             val     =             1.E-8
-            QESO(I,k) = MAX(QESO(I,k), val )
+            QESO(k) = MAX(QESO(k), val )
           endif
-        enddo
       enddo
 C!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 C
@@ -1488,192 +1250,154 @@ C--- FEEDBACK: SIMPLY THE CHANGES FROM THE CLOUD WITH UNIT MASS FLUX
 C---           MULTIPLIED BY  THE MASS FLUX NECESSARY TO KEEP THE
 C---           EQUILIBRIUM WITH THE LARGER-SCALE.
 C
-      DO I = 1, IM
-        DELHBAR(I) = 0.
-        DELQBAR(I) = 0.
-        DELTBAR(I) = 0.
-        QCOND(I) = 0.
-      ENDDO
+        DELHBAR = 0.
+        DELQBAR = 0.
+        DELTBAR = 0.
+        QCOND = 0.
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).AND.K.LE.KTCON(I)) THEN
+          if (k .le. kmax) then
+            IF(CNVFLG.AND.K.LE.KTCON) THEN
               AUP = 1.
-              IF(K.Le.KB(I)) AUP = 0.
+              IF(K.Le.KB) AUP = 0.
               ADW = 1.
-              IF(K.GT.JMIN(I)) ADW = 0.
-              DELLAT = (DELLAH(I,k) - HVAP * DELLAQ(I,k)) / CP
-              T1(I,k) = T1(I,k) + DELLAT * XMB(I) * DT2
-              Q1(I,k) = Q1(I,k) + DELLAQ(I,k) * XMB(I) * DT2
-              U1(I,k) = U1(I,k) + DELLAU(I,k) * XMB(I) * DT2
-              V1(I,k) = V1(I,k) + DELLAV(I,k) * XMB(I) * DT2
-              DP = 1000. * DEL(I,K)
-              DELHBAR(I) = DELHBAR(I) + DELLAH(I,k)*XMB(I)*DP/G
-              DELQBAR(I) = DELQBAR(I) + DELLAQ(I,k)*XMB(I)*DP/G
-              DELTBAR(I) = DELTBAR(I) + DELLAT*XMB(I)*DP/G
+              IF(K.GT.JMIN) ADW = 0.
+              DELLAT = (DELLAH(k) - HVAP * DELLAQ(k)) / CP
+              T1(k) = T1(k) + DELLAT * XMB * DT2
+              Q1(k) = Q1(k) + DELLAQ(k) * XMB * DT2
+              U1(k) = U1(k) + DELLAU(k) * XMB * DT2
+              V1(k) = V1(k) + DELLAV(k) * XMB * DT2
+              DP = 1000. * DEL(K)
+              DELHBAR = DELHBAR + DELLAH(k)*XMB*DP/G
+              DELQBAR = DELQBAR + DELLAQ(k)*XMB*DP/G
+              DELTBAR = DELTBAR + DELLAT*XMB*DP/G
             ENDIF
           endif
-        ENDDO
       ENDDO
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).AND.K.LE.KTCON(I)) THEN
-!jfe          QESO(I,k) = 10. * FPVS(T1(I,k))
+          if (k .le. kmax) then
+            IF(CNVFLG.AND.K.LE.KTCON) THEN
+!jfe          QESO(k) = 10. * FPVS(T1(k))
 !
-              QESO(I,k) = 0.01 * fpvs(T1(I,K))      ! fpvs is in Pa
+              QESO(k) = 0.01 * fpvs(T1(K))      ! fpvs is in Pa
 !
-              QESO(I,k) = EPS * QESO(I,k)/(PFLD(I,k) + EPSM1*QESO(I,k))
+              QESO(k) = EPS * QESO(k)/(PFLD(k) + EPSM1*QESO(k))
               val     =             1.E-8
-              QESO(I,k) = MAX(QESO(I,k), val )
+              QESO(k) = MAX(QESO(k), val )
 c
 c  cloud water
 c
-              if(ncloud.gt.0.and.cnvflg(i).and.k.eq.ktcon(i)) then
-                tem  = dellal(i) * xmb(i) * dt2
-                tem1 = max(0.0, min(1.0, (tcr-t1(i,k))*tcrf))
-                if (ql(i,k,2) .gt. -999.0) then
-                  ql(i,k,2) = ql(i,k,2) + tem * tem1            ! ice
-                  ql(i,k,1) = ql(i,k,1) + tem *(1.0-tem1)       ! water
+              if(ncloud.gt.0.and.cnvflg.and.k.eq.ktcon) then
+                tem  = dellal * xmb * dt2
+                tem1 = max(0.0, min(1.0, (tcr-t1(k))*tcrf))
+                if (ql(k,2) .gt. -999.0) then
+                  ql(k,2) = ql(k,2) + tem * tem1            ! ice
+                  ql(k,1) = ql(k,1) + tem *(1.0-tem1)       ! water
                 else
-                  ql(i,k,1) = ql(i,k,1) + tem
+                  ql(k,1) = ql(k,1) + tem
                 endif
-                dp = 1000. * del(i,k)
-                dellal(i) = dellal(i) * xmb(i) * dp / g
+                dp = 1000. * del(k)
+                dellal = dellal * xmb * dp / g
               endif
 !
-!             if(ncloud.gt.0.and.CNVFLG(I).and.k.eq.KTCON(I)) THEN
-!               QL(I,k) = QL(I,k) + DELLAL(I) * XMB(I) * dt2
-!               dp = 1000. * del(i,k)
-!               DELLAL(I) = DELLAL(I) * XMB(I) * dp / g
+!             if(ncloud.gt.0.and.CNVFLG.and.k.eq.KTCON) THEN
+!               QL(k) = QL(k) + DELLAL * XMB * dt2
+!               dp = 1000. * del(k)
+!               DELLAL = DELLAL * XMB * dp / g
 !             ENDIF
 !
             ENDIF
           endif
-        ENDDO
       ENDDO
-c     IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I) ) THEN
-c       PRINT *, ' DELHBAR, DELQBAR, DELTBAR ='
-c       PRINT *, DELHBAR, HVAP*DELQBAR, CP*DELTBAR
-c       PRINT *, '   DELLBAR ='
-c       PRINT 6003,  HVAP*DELLbar
-c       PRINT *, '   DELLAQ ='
-c       PRINT 6003, (HVAP*DELLAQ(I,k)*XMB(I),K=1,KMAX)
-c       PRINT *, '   DELLAT ='
-c       PRINT 6003, (DELLAH(i,k)*XMB(I)-HVAP*DELLAQ(I,k)*XMB(I),
-c    &               K=1,KMAX)
-c     ENDIF
-      DO I = 1, IM
-        RNTOT(I) = 0.
-        DELQEV(I) = 0.
-        DELQ2(I) = 0.
-        FLG(I) = CNVFLG(I)
-      ENDDO
+        RNTOT = 0.
+        DELQEV = 0.
+        DELQ2 = 0.
+        FLG = CNVFLG
       DO K = KM, 1, -1
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).AND.K.LE.KTCON(I)) THEN
+          if (k .le. kmax) then
+            IF(CNVFLG.AND.K.LE.KTCON) THEN
               AUP = 1.
-              IF(K.Le.KB(I)) AUP = 0.
+              IF(K.Le.KB) AUP = 0.
               ADW = 1.
-              IF(K.GT.JMIN(I)) ADW = 0.
-              rain =  AUP * PWO(I,k) + ADW * EDTO(I) * PWDO(I,k)
-              RNTOT(I) = RNTOT(I) + rain * XMB(I) * .001 * dt2
+              IF(K.GT.JMIN) ADW = 0.
+              rain =  AUP * PWO(k) + ADW * EDTO * PWDO(k)
+              RNTOT = RNTOT + rain * XMB * .001 * dt2
             ENDIF
           endif
-        ENDDO
       ENDDO
       DO K = KM, 1, -1
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            DELTV(I) = 0.
-            DELQ(I) = 0.
-            QEVAP(I) = 0.
-            IF(CNVFLG(I).AND.K.LE.KTCON(I)) THEN
+          if (k .le. kmax) then
+            DELTV = 0.
+            DELQ = 0.
+            QEVAP = 0.
+            IF(CNVFLG.AND.K.LE.KTCON) THEN
               AUP = 1.
-              IF(K.Le.KB(I)) AUP = 0.
+              IF(K.Le.KB) AUP = 0.
               ADW = 1.
-              IF(K.GT.JMIN(I)) ADW = 0.
-              rain =  AUP * PWO(I,k) + ADW * EDTO(I) * PWDO(I,k)
-              RN(I) = RN(I) + rain * XMB(I) * .001 * dt2
+              IF(K.GT.JMIN) ADW = 0.
+              rain =  AUP * PWO(k) + ADW * EDTO * PWDO(k)
+              RN = RN + rain * XMB * .001 * dt2
             ENDIF
-            IF(FLG(I).AND.K.LE.KTCON(I)) THEN
-              evef = EDT(I) * evfact
-              if(SLIMSK(I).eq.1.) evef=EDT(I) * evfactl
-!             if(SLIMSK(I).eq.1.) evef=.07
-c             if(SLIMSK(I).ne.1.) evef = 0.
-              QCOND(I) = EVEF * (Q1(I,k) - QESO(I,k))
-     &                 / (1. + EL2ORC * QESO(I,k) / T1(I,k)**2)
-              DP = 1000. * DEL(I,K)
-              IF(RN(I).GT.0..AND.QCOND(I).LT.0.) THEN
-                QEVAP(I) = -QCOND(I) * (1.-EXP(-.32*SQRT(DT2*RN(I))))
-                QEVAP(I) = MIN(QEVAP(I), RN(I)*1000.*G/DP)
-                DELQ2(I) = DELQEV(I) + .001 * QEVAP(I) * dp / g
+            IF(FLG.AND.K.LE.KTCON) THEN
+              evef = EDT * evfact
+              if(SLIMSK.eq.1.) evef=EDT * evfactl
+c             if(SLIMSK.ne.1.) evef = 0.
+              QCOND = EVEF * (Q1(k) - QESO(k))
+     &                 / (1. + EL2ORC * QESO(k) / T1(k)**2)
+              DP = 1000. * DEL(K)
+              IF(RN.GT.0..AND.QCOND.LT.0.) THEN
+                QEVAP = -QCOND * (1.-EXP(-.32*SQRT(DT2*RN)))
+                QEVAP = MIN(QEVAP, RN*1000.*G/DP)
+                DELQ2 = DELQEV + .001 * QEVAP * dp / g
               ENDIF
-              if(RN(I).gt.0..and.QCOND(I).LT.0..and.
-     &           DELQ2(I).gt.RNTOT(I)) THEN
-                QEVAP(I) = 1000.* g * (RNTOT(I) - DELQEV(I)) / dp
-                FLG(I) = .false.
+              if(RN.gt.0..and.QCOND.LT.0..and.
+     &           DELQ2.gt.RNTOT) THEN
+                QEVAP = 1000.* g * (RNTOT - DELQEV) / dp
+                FLG = .false.
               ENDIF
-              IF(RN(I).GT.0..AND.QEVAP(I).gt.0.) THEN
-                Q1(I,k) = Q1(I,k) + QEVAP(I)
-                T1(I,k) = T1(I,k) - ELOCP * QEVAP(I)
-                RN(I) = RN(I) - .001 * QEVAP(I) * DP / G
-                DELTV(I) = - ELOCP*QEVAP(I)/DT2
-                DELQ(I) =  + QEVAP(I)/DT2
-                DELQEV(I) = DELQEV(I) + .001*dp*QEVAP(I)/g
+              IF(RN.GT.0..AND.QEVAP.gt.0.) THEN
+                Q1(k) = Q1(k) + QEVAP
+                T1(k) = T1(k) - ELOCP * QEVAP
+                RN = RN - .001 * QEVAP * DP / G
+                DELTV = - ELOCP*QEVAP/DT2
+                DELQ =  + QEVAP/DT2
+                DELQEV = DELQEV + .001*dp*QEVAP/g
               ENDIF
-              DELLAQ(I,k) = DELLAQ(I,k) + DELQ(I) / XMB(I)
-              DELQBAR(I) = DELQBAR(I) + DELQ(I)*DP/G
-              DELTBAR(I) = DELTBAR(I) + DELTV(I)*DP/G
+              DELLAQ(k) = DELLAQ(k) + DELQ / XMB
+              DELQBAR = DELQBAR + DELQ*DP/G
+              DELTBAR = DELTBAR + DELTV*DP/G
             ENDIF
           endif
-        ENDDO
       ENDDO
-c      IF(LAT.EQ.LATD.AND.lon.eq.lond.and.CNVFLG(I) ) THEN
-c        PRINT *, '   DELLAH ='
-c        PRINT 6003, (DELLAH(k)*XMB(I),K=1,KMAX)
-c        PRINT *, '   DELLAQ ='
-c        PRINT 6003, (HVAP*DELLAQ(I,k)*XMB(I),K=1,KMAX)
-c        PRINT *, ' DELHBAR, DELQBAR, DELTBAR ='
-c        PRINT *, DELHBAR, HVAP*DELQBAR, CP*DELTBAR
-c        PRINT *, ' PRECIP =', HVAP*RN(I)*1000./DT2
-CCCCC   PRINT *, '   DELLBAR ='
-CCCCC   PRINT *,  HVAP*DELLbar
-c      ENDIF
 C
 C  PRECIPITATION RATE CONVERTED TO ACTUAL PRECIP
 C  IN UNIT OF M INSTEAD OF KG
 C
-      DO I = 1, IM
-        IF(CNVFLG(I)) THEN
+        IF(CNVFLG) THEN
 C
 C  IN THE EVENT OF UPPER LEVEL RAIN EVAPORATION AND LOWER LEVEL DOWNDRAF
 C    MOISTENING, RN CAN BECOME NEGATIVE, IN THIS CASE, WE BACK OUT OF TH
 C    HEATING AND THE MOISTENING
 C
-          if(RN(I).lt.0..and..not.FLG(I)) RN(I) = 0.
-          IF(RN(I).LE.0.) THEN
-            RN(I) = 0.
+          if(RN.lt.0..and..not.FLG) RN = 0.
+          IF(RN.LE.0.) THEN
+            RN = 0.
           ELSE
-            KTOP(I) = KTCON(I)
-            KBOT(I) = KBCON(I)
-            KUO(I) = 1
-            CLDWRK(I) = AA1(I)
+            KTOP = KTCON
+            KBOT = KBCON
+            KUO = 1
+            CLDWRK = AA1
           ENDIF
         ENDIF
-      ENDDO
+
       DO K = 1, KM
-        DO I = 1, IM
-          if (k .le. kmax(i)) then
-            IF(CNVFLG(I).AND.RN(I).LE.0.) THEN
-              T1(I,k) = TO(I,k)
-              Q1(I,k) = QO(I,k)
+          if (k .le. kmax) then
+            IF(CNVFLG.AND.RN.LE.0.) THEN
+              T1(k) = TO(k)
+              Q1(k) = QO(k)
             ENDIF
           endif
-        ENDDO
       ENDDO
-!!
+
       RETURN
       END SUBROUTINE 
       
