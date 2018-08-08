@@ -2934,7 +2934,7 @@
       real :: fs, speccomb, specmult, colm1, colm2
       real :: lsfluxzen 
 
-      real, dimension(:,:), pointer :: sflxptr=>null()
+      !real, dimension(:,:), pointer :: sflxptr=>null()
 
       integer, dimension(nlay,nblow:nbhgh) :: id0, id1
 
@@ -2965,39 +2965,39 @@
         njb = ng (jb)
         ns  = ngs(jb)
 
-        nullify (sflxptr)
+        !nullify (sflxptr)
 
         select case (jb)
 
           case (16, 20, 23, 25, 26, 29)
 
-            sflxptr => sfluxref01(:,:,ibd)
+            !sflxptr => sfluxref01(:,:,ibd)
 
             do j = 1, njb
-!              sfluxzen(ns+j) = sflxptr(j,1)
-              lsfluxzen = sflxptr(j,1)
+              !lsfluxzen = sflxptr(j,1)
+              lsfluxzen = sfluxref01(j,1,ibd)
               sfluxzen(ns+j) = 0.9956*lsfluxzen
             enddo
 
           case (27)
 
-            sflxptr => sfluxref01(:,:,ibd)
+            !sflxptr => sfluxref01(:,:,ibd)
 
             do j = 1, njb
-!              sfluxzen(ns+j) = scalekur * sflxptr(j,1)
-              lsfluxzen = scalekur * sflxptr(j,1)
+              !lsfluxzen = scalekur * sflxptr(j,1)
+              lsfluxzen = scalekur * sfluxref01(j,1,ibd)
               sfluxzen(ns+j) = 0.9956*lsfluxzen
             enddo
 
           case default
 
             if (jb==17 .or. jb==28) then
-              sflxptr => sfluxref02(:,:,ibd)
+              !sflxptr => sfluxref02(:,:,ibd)
               klow = laytrop
               khgh = nlay - 1
               klim = nlay
             else
-              sflxptr => sfluxref03(:,:,ibd)
+              !sflxptr => sfluxref03(:,:,ibd)
               klow = 1
               khgh = laytrop - 1
               klim = laytrop
@@ -3018,12 +3018,21 @@
             js = 1 + int( specmult )
             fs = mod(specmult, f_one)
 
+            if (jb==17 .or. jb==28) then
             do j = 1, njb
-              lsfluxzen = sflxptr(j,js)                                 
-     &                    + fs * (sflxptr(j,js+1) - sflxptr(j,js))
+              lsfluxzen = sfluxref02(j,js,ibd)                                 
+     &                    + fs * (sfluxref02(j,js+1,ibd) - 
+     &                    sfluxref02(j,js,ibd))
               sfluxzen(ns+j)=0.9956*lsfluxzen
             enddo
-
+            else
+            do j = 1, njb
+              lsfluxzen = sfluxref03(j,js,ibd)                                 
+     &                    + fs * (sfluxref03(j,js+1,ibd) - 
+     &                    sfluxref03(j,js,ibd))
+              sfluxzen(ns+j)=0.9956*lsfluxzen
+            enddo
+            endif
         end select
 
       enddo

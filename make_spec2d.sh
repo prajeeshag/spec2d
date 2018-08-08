@@ -6,7 +6,7 @@ export CC=mpiicc
 export MPICC=mpiicc
 export F77=mpiifort
 
-cppDef="-Duse_netCDF -Duse_libMPI -DOVERLOAD_C8 -Dgloopa" #-Dtest_grid_to_fourier #-Dcheck_mpi" # -Dtest_interp"
+cppDef="-Duse_netCDF -Duse_libMPI " #-Dtest_grid_to_fourier " 
 
 thisdir=$(pwd)
 
@@ -93,7 +93,7 @@ make $@
 
 cd $thisdir/work
 
-mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 rm -f atm_out.nc
 

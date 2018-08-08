@@ -14,15 +14,15 @@ use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
 use constants_mod, only : RVGAS, RDGAS, GRAV, RADIUS
 
-use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
-
+use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init, &
+                    stdlog, stdout, stderr
 use fms_io_mod, only : fms_io_exit, restart_file_type, register_restart_field
 
 use transforms_mod, only : get_spherical_wave
 use transforms_mod, only : compute_ucos_vcos, compute_vor_div
 use transforms_mod, only : spherical_to_grid, grid_to_spherical
 use transforms_mod, only : init_transforms, get_lats, get_lons
-use transforms_mod, only : register_spec_restart
+use transforms_mod, only : register_spec_restart, save_spec_restart, restore_spec_restart 
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel
 use vertical_levels_mod, only: get_pressure_at_levels
@@ -38,6 +38,7 @@ private
 
 public :: init_spectral_dynamics, spectral_dynamics
 public :: get_lats, get_lons, finish_spectral_dynamics
+public :: save_spec_restart, restore_spec_restart
 
 type satm_type
     complex, dimension(:,:,:),   allocatable :: vor
@@ -138,7 +139,7 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
     jlen = jec-jsc+1
     
     call init_transforms(domain_g,trunc,nwaves_oe)
-    
+ 
     call init_vertical_levels(nlev)
     
     allocate(ak(nlev+1),bk(nlev+1),sl(nlev),si(nlev+1),typdel(nlev))
@@ -226,17 +227,17 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
     
     deallocate(ak,bk,sl)
 
-    idx=register_spec_restart(rstrt,'','topo',stopo,.false.,0.)
+    idx=register_spec_restart('topo',stopo,.false.,0.)
     do i = 1, 2
         nm='_m'
         if (i==2) nm='_n'
-        idx=register_spec_restart(rstrt,'','vor'//nm,satm(i)%vor,.false.,0.)
-        idx=register_spec_restart(rstrt,'','div'//nm,satm(i)%div,.false.,0.)
-        idx=register_spec_restart(rstrt,'','tem'//nm,satm(i)%tem,.true.,0.)
-        idx=register_spec_restart(rstrt,'','prs'//nm,satm(i)%prs,.false.,0.)
+        idx=register_spec_restart('vor'//nm,satm(i)%vor,.false.,0.)
+        idx=register_spec_restart('div'//nm,satm(i)%div,.false.,0.)
+        idx=register_spec_restart('tem'//nm,satm(i)%tem,.true.,0.)
+        idx=register_spec_restart('prs'//nm,satm(i)%prs,.false.,0.)
         do tr = 1, ntrac
             write(fldnm,'(A,I3.3,A)') 'tr',tr,nm
-            idx=register_spec_restart(rstrt,'',fldnm,satm(i)%tr(:,:,:,tr),.false.,0.)
+            idx=register_spec_restart(fldnm,satm(i)%tr(:,:,:,tr),.false.,0.)
         enddo
     enddo
     
@@ -316,8 +317,9 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     do k = 1, size(satm(3)%div,1)
         satm(3)%div(k,:,:) = satm(3)%div(k,:,:) + stopo(1,:,:)
     enddo
-    
-    call do_implicit(satm(1)%div, satm(1)%tem, satm(1)%prs, &
+  
+    if (nwaves_oe>0) &  
+        call do_implicit(satm(1)%div, satm(1)%tem, satm(1)%prs, &
                      satm(2)%div, satm(2)%tem, satm(2)%prs, &
                      satm(3)%div, satm(3)%tem, satm(3)%prs, deltim)
     
@@ -415,7 +417,8 @@ subroutine finish_spectral_dynamics(tem, tr, u, v)
         satm(2)%div = (satm(2)%div-satm(3)%div) * bfilt
         satm(2)%tem = (satm(2)%tem-satm(3)%tem) * bfilt
 
-        call do_implicit_adj(satm(3)%div, satm(3)%tem, satm(2)%prs, &
+        if (nwaves_oe>0) &
+            call do_implicit_adj(satm(3)%div, satm(3)%tem, satm(2)%prs, &
                              satm(2)%div, satm(2)%tem, satm(3)%prs, deltim)
     else
         call mpp_error(FATAL,'mass correction should be true.')

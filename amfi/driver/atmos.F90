@@ -26,7 +26,9 @@ use tracer_manager_mod, only : tracer_manager_init, get_number_tracers, get_trac
 use field_manager_mod, only : MODEL_ATMOS
 
 use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
-use spectral_dynamics_mod, only : get_lats, get_lons, finish_spectral_dynamics
+use spectral_dynamics_mod, only : get_lats, get_lons, finish_spectral_dynamics, &
+                                  save_spec_restart, restore_spec_restart
+  
 
 use phys_mod, only : init_phys, phys
 
@@ -163,7 +165,9 @@ subroutine init_atmos(Time,deltim_in)
     call init_phys(Time,deltim*2,deltim,domain_g,ntrac,nlev,lat_deg,lon_deg,rstrt)
 
     call restore_state(rstrt)
+    call restore_spec_restart()
     call save_restart(rstrt,'Ini')
+    call save_spec_restart('Ini')
 
 end subroutine init_atmos
 
@@ -209,6 +213,7 @@ subroutine end_atmos(Time)
     type(time_type), intent(in) :: Time
 
     call save_restart(rstrt)
+    call save_spec_restart()
 
     deallocate(u)
     deallocate(v)

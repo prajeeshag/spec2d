@@ -156,8 +156,10 @@
 
     use_extent = .false.
     if(PRESENT(extent)) then
-       if( size(extent(:)).NE.ndivs ) &
+       if( size(extent(:)).NE.ndivs ) then
+			print *, size(extent(:)), ndivs
             call mpp_error( FATAL, 'mpp_compute_extent: extent array size must equal number of domain divisions.' )       
+	   endif
        use_extent = .true.
        if(ALL(extent ==0)) use_extent = .false.
     endif

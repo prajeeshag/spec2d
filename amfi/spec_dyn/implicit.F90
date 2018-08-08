@@ -7,7 +7,7 @@ use spherical_mod, only : get_spherical_wave
 use constants_mod, only : rd => rdgas, cp => cp_air
 use constants_mod, only : rearth => radius
 
-use mpp_mod, only : mpp_error, FATAL
+use mpp_mod, only : mpp_error, FATAL, mpp_clock_id, mpp_clock_begin, mpp_clock_end
 
 use fms_io_mod, only : write_data
 implicit none
@@ -21,6 +21,8 @@ real, allocatable :: tor_hyb(:), dm205_hyb(:,:,:)
 real, allocatable :: ak5(:), bk5(:)
 
 integer :: levs, levp1
+
+integer :: clck_implicit, clck_implicit_adj
 
 logical :: initialized=.false.
 
@@ -59,6 +61,9 @@ subroutine init_implicit(ak, bk, ref_temp, dt, trunc)
     !call write_data('rimplicit','tor_hyb',tor_hyb)
     !call write_data('rimplicit','d_hyb_m',d_hyb_m)
 
+    clck_implicit = mpp_clock_id('implicit')
+    clck_implicit_adj = mpp_clock_id('implicit_adj')
+
     initialized = .true.
 
 end subroutine init_implicit
@@ -78,6 +83,8 @@ subroutine do_implicit(div, tem, ps, div_n, tem_n, ps_n, &
 
     if (.not.initialized) call mpp_error('do_implicit', 'module not initialized', FATAL)
 
+    call mpp_clock_begin(clck_implicit)
+
     call get_spherical_wave(spherical_wave,nnp1_out=nnp1)
 
     do i = 1, 2
@@ -85,6 +92,8 @@ subroutine do_implicit(div, tem, ps, div_n, tem_n, ps_n, &
                  div_dt(:,:,i), tem_dt(:,:,i), ps_dt(:,:,i), nnp1(:,i), spherical_wave(:,i), dt)
     enddo
 
+    call mpp_clock_end(clck_implicit)
+    return
 end subroutine do_implicit
 
 
@@ -503,6 +512,8 @@ subroutine do_implicit_adj(div, tem, ps, div1, tem1, ps1, dt)
 
     if (.not.initialized) call mpp_error('do_implicit_adj', 'module not initialized', FATAL)
 
+    call mpp_clock_begin(clck_implicit_adj)
+
     call get_spherical_wave(sph_wave,nnp1_out=nnp1)
 
     do i = 1, 2
@@ -510,6 +521,9 @@ subroutine do_implicit_adj(div, tem, ps, div1, tem1, ps1, dt)
                             dt, nnp1(:,i), sph_wave(:,i))
     end do
 
+    call mpp_clock_end(clck_implicit_adj)
+
+    return
 end subroutine do_implicit_adj
 
 
