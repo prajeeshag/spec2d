@@ -3,7 +3,7 @@ module grid_fourier_mod
 use, intrinsic :: iso_c_binding
 
 use mpp_mod, only : mpp_pe, mpp_npes, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
-                    mpp_sync, mpp_root_pe
+                    mpp_sync, mpp_root_pe, CLOCK_MODULE, CLOCK_ROUTINE
 use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, NOTE, &
                     open_file, close_file, file_exist
 
@@ -35,8 +35,8 @@ integer, allocatable :: Tshuffle(:)
 logical :: shuffle=.false.
 
 logical :: debug=.false.
-integer :: clck_grid_to_fourier, clck_fourier_to_grid
-integer :: clck_plan_g2f, clck_plan_f2g
+integer :: clck_grid_to_fourier, clck_fourier_to_grid, clck_g2f_tran, clck_g2f_dft, &
+           clck_f2g_tran, clck_f2g_dft, clck_plan_g2f, clck_plan_f2g
 
 real :: RSCALE
 integer :: plan_level = 3, plan_flags, id_grid2four, id_four2grid
@@ -112,6 +112,10 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
     clck_fourier_to_grid = mpp_clock_id('fourier_to_grid')
     clck_plan_g2f = mpp_clock_id('plan_grid_to_fourier')
     clck_plan_f2g = mpp_clock_id('plan_fourier_to_grid')
+    clck_g2f_tran = mpp_clock_id('g2f_tran')
+    clck_g2f_dft = mpp_clock_id('g2f_dft')
+    clck_f2g_tran = mpp_clock_id('f2g_tran')
+    clck_f2g_dft = mpp_clock_id('f2g_dft')
 
     if (import_wisdom(nlons)==1) then
         plan_flags = ior(plan_flags,FFTW_WISDOM_ONLY)
@@ -355,14 +359,17 @@ subroutine grid_to_fourier(rinp, coutp, id_in)
     
     howmany = g2fplans(id)%howmany
 
-    !g2fplans(id)%rin(1:howmany,:) = reshape(rinp(:,:,:), shape=[howmany,NLON_LOCAL])*RSCALE
     g2fplans(id)%rin(1:howmany,:) = rinp(:,:)*RSCALE
 
     !Transpose
+    call mpp_clock_begin(clck_g2f_tran)
     call fftw_mpi_execute_r2r(g2fplans(id)%plan, g2fplans(id)%rin, g2fplans(id)%trin)
+    call mpp_clock_end(clck_g2f_tran)
     
     !Serial FFT
+    call mpp_clock_begin(clck_g2f_dft)
     call fftw_execute_dft_r2c(g2fplans(id)%splan, g2fplans(id)%srin, g2fplans(id)%scout) 
+    call mpp_clock_end(clck_g2f_dft)
 
     !Truncation
     if (shuffle) then
@@ -375,10 +382,10 @@ subroutine grid_to_fourier(rinp, coutp, id_in)
     endif
 
     !Transpose Back
+    call mpp_clock_begin(clck_g2f_tran)
     call fftw_mpi_execute_r2r(g2fplans(id)%tplan, g2fplans(id)%srout, g2fplans(id)%tsrout)
+    call mpp_clock_end(clck_g2f_tran)
 
-    !coutp = reshape(g2fplans(id)%cout(1:howmany,1:FLOCAL),shape=[FLOCAL,NLAT,NLEV],order=[3,2,1])
-    !coutp = reshape(g2fplans(id)%cout(1:howmany,1:FLOCAL),shape=[NLAT,NLEV,FLOCAL],order=[2,1,3])
     coutp = g2fplans(id)%cout(1:howmany,1:FLOCAL)
 
     call mpp_clock_end(clck_grid_to_fourier)
@@ -525,11 +532,12 @@ subroutine fourier_to_grid(coutp, rinp, id_in)
     
     howmany = f2gplans(id)%howmany
     
-    !f2gplans(id)%cout = reshape(coutp,shape=[howmany,FLOCAL])
     f2gplans(id)%cout = coutp
 
     !Transpose Back
+    call mpp_clock_begin(clck_f2g_tran)
     call fftw_mpi_execute_r2r(f2gplans(id)%tplan, f2gplans(id)%tsrout, f2gplans(id)%srout)
+    call mpp_clock_end(clck_f2g_tran)
 
     !Serial FFT
     f2gplans(id)%scout(:,:) = 0.
@@ -541,12 +549,16 @@ subroutine fourier_to_grid(coutp, rinp, id_in)
     else
         f2gplans(id)%scout(1:FTRUNC,:) = f2gplans(id)%scouttr(1:FTRUNC,:) !Truncation
     endif
+
+    call mpp_clock_begin(clck_f2g_dft)
     call fftw_execute_dft_c2r(f2gplans(id)%splan, f2gplans(id)%scout, f2gplans(id)%srin) 
+    call mpp_clock_end(clck_f2g_dft)
 
     !Transpose
+    call mpp_clock_begin(clck_f2g_tran)
     call fftw_mpi_execute_r2r(f2gplans(id)%plan, f2gplans(id)%trin, f2gplans(id)%rin)
+    call mpp_clock_end(clck_f2g_tran)
     
-    !rinp = reshape(f2gplans(id)%rin(1:howmany,:), shape=[NLEV, NLAT, NLON_LOCAL], order=[2,1,3])
     rinp = f2gplans(id)%rin(1:howmany,:)
             
     call mpp_clock_end(clck_fourier_to_grid)

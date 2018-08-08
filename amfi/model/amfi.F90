@@ -34,6 +34,8 @@ integer :: date_init(6), date(6), calendar_type
 integer :: restart_interval(6) = 0
 integer :: dt_atmos=0, unit, m, n
 
+integer :: clck_atmos
+
 namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos, restart_interval
 
 call mpp_init()
@@ -87,13 +89,17 @@ time_step = set_time(dt_atmos,0)
 
 num_atmos_calls = Run_length / time_step
 
+clck_atmos = mpp_clock_id('Atmos')
+
 call init_atmos(Time,real(dt_atmos))
 
+call mpp_clock_begin(clck_atmos)
 do n = 1, num_atmos_calls
     call update_atmos(Time)
     call print_date(Time)
     Time = Time + time_step
 enddo
+call mpp_clock_end(clck_atmos)
 
 call diag_manager_end(Time)
 
