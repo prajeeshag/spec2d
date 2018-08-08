@@ -46,25 +46,25 @@ subroutine do_vertical_diffusion (imax,levs,ntrac,dvdt,dudt,dtdt,dqdt,ugrs,vgrs,
 
     integer :: i
 
-    call init_vertical_diffusion(levs,ntrac,imax)        
+    !call init_vertical_diffusion(levs,ntrac,imax)        
+
+    !do i = 1, imax
+    !    qgrs1(1:levs,1:ntrac,i) = qgrs(1:levs,i,1:ntrac)
+    !enddo
+
+    !dqdt1 = 0.
 
     do i = 1, imax
-        qgrs1(1:levs,1:ntrac,i) = qgrs(1:levs,i,1:ntrac)
-    enddo
-
-    dqdt1 = 0.
-
-    do i = 1, imax
-        call moninp(levs, ntrac, dvdt(:,i), dudt(:,i), dtdt(:,i), dqdt1(:,:,i), ugrs(:,i), vgrs(:,i), &
-                    tgrs(:,i), qgrs1(:,:,i), prsik(1,i), rb(i), ffmm(i), ffhh(i), qss(i), &
+        call moninp(levs, ntrac, dvdt(:,i), dudt(:,i), dtdt(:,i), dqdt(:,i,:), ugrs(:,i), vgrs(:,i), &
+                    tgrs(:,i), qgrs(:,i,:), prsik(1,i), rb(i), ffmm(i), ffhh(i), qss(i), &
                     hflx(i), evap(i), stress(i), wind(i), kpbl(i), prsi(:,i), del(:,i), &
                     prsl(:,i), prslk(:,i), phii(:,i), phil(:,i), dtp, dusfc1(i), &
                     dvsfc1(i), dtsfc1(i), dqsfc1(i), hpbl(i), gamt(i), gamq(i), xkzm(i))
     enddo
 
-    do i = 1, imax
-        dqdt(1:levs,i,1:ntrac) = dqdt1(1:levs,1:ntrac,i)
-    enddo
+    !do i = 1, imax
+    !    dqdt(1:levs,i,1:ntrac) = dqdt1(1:levs,1:ntrac,i)
+    !enddo
 
     return
 end subroutine do_vertical_diffusion

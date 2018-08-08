@@ -96,7 +96,6 @@ call init_atmos(Time,real(dt_atmos))
 call mpp_clock_begin(clck_atmos)
 do n = 1, num_atmos_calls
     call update_atmos(Time)
-    call print_date(Time)
     Time = Time + time_step
 enddo
 call mpp_clock_end(clck_atmos)
