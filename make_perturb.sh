@@ -18,7 +18,7 @@ mkmf="$thisdir/bin/mkmf"
 #mkmftemplate="$thisdir/bin/mkmf.template.debug"
 mkmftemplate="$thisdir/bin/mkmf.template"
 
-paths="$thisdir/perturb_ini $thisdir/amfi/spec_dyn"
+paths="$thisdir/perturb_ini $thisdir/amfi/spec_dyn/transforms"
 
 libsigiopaths=$thisdir/libsigio
 
