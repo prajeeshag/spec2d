@@ -1,6 +1,5 @@
       module gscond_mod
       implicit none
-      integer, parameter :: im = 1, ix = 1
       contains
       subroutine gscond (km,dt,prsl,ps,q,cwm,t
      &,                  tp, qp, psp, tp1, qp1, psp1, u)
@@ -44,12 +43,12 @@
       real, parameter :: cons_0=0.0, cons_m15=-15.0
 !
       integer km
-      real  q(ix,km),    t(ix,km),    cwm(ix,km)
-     &,                     prsl(ix,km), ps(im), dt
-     &,                     tp(ix,km),   qp(ix,km),   psp(im)
-     &,                     tp1(ix,km),  qp1(ix,km),  psp1(im)
+      real  q(km),    t(km),    cwm(km)
+     &,                     prsl(km), ps, dt
+     &,                     tp(km),   qp(km),   psp
+     &,                     tp1(km),  qp1(km),  psp1
 !
-      real   qi(im), qint(im), u(im,km), ccrik, e0
+      real   qi, qint, u(km), ccrik, e0
      &,                      cond,   rdt, us, cclimit, climit
      &,                      u00b,   u00t, tmt0, tmt15, qik, cwmik
      &,                      ai, bi, qw, u00ik, tik, pres, pp0, fi 
@@ -57,8 +56,8 @@
      &,                      rqikk, tx1, tx2, tx3, es, qs
      &,                      tsq, delq, condi, cone0, us00, ccrik1
      &,                      aa, ab, ac, ad, ae, af, ag
-     &,                      el2orc, albycp, vprs(im)           
-      integer iw(im,km), i, k, iwik
+     &,                      el2orc, albycp, vprs           
+      integer iw(km), k, iwik
       logical lprnt
 !
 !-----------------prepare constants for later uses-----------------
@@ -71,25 +70,19 @@
       cclimit = 1.0e-3
       climit  = 1.0e-20
 
-      do  i = 1, im
-        iw(i,km) = d00
-      enddo
+        iw(km) = d00
 
 !  check for first time step
 
-      if (tp(1,1) .lt. 1.) then
+      if (tp(1) .lt. 1.) then
         do k = 1, km
-          do i = 1, im
-            tp(i,k) = t(i,k)
-            qp(i,k) = max(q(i,k),epsq)
-            tp1(i,k) = t(i,k)
-            qp1(i,k) = max(q(i,k),epsq)
-          enddo
+            tp(k) = t(k)
+            qp(k) = max(q(k),epsq)
+            tp1(k) = t(k)
+            qp1(k) = max(q(k),epsq)
         enddo
-        do i = 1, im
-          psp(i)  = ps(i)
-          psp1(i) = ps(i)
-        enddo
+          psp  = ps
+          psp1 = ps
       endif
 c
 c*************************************************************
@@ -101,60 +94,57 @@ c
 !       vprs(:) = 0.001 * fpvs(t(:,k))       ! fpvs in pa
 c-----------------------------------------------------------------------
 c------------------qw, qi and qint--------------------------------------
-        do i = 1, im                                    
-          tmt0  = t(i,k)-273.16                                                
+          tmt0  = t(k)-273.16                                                
           tmt15 = min(tmt0,cons_m15)                                            
-          qik   = max(q(i,k),epsq)
-          cwmik = max(cwm(i,k),climit)
+          qik   = max(q(k),epsq)
+          cwmik = max(cwm(k),climit)
 !  the global qsat computation is done in cb
-          pres    = prsl(i,k)
-          qw      = min(pres, 0.001 * fpvs(t(i,k)))
+          pres    = prsl(k)
+          qw      = min(pres, 0.001 * fpvs(t(k)))
 
           qw      = eps * qw / (pres + epsm1 * qw)
           qw      = max(qw,epsq)
-          qi(i)   = qw
-          qint(i) = qw
+          qi   = qw
+          qint = qw
 
 c-------------------ice-water id number iw------------------------------
           if(tmt0.lt.-15.0) then
-            u00ik = u(i,k)
-            fi    = qik - u00ik*qi(i)    
+            u00ik = u(k)
+            fi    = qik - u00ik*qi    
             if(fi.gt.d00.or.cwmik.gt.climit) then                    
-               iw(i,k) = 1                                                   
+               iw(k) = 1                                                   
             else                                                           
-              iw(i,k) = 0                                                   
+              iw(k) = 0                                                   
             end if                                                         
           end if
 
           if(tmt0.ge.0.0) then
-            iw(i,k) = 0
+            iw(k) = 0
           end if
 
           if (tmt0 .lt. 0.0 .and. tmt0 .ge. -15.0) then
-            iw(i,k) = 0
+            iw(k) = 0
             if (k .lt. km) then
-            if (iw(i,k+1) .eq. 1 .and. cwmik .gt. climit) iw(i,k) = 1
+            if (iw(k+1) .eq. 1 .and. cwmik .gt. climit) iw(k) = 1
             endif
           end if
-        enddo
 c--------------condensation and evaporation of cloud--------------------
-        do i = 1, im
 c------------------------at, aq and dp/dt-------------------------------
-          qik   = max(q(i,k),epsq)
-          cwmik = max(cwm(i,k),climit)
-          iwik  = iw(i,k)
-          u00ik = u(i,k)
-          tik   = t(i,k)
-          pres  = prsl(i,k)   * h1000
-          pp0   = (pres / ps(i)) * psp(i)
-          at    = (tik-tp(i,k)) * rdt
-          aq    = (qik-qp(i,k)) * rdt
+          qik   = max(q(k),epsq)
+          cwmik = max(cwm(k),climit)
+          iwik  = iw(k)
+          u00ik = u(k)
+          tik   = t(k)
+          pres  = prsl(k)   * h1000
+          pp0   = (pres / ps) * psp
+          at    = (tik-tp(k)) * rdt
+          aq    = (qik-qp(k)) * rdt
           ap    = (pres-pp0)    * rdt
 c----------------the satuation specific humidity------------------------
           fiw   = float(iwik)
           elv   = (h1-fiw)*elwv    + fiw*eliv
-          qc    = (h1-fiw)*qint(i) + fiw*qi(i)
-!     if (lprnt) print *,' qc=',qc,' qint=',qint(i),' qi=',qi(i)
+          qc    = (h1-fiw)*qint + fiw*qi
+!     if (lprnt) print *,' qc=',qc,' qint=',qint,' qi=',qi
 c----------------the relative humidity----------------------------------
           if(qc.le.1.0e-10) then
             rqik=d00 
@@ -241,10 +231,9 @@ c-----------check & correct if over condensation occurs-----------------
 c-------------------update of t, q and cwm------------------------------
           end if
           cone0    = (cond-e0) * dt
-          cwm(i,k) = cwm(i,k) + cone0
-          t(i,k)   = t(i,k)   + elwv*rcp*cone0 !change elv to elwv for energy conservation: Prajeesh 
-          q(i,k)   = q(i,k)   - cone0
-        enddo                                  ! end of i-loop!
+          cwm(k) = cwm(k) + cone0
+          t(k)   = t(k)   + elwv*rcp*cone0 !change elv to elwv for energy conservation: Prajeesh 
+          q(k)   = q(k)   - cone0
       enddo                                    ! end of k-loop!
 
 c*********************************************************************
@@ -252,18 +241,14 @@ c****************end of the condensation/evaporation loop*************
 c*********************************************************************
 c----------------store t, q, ps for next time step
       do k = 1, km
-        do i = 1, im
-          tp(i,k)  = tp1(i,k)
-          qp(i,k)  = qp1(i,k)
+          tp(k)  = tp1(k)
+          qp(k)  = qp1(k)
 !
-          tp1(i,k) = t(i,k)
-          qp1(i,k) = max(q(i,k),epsq)
-        enddo
+          tp1(k) = t(k)
+          qp1(k) = max(q(k),epsq)
       enddo
-      do i = 1, im
-        psp(i)  = psp1(i)
-        psp1(i) = ps(i)
-      enddo
+        psp  = psp1
+        psp1 = ps
 c-----------------------------------------------------------------------
       return
       end subroutine

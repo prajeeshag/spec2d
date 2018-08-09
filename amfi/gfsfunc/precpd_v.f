@@ -1,6 +1,6 @@
        module precpd_mod
        implicit none
-       integer, parameter, private :: im=1,ix=1
+       
        contains 
        subroutine precpd (km,dt,del,prsl,ps,q,cwm,t,rn,sn, u00k)
 !
@@ -37,14 +37,14 @@
 !       dt         : time step in seconds
 !       del(km)    : pressure layer thickness (bottom to top)
 !       prsl(km)   : pressure values for model layers (bottom to top)
-!       ps(im)     : surface pressure (centibars)
-!       q(ix,km)   : specific humidity (updated in the code)
-!       cwm(ix,km) : condensate mixing ratio (updated in the code)
-!       t(ix,km)   : temperature       (updated in the code)
-!       rn(im)     : precipitation over one time-step dt (m/dt)
-!       sr(im)     : index (=-1 snow, =0 rain/snow, =1 rain)
-!       tcw(im)    : vertically integrated liquid water (kg/m**2)
-!       cll(ix,km) : cloud cover
+!       ps     : surface pressure (centibars)
+!       q(km)   : specific humidity (updated in the code)
+!       cwm(km) : condensate mixing ratio (updated in the code)
+!       t(km)   : temperature       (updated in the code)
+!       rn     : precipitation over one time-step dt (m/dt)
+!       sr     : index (=-1 snow, =0 rain/snow, =1 rain)
+!       tcw    : vertically integrated liquid water (kg/m**2)
+!       cll(km) : cloud cover
 !
       use funcphys_mod , only : fpvs
       use physcons_mod, grav => con_g, hvap => con_hvap, 
@@ -70,26 +70,26 @@
      &,                                  cons_m30=-30.0, cons_50=50.0
 !
       integer km, lat
-      real  q(ix,km),   t(ix,km),    cwm(ix,km)
-     &,                                 del(ix,km),  prsl(ix,km)
-!    &,                     cll(im,km), del(ix,km),  prsl(ix,km)
-     &,                     ps(im),     rn(im),      sr(im)
-     &,                     tcw(im),    dt, sn(im)
+      real  q(km),   t(km),    cwm(km)
+     &,                                 del(km),  prsl(km)
+!    &,                     cll(km), del(km),  prsl(km)
+     &,                     ps,     rn,      sr
+     &,                     tcw,    dt, sn
 !
 !
-      real  err(im),      ers(im),     precrl(im)
-     &,                     precsl(im),   precrl1(im), precsl1(im)
-     &,                     rq(im),       condt(im)
-     &,                     conde(im),    rconde(im),  tmt0(im)
-     &,                     wmin(im,km),  wmink(im),   pres(im)
-     &,                     wmini(im,km), ccr(im),     cclim(km)
-     &,                     tt(im),       qq(im),      ww(im)
-     &,                     wfix(km),     u00k(im,km), es(im)
+      real  err,      ers,     precrl
+     &,                     precsl,   precrl1, precsl1
+     &,                     rq,       condt
+     &,                     conde,    rconde,  tmt0
+     &,                     wmin(km),  wmink,   pres
+     &,                     wmini(km), ccr,     cclim(km)
+     &,                     tt,       qq,      ww
+     &,                     wfix(km),     u00k(km), es
      &,                     zaodt
 !
-      integer iw(im,km), ipr(im), iwl(im),     iwl1(im)
+      integer iw(km), iwl,     iwl1
 !
-       logical comput(im)
+       logical comput
        logical lprnt
 !
       real  ke,   rdt,  us, cclimit, climit, cws, csm1
@@ -134,81 +134,69 @@
 !--------calculate c0 and cmr using lc at previous step-----------------
 !
       do k=1,km
-        do i=1,im
-          tem   = (prsl(i,k)*0.01)
-          iw(i,k)    = 0.0
-          wmin(i,k)  = 1.0e-5 * tem
-          wmini(i,k) = 1.0e-5 * tem       ! testing for ras
-        enddo
+          tem   = (prsl(k)*0.01)
+          iw(k)    = 0.0
+          wmin(k)  = 1.0e-5 * tem
+          wmini(k) = 1.0e-5 * tem       ! testing for ras
       enddo
-      do i=1,im
-        iwl1(i)    = 0
-        precrl1(i) = d00
-        precsl1(i) = d00
-        comput(i)  = .false.
-        rn(i)      = d00
-        sn(i)      = d00
-        sr(i)      = d00
-        ccr(i)     = d00
-      enddo
+        iwl1    = 0
+        precrl1 = d00
+        precsl1 = d00
+        comput  = .false.
+        rn      = d00
+        sn      = d00
+        sr      = d00
+        ccr     = d00
 !------------select columns where rain can be produced--------------
       do k=1, km-1
-        do i=1,im
-          tem = min(wmin(i,k), wmini(i,k))
-          if (cwm(i,k) .gt. tem) comput(i) = .true.
-        enddo
+          tem = min(wmin(k), wmini(k))
+          if (cwm(k) .gt. tem) comput = .true.
       enddo
+
       ihpr = 0
-      do i=1,im
-        if (comput(i)) then
-           ihpr      = ihpr + 1
-           ipr(ihpr) = i
-        endif
-      enddo
+      if (comput) ihpr =  1
 !***********************************************************************
 !-----------------begining of precipitation calculation-----------------
 !***********************************************************************
 
       do k=km,1,-1
-        do n=1,ihpr
-          precrl(n) = precrl1(n)
-          precsl(n) = precsl1(n)
-          err  (n)  = d00
-          ers  (n)  = d00
-          iwl  (n)  = 0
+        if (ihpr>0) then
+          precrl = precrl1
+          precsl = precsl1
+          err    = d00
+          ers    = d00
+          iwl    = 0
 
-          i         = ipr(n)
-          tt(n)     = t(i,k)
-          qq(n)     = q(i,k)
-          ww(n)     = cwm(i,k)
-          wmink(n)  = wmin(i,k)
-          pres(n)   = h1000 * prsl(i,k)
+          tt     = t(k)
+          qq     = q(k)
+          ww     = cwm(k)
+          wmink  = wmin(k)
+          pres   = h1000 * prsl(k)
 
-          precrk = max(cons_0,    precrl1(n))
-          precsk = max(cons_0,    precsl1(n))
-          wwn    = max(ww(n), climit)
+          precrk = max(cons_0,    precrl1)
+          precsk = max(cons_0,    precsl1)
+          wwn    = max(ww, climit)
 
           if (wwn .gt. climit .or. (precrk+precsk) .gt. d00) then
-            comput(n) = .true.
+            comput = .true.
           else
-            comput(n) = .false.
+            comput = .false.
           endif
-        enddo
+        endif
 
-        do n=1,ihpr
-          if (comput(n)) then
-            i = ipr(n)
-            conde(n)  = (h1000*dt/g) * del(i,k)
-            condt(n)  = conde(n) * rdt
-            rconde(n) = h1 / conde(n)
-            qk        = max(epsq,  qq(n))
-            tmt0(n)   = tt(n) - 273.16
-            wwn       = max(ww(n), climit)
+        if (ihpr>0) then
+          if (comput) then
+            conde  = (h1000*dt/g) * del(k)
+            condt  = conde * rdt
+            rconde = h1 / conde
+            qk        = max(epsq,  qq)
+            tmt0   = tt - 273.16
+            wwn       = max(ww, climit)
 
 
 !  the global qsat computation is done in pa
-            pres1   = pres(n) 
-            qw      = min(pres1, fpvs(tt(n)))
+            pres1   = pres 
+            qw      = min(pres1, fpvs(tt))
             qw      = eps * qw / (pres1 + epsm1 * qw)
             qw      = max(qw,epsq)
             qi   = qw
@@ -216,104 +204,105 @@
 
 
 !-------------------ice-water id number iw------------------------------
-            if(tmt0(n).lt.-15.) then
-               fi = qk - u00k(i,k)*qi
+            if(tmt0.lt.-15.) then
+               fi = qk - u00k(k)*qi
                if(fi.gt.d00.or.wwn.gt.climit) then
-                  iwl(n) = 1
+                  iwl = 1
                else
-                  iwl(n) = 0
+                  iwl = 0
                endif
-            elseif (tmt0(n).ge.0.) then
-               iwl(n) = 0
+            elseif (tmt0.ge.0.) then
+               iwl = 0
             else
-              iwl(n) = 0
-              if(iwl1(n).eq.1.and.wwn.gt.climit) iwl(n)=1
+              iwl = 0
+              if(iwl1.eq.1.and.wwn.gt.climit) iwl=1
             endif
 
 !----------------the satuation specific humidity------------------------
-            fiw   = float(iwl(n))
+            fiw   = float(iwl)
             qc    = (h1-fiw)*qint + fiw*qi
 !----------------the relative humidity----------------------------------
             if(qc .le. 1.0e-10) then
-               rq(n) = d00
+               rq = d00
             else
-               rq(n) = qk / qc
+               rq = qk / qc
             endif
 !----------------cloud cover ratio ccr----------------------------------
-            if(rq(n).lt.u00k(i,k)) then
-                   ccr(n)=d00
-            elseif(rq(n).ge.us) then
-                   ccr(n)=us
+            if(rq.lt.u00k(k)) then
+                   ccr=d00
+            elseif(rq.ge.us) then
+                   ccr=us
             else
-                 rqkll=min(us,rq(n))
-                 ccr(n)= h1-sqrt((us-rqkll)/(us-u00k(i,k)))
+                 rqkll=min(us,rq)
+                 ccr= h1-sqrt((us-rqkll)/(us-u00k(k)))
             endif
           endif
-        enddo
+        endif
 !-------------------ice-water id number iwl------------------------------
 !
 !---   precipitation production --  auto conversion and accretion
 !
-        do n=1,ihpr
-          if (comput(n) .and. ccr(n) .gt. 0.0) then
-            wws    = ww(n)
+        
+        if (ihpr>0) then
+          if (comput .and. ccr .gt. 0.0) then
+            wws    = ww
             cwmk   = max(cons_0, wws)
-            if (iwl(n) .eq. 1) then                 !  ice phase
-               amaxcm = max(cons_0, cwmk - wmini(ipr(n),k))
-               expf      = dt * exp(0.025*tmt0(n))
+            if (iwl .eq. 1) then                 !  ice phase
+               amaxcm = max(cons_0, cwmk - wmini(k))
+               expf      = dt * exp(0.025*tmt0)
                psaut     = min(cwmk, 4.0e-4*expf*amaxcm)
-               ww(n)     = ww(n) - psaut
-               cwmk      = max(cons_0, ww(n))
-               psaci     = min(cwmk, aa2*expf*precsl1(n)*cwmk)
-               ww(n)     = ww(n) - psaci
-               precsl(n) = precsl(n) + (wws - ww(n)) * condt(n)
-               pswi = (wws - ww(n)) * condt(n) * rconde(n) !Prajeesh: pswi is water -> ice
-               tt(n) = tt(n) + dtcp * (eliw*pswi) 
+               ww     = ww - psaut
+               cwmk      = max(cons_0, ww)
+               psaci     = min(cwmk, aa2*expf*precsl1*cwmk)
+               ww     = ww - psaci
+               precsl = precsl + (wws - ww) * condt
+               pswi = (wws - ww) * condt * rconde !Prajeesh: pswi is water -> ice
+               tt = tt + dtcp * (eliw*pswi) 
 
             else                                    !  liquid water
 
 !          for using sundqvist precip formulation of rain
 
                amaxcm    = cwmk
-               tem1      = precsl1(n) + precrl1(n)
-               tem2      = min(max(cons_0, 268.0-tt(n)), cons_20)
+               tem1      = precsl1 + precrl1
+               tem2      = min(max(cons_0, 268.0-tt), cons_20)
                tem       = (1.0+c1*sqrt(tem1*rdt)) * (1+c2*sqrt(tem2))
-               tem2      = amaxcm * cmr * tem / max(ccr(n),cons_p01)
+               tem2      = amaxcm * cmr * tem / max(ccr,cons_p01)
                tem2      = min(cons_50, tem2*tem2)
                praut     = c00  * tem * amaxcm * (1.0-exp(-tem2))
                praut     = min(praut, cwmk)
-               ww(n)     = ww(n) - praut
+               ww     = ww - praut
 
 !          below is for zhao's precip formulation (water)
 
-               precrl(n) = precrl(n) + (wws - ww(n)) * condt(n)
+               precrl = precrl + (wws - ww) * condt
             endif
           endif
-        enddo
+        endif
 
 !-----evaporation of precipitation-------------------------
 !**** err & ers positive--->evaporation-- negtive--->condensation
 
-        do n=1,ihpr
-          if (comput(n)) then
-            i      = ipr(n)
-            qk     = max(epsq,  qq(n))
-            tmt0k  = max(cons_m30, tmt0(n))
-            precrk = max(cons_0,    precrl(n))
-            precsk = max(cons_0,    precsl(n))
-            amaxrq = max(cons_0,    u00k(i,k)-rq(n)) * conde(n)
+        
+        if (ihpr>0) then
+          if (comput) then
+            qk     = max(epsq,  qq)
+            tmt0k  = max(cons_m30, tmt0)
+            precrk = max(cons_0,    precrl)
+            precsk = max(cons_0,    precsl)
+            amaxrq = max(cons_0,    u00k(k)-rq) * conde
 !----------------------------------------------------------------------
 ! increase the evaporation for strong/light prec
 !----------------------------------------------------------------------
             ppr    = ke * amaxrq * sqrt(precrk)
-            if (tmt0(n) .ge. 0.) then
+            if (tmt0 .ge. 0.) then
               pps = 0.
             else
-              pps = (crs1+crs2*tmt0k) * amaxrq * precsk / u00k(i,k)
+              pps = (crs1+crs2*tmt0k) * amaxrq * precsk / u00k(k)
             end if
 !---------------correct if over-evapo./cond. occurs--------------------
             erk=precrk+precsk
-            if(rq(n).ge.1.0e-10)  erk = amaxrq * qk * rdt / rq(n)
+            if(rq.ge.1.0e-10)  erk = amaxrq * qk * rdt / rq
             if (ppr+pps .gt. abs(erk)) then
                rprs   = erk / (precrk+precsk)
                ppr    = precrk * rprs
@@ -321,84 +310,81 @@
             endif
             ppr       = min(ppr, precrk)
             pps       = min(pps, precsk)
-            err(n)    = ppr * rconde(n)
-            ers(n)    = pps * rconde(n)
-            precrl(n) = precrl(n) - ppr
-            precsl(n) = precsl(n) - pps
+            err    = ppr * rconde
+            ers    = pps * rconde
+            precrl = precrl - ppr
+            precsl = precsl - pps
           endif
-        enddo
+        endif
 !--------------------melting of the snow--------------------------------
-        do n=1,ihpr
-          if (comput(n)) then
-            if (tmt0(n) .gt. 0.) then
-               amaxps = max(cons_0,    precsl(n))
-               psm1   = csm1 * tmt0(n) * tmt0(n) * amaxps
-               psm2   = cws * cr * max(cons_0, ww(n)) * amaxps
-               ppr    = (psm1 + psm2) * conde(n)
+
+        if (ihpr>0) then
+          if (comput) then
+            if (tmt0 .gt. 0.) then
+               amaxps = max(cons_0,    precsl)
+               psm1   = csm1 * tmt0 * tmt0 * amaxps
+               psm2   = cws * cr * max(cons_0, ww) * amaxps
+               ppr    = (psm1 + psm2) * conde
                if (ppr .gt. amaxps) then
                  ppr  = amaxps
-                 psm1 = amaxps * rconde(n)
+                 psm1 = amaxps * rconde
                endif
-               precrl(n) = precrl(n) + ppr
-               precsl(n) = precsl(n) - ppr
-               psm1 = ppr * rconde(n) !Prajeesh: psm1 is ice -> water
+               precrl = precrl + ppr
+               precsl = precsl - ppr
+               psm1 = ppr * rconde !Prajeesh: psm1 is ice -> water
             else
                psm1 = d00
             endif
 
 !---------------update t and q------------------------------------------
-            tt(n) = tt(n) - dtcp * (elwv*err(n)+eliv*ers(n)+eliw*psm1) !Prajeesh
-!            tt(n) = tt(n) - dtcp * (elwv*err(n)+elwv*ers(n))
-            qq(n) = qq(n) + dt * (err(n)+ers(n))
+            tt = tt - dtcp * (elwv*err+eliv*ers+eliw*psm1) !Prajeesh
+!            tt = tt - dtcp * (elwv*err+elwv*ers)
+            qq = qq + dt * (err+ers)
           endif
-        enddo
+        endif
 
-        do n=1,ihpr
-          iwl1(n)    = iwl(n)
-          precrl1(n) = max(cons_0, precrl(n))
-          precsl1(n) = max(cons_0, precsl(n))
-          i          = ipr(n)
-          t(i,k)     = tt(n)
-          q(i,k)     = qq(n)
-          cwm(i,k)   = ww(n)
-          iw(i,k)    = iwl(n)
-        enddo
+        if (ihpr>0) then
+          iwl1    = iwl
+          precrl1 = max(cons_0, precrl)
+          precsl1 = max(cons_0, precsl)
+          t(k)     = tt
+          q(k)     = qq
+          cwm(k)   = ww
+          iw(k)    = iwl
+        endif
 
 !  move water from vapor to liquid should the liquid amount be negative
 
-        do i = 1, im
-          if (cwm(i,k) < 0.) then
-            tem      = q(i,k) + cwm(i,k)
+          if (cwm(k) < 0.) then
+            tem      = q(k) + cwm(k)
             if (tem >= 0.0) then
-              q(i,k)   = tem
-              t(i,k)   = t(i,k) - elwv * rcp * cwm(i,k)
-              cwm(i,k) = 0.
-            elseif (q(i,k) > 0.0) then
-              cwm(i,k) = tem
-              t(i,k)   = t(i,k) + elwv * rcp * q(i,k)
-              q(i,k)   = 0.0
+              q(k)   = tem
+              t(k)   = t(k) - elwv * rcp * cwm(k)
+              cwm(k) = 0.
+            elseif (q(k) > 0.0) then
+              cwm(k) = tem
+              t(k)   = t(k) + elwv * rcp * q(k)
+              q(k)   = 0.0
             endif
           endif
-        enddo
       enddo                               ! k loop ends here!
 !**********************************************************************
 !-----------------------end of precipitation processes-----------------
 !**********************************************************************
 
-      do n=1,ihpr
-        i = ipr(n)
-        rn(i) = precrl1(n) * rrow  ! precip at surface
-        sn(i) = precsl1(n) * rrow  ! precip at surface
+      if (ihpr>0) then
+        rn = precrl1 * rrow  ! precip at surface
+        sn = precsl1 * rrow  ! precip at surface
 
 !----sr=1 if sfc prec is rain ; ----sr=-1 if sfc prec is snow
 !----sr=0 for both of them or no sfc prec
 
         rid = 0.
         sid = 0.
-        if (precrl1(n) .ge. 1.e-13) rid = 1.
-        if (precsl1(n) .ge. 1.e-13) sid = -1.
-        sr(i) = rid + sid  ! sr=1 --> rain, sr=-1 -->snow, sr=0 -->both
-      enddo
+        if (precrl1 .ge. 1.e-13) rid = 1.
+        if (precsl1 .ge. 1.e-13) sid = -1.
+        sr = rid + sid  ! sr=1 --> rain, sr=-1 -->snow, sr=0 -->both
+      endif
 
       return
       end subroutine

@@ -3,14 +3,18 @@ module spectral_dynamics_mod
 
 use, intrinsic :: iso_c_binding
 
-use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
-use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_max
-use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
-use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
-use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
+use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error, &
+                    mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_max, &
+                    mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
+                    mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather, &
+                    mpp_declare_pelist, mpp_set_current_pelist
 
 use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain, &
-                            mpp_global_field
+                            mpp_global_field, mpp_get_global_domain
+
+use time_manager_mod, only : time_type
+
+use diag_manager_mod, only : reg_df=>register_diag_field, send_data, diag_axis_init
 
 use constants_mod, only : RVGAS, RDGAS, GRAV, RADIUS
 
@@ -18,14 +22,17 @@ use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_i
                     stdlog, stdout, stderr
 use fms_io_mod, only : fms_io_exit, restart_file_type, register_restart_field
 
-use transforms_mod, only : get_spherical_wave
-use transforms_mod, only : compute_ucos_vcos, compute_vor_div
-use transforms_mod, only : spherical_to_grid, grid_to_spherical
-use transforms_mod, only : init_transforms, get_lats, get_lons
-use transforms_mod, only : register_spec_restart, save_spec_restart, restore_spec_restart 
+use tracer_manager_mod, only : get_tracer_index, get_tracer_name, get_number_tracers
 
-use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel
-use vertical_levels_mod, only: get_pressure_at_levels
+use field_manager_mod, only : MODEL_ATMOS
+
+use transforms_mod, only : get_spherical_wave, get_lons, compute_ucos_vcos, compute_vor_div, &
+                           spherical_to_grid, grid_to_spherical, init_transforms, get_lats, &
+                           get_lons, register_spec_restart, save_spec_restart, &
+                           restore_spec_restart 
+
+use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel, &
+                               get_pressure_at_levels
 
 use implicit_mod, only : init_implicit, do_implicit, do_implicit_adj
 
@@ -36,9 +43,8 @@ use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
 implicit none
 private
 
-public :: init_spectral_dynamics, spectral_dynamics
-public :: get_lats, get_lons, finish_spectral_dynamics
-public :: save_spec_restart, restore_spec_restart
+public :: init_spectral_dynamics, spectral_dynamics, get_lats, get_lons, &
+          finish_spectral_dynamics, save_spec_restart, restore_spec_restart
 
 type satm_type
     complex, dimension(:,:,:),   allocatable :: vor
@@ -64,8 +70,8 @@ type(gatm_type) :: gatm(2), dphi, dlam, dt
 
 real :: pdryini
 
-complex, dimension(:,:,:),   allocatable :: sucos, svcos
-complex, dimension(:,:,:),   allocatable :: stopo
+complex, dimension(:,:,:), allocatable :: sucos, svcos, stopo, stmp3d
+complex, dimension(:,:,:,:), allocatable :: stmp3d1
 
 real, allocatable, dimension(:,:,:) :: div, vor
 real, allocatable, dimension(:,:) :: gtopo
@@ -77,8 +83,6 @@ real, allocatable :: bfilt(:,:,:)
 integer :: nlon, nlat, nlev
 integer :: trunc
 integer :: ntrac=0
-integer, allocatable :: moist_ind(:)
-  
 integer :: nwaves_oe=0
     
 integer :: isc, iec, ilen
@@ -92,71 +96,113 @@ integer :: i0 = -1
 type(domain2d), pointer :: domain_g => NULL()
 
 real, allocatable :: sin_lat(:), cosm2_lat(:), deg_lat(:), cosm_lat(:), wts_lat(:), &
-                     cos_lat(:)
+                     cos_lat(:), deg_lon(:)
 real, allocatable :: typdel(:)
 
 integer, allocatable :: sph_wave(:,:)
 
 real, parameter :: fv = RVGAS/RDGAS-1.
 
+character(len=8) :: moist_tracer_names(10)
+integer, allocatable :: moist_ind(:)
+integer :: nmoist_tracers = 0
+
+integer :: id_dtadv, id_dttot, id_dtdyn
+integer, allocatable, dimension(:) :: id_dtradv, id_dtrtot, id_dtrdyn
+
+character(len=8), parameter :: rou='sdyn'
+
 contains
 
 !--------------------------------------------------------------------------------
-subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
-                                  ntrac_in,domain,deltim_in,rstrt,mi)
+subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rstrt, gaxis)
 !--------------------------------------------------------------------------------   
-    integer, intent(in) :: nlon_in, nlat_in, nlev_in, trunc_in, ntrac_in
+    type(time_type), intent(in) :: Time
+    integer, intent(in) :: nlev_in, trunc_in
     real, intent(in) :: deltim_in
     type(domain2d), target :: domain
     type(restart_file_type), intent(inout) :: rstrt
-    integer, intent(in) :: mi(:) ! indices of moisture fields in tracer array
+    integer, intent(out) :: gaxis(4)
 
     integer :: i, j, k, ntr
-    character(len=8) :: fldnm
     real :: ref_temp
-    real, allocatable :: ak(:), bk(:), sl(:), si(:)
-    character(len=2) :: nm
-    integer :: idx, tr
+    real, dimension(nlev_in+1) :: ak, bk, si, plevp
+    real, dimension(nlev_in) :: sl, plev
+    integer :: idx, tr, isg, ieg, jsg, jeg, n
+    integer :: num_prog, num_diag
     
     call mpp_init()
     call fms_init()
 
-    nlon = nlon_in 
-    nlat = nlat_in 
     nlev = nlev_in 
     trunc = trunc_in 
-    ntrac = ntrac_in 
     deltim = deltim_in 
 
     domain_g => domain
 
-    allocate(moist_ind(size(mi)))
-    moist_ind = mi
+    moist_tracer_names(:) = ''
+    moist_tracer_names(1:2) = ['sphum','clw']
+
+    nmoist_tracers=count(moist_tracer_names/='')
+
+    call get_number_tracers(MODEL_ATMOS,ntrac,num_prog,num_diag)
+
+    if(mpp_pe()==mpp_root_pe()) then
+        print *, ' num_tracers,num_prog,num_diag=', ntrac,num_prog,num_diag
+        print *, 'nmoist_tracers =', nmoist_tracers
+    endif
+    
+    allocate(moist_ind(nmoist_tracers))
+    do n = 1, nmoist_tracers
+        idx = get_tracer_index(MODEL_ATMOS, moist_tracer_names(n))
+        if (idx<=0) call mpp_error(FATAL,'init_atmos: tracer not found: '// &
+                          trim(moist_tracer_names(n)))
+        moist_ind(n) = idx
+    enddo
 
     call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
+    call mpp_get_global_domain(domain_g, jsg, jeg, isg, ieg)
     
-    ilen = iec-isc+1
-    jlen = jec-jsc+1
+    nlon = ieg - isg + 1
+    nlat = jeg - jsg + 1
+    
+    ilen = iec - isc + 1
+    jlen = jec - jsc + 1
     
     call init_transforms(domain_g,trunc,nwaves_oe)
  
     call init_vertical_levels(nlev)
-    
-    allocate(ak(nlev+1),bk(nlev+1),sl(nlev),si(nlev+1),typdel(nlev))
     
     allocate(sph_wave(nwaves_oe,2))
     
     allocate(sin_lat(jsc:jec), cosm2_lat(jsc:jec))
     allocate(deg_lat(jsc:jec), cosm_lat(jsc:jec))
     allocate(wts_lat(jsc:jec), cos_lat(jsc:jec))
+    allocate(deg_lon(isc:iec))
     
     call get_lats(sinlat=sin_lat,cosm2lat=cosm2_lat, &
                   deglat=deg_lat,cosmlat=cosm_lat,wtslat=wts_lat, &
                   coslat=cos_lat)
 
+    call get_lons(deg_lon)
+
     call get_ak_bk(ak_out=ak,bk_out=bk,sl_out=sl,si_out=si)
+    allocate(typdel(nlev))
     typdel(:) = si(1:nlev) - si(2:nlev+1)
-     
+    
+    !call get_pressure_at_levels(100.,prsi=plevp, prsl=plev)
+    forall(k=1:nlev) plev(k) = k
+    forall(k=1:nlev+1) plevp(k) = k
+    
+    gaxis(1) = diag_axis_init('lat',deg_lat(jsc:jec),'degrees_N','Y', &
+                long_name='latitude', domain_decomp=[jsg,jeg,jsc,jec])
+    gaxis(2) = diag_axis_init('lon',deg_lon(isc:iec),'degrees_E','X', &
+                long_name='longitude', domain_decomp=[isg,ieg,isc,iec])
+    gaxis(3) = diag_axis_init('lev',plev,'','Z',long_name='')
+    gaxis(4) = diag_axis_init('levp',plevp,'','Z',long_name='')
+
+    call init_diag_out(gaxis,Time) 
+
     call get_spherical_wave(sph_wave)
 
     do i = 1, size(sph_wave,1)
@@ -174,9 +220,26 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
     call init_implicit(ak,bk,ref_temp,deltim,trunc)
     
     call init_horiz_diffusion(trunc,deltim,sl,sph_wave,bk)
-    
+   
+    call init_data()
+
+    pdryini = 0.
+    idx = register_restart_field(rstrt,'','pdryini',pdryini,domain_g,mandatory=.false.)
+
+end subroutine init_spectral_dynamics
+
+
+!--------------------------------------------------------------------------------   
+subroutine init_data() 
+!--------------------------------------------------------------------------------   
+    integer :: i, idx, tr
+    character(len=2) :: nm
+    character(len=8) :: fldnm
+
     allocate(sucos(nlev,nwaves_oe,2))
     allocate(svcos(nlev,nwaves_oe,2))
+    allocate(stmp3d(nlev,nwaves_oe,2))
+    allocate(stmp3d1(nlev,nwaves_oe,2,ntrac))
     
     do i = 1, 3
         allocate(satm(i)%vor(nlev,nwaves_oe,2))
@@ -223,11 +286,11 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
     allocate(div(nlev,jsc:jec,isc:iec))
     allocate(vor(nlev,jsc:jec,isc:iec))
     allocate(spdmax(nlev))
-    spdmax = 0.
-    
-    deallocate(ak,bk,sl)
 
-    idx=register_spec_restart('topo',stopo,.false.,0.)
+    spdmax = 0.
+
+    idx=register_spec_restart('topo',stopo,.true.,0.)
+
     do i = 1, 2
         nm='_m'
         if (i==2) nm='_n'
@@ -241,22 +304,76 @@ subroutine init_spectral_dynamics(nlon_in,nlat_in,nlev_in,trunc_in, &
         enddo
     enddo
     
-    pdryini = 0.
-    idx = register_restart_field(rstrt,'','pdryini',pdryini,domain_g,mandatory=.false.)
+    return
+end subroutine init_data
 
-end subroutine init_spectral_dynamics
+
+!--------------------------------------------------------------------------------   
+subroutine init_diag_out(axis, Time)
+!--------------------------------------------------------------------------------   
+    integer, intent(in) :: axis(4)
+    type(time_type), intent(in) :: Time
+    integer :: n, axis1(3)
+    character (len=256) :: fldnm, name, longname, units
+
+    axis1 = [axis(3),axis(1),axis(2)]
+
+    allocate(id_dtradv(ntrac))
+    allocate(id_dtrtot(ntrac))
+    allocate(id_dtrdyn(ntrac))
+
+    id_dtadv = reg_df(rou, 'dtadv', axis1, Time, 'Temperature tendency (adv)', 'Ks-1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'spectral_dynamics_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'adv'
+        longname = trim(longname)//' tendency (advection)'
+        units = trim(units)//' s-1'
+        id_dtradv(n) = reg_df(rou, fldnm, axis1, Time, longname, units)
+    enddo
+    
+    id_dttot = reg_df(rou, 'dttot', axis1, Time, 'Temperature tendency (total)', 'Ks-1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'spectral_dynamics_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'tot'
+        longname = trim(longname)//' tendency (total)'
+        units = trim(units)//' s-1'
+        id_dtrtot(n) = reg_df(rou, fldnm, axis1, Time, longname, units)
+    enddo
+
+    id_dtdyn = reg_df(rou, 'dtdyn', axis1, Time, 'Temperature tendency (dynamics)', 'Ks-1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'spectral_dynamics_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'dyn'
+        longname = trim(longname)//' tendency (dynamics)'
+        units = trim(units)//' s-1'
+        id_dtrdyn(n) = reg_df(rou, fldnm, axis1, Time, longname, units)
+    enddo
+
+    return
+end subroutine init_diag_out
 
 
 !--------------------------------------------------------------------------------
-subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
+subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 !--------------------------------------------------------------------------------
+    type(time_type), intent(in) :: Time
     real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u, v, tem
     real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u1, v1, tem1, vvel1
     real, intent(out), dimension(nlev,jsc:jec,isc:iec,ntrac) :: tr, tr1
     real, intent(out), dimension(jsc:jec,isc:iec)            :: p, p1
 
+    real, dimension(nlev,jsc:jec,isc:iec) :: gtmp1
+    complex, dimension(nlev,nwaves_oe,2) :: stmp1
+    complex, dimension(nlev,nwaves_oe,2,ntrac) :: stmp2
+
     integer :: i, j, k, ntr
-    character(len=8) :: fldnm
+    logical :: used
+
+    stmp3d = satm(2)%tem
+    stmp3d1 = satm(2)%tr
 
     call compute_ucos_vcos(satm(2)%vor,satm(2)%div,sucos,svcos,do_trunc=.false.)
     
@@ -299,6 +416,10 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     do k = 1, size(spdmax) 
         call mpp_max(spdmax(k)) 
     enddo
+
+    spdmax = sqrt(spdmax)
+
+    if(mpp_pe()==mpp_root_pe())print *, 'spdmax=', spdmax
     call grid_to_spherical(dt%prs, satm(3)%prs, do_trunc=.true.)
     call grid_to_spherical(dt%tem, satm(3)%tem, do_trunc=.true.)
     call grid_to_spherical(dt%u, sucos, do_trunc=.false.)
@@ -312,6 +433,13 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     
     satm(3)%vor = satm(1)%vor + 2.*deltim*satm(3)%vor
 
+    do ntr = 1, ntrac
+        if (id_dtradv(ntr)>0) then
+            call spherical_to_grid(satm(3)%tr(:,:,:,ntr),grid=gtmp1)
+            used = send_data(id_dtradv(ntr),gtmp1,Time)
+        endif
+    enddo
+
     satm(3)%tr = satm(1)%tr + 2.*deltim*satm(3)%tr
 
     do k = 1, size(satm(3)%div,1)
@@ -323,8 +451,26 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
                      satm(2)%div, satm(2)%tem, satm(2)%prs, &
                      satm(3)%div, satm(3)%tem, satm(3)%prs, deltim)
     
+    if (id_dtadv>0) then
+        call spherical_to_grid((satm(3)%tem-satm(1)%tem)/(2.*deltim),grid=gtmp1)
+        used = send_data(id_dtadv,gtmp1,Time)
+    endif
+
     call horiz_diffusion(satm(3)%tr,satm(3)%vor,satm(3)%div,satm(3)%tem,satm(1)%prs(1,:,:))
     
+    if (id_dtdyn>0) then
+        call spherical_to_grid((satm(3)%tem-satm(1)%tem)/(2.*deltim),grid=gtmp1)
+        used = send_data(id_dtdyn,gtmp1,Time)
+    endif
+
+    do ntr = 1, ntrac
+        if (id_dtrdyn(ntr)>0) then
+            call spherical_to_grid((satm(3)%tr(:,:,:,ntr) &
+                - satm(1)%tr(:,:,:,ntr))/(2.*deltim),grid=gtmp1)
+            used = send_data(id_dtrdyn(ntr),gtmp1,Time)
+        endif
+    enddo
+
     call time_filter1()
     
     call compute_ucos_vcos(satm(3)%vor,satm(3)%div,sucos,svcos,do_trunc=.false.)
@@ -333,7 +479,6 @@ subroutine spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     call spherical_to_grid(satm(3)%tem,grid=gatm(2)%tem)
     call spherical_to_grid(satm(3)%prs,grid=gatm(2)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
 
-    
     do ntr = 1, ntrac
         call spherical_to_grid(satm(3)%tr(:,:,:,ntr),grid=gatm(2)%tr(:,:,:,ntr))
     enddo
@@ -369,15 +514,18 @@ end subroutine spectral_dynamics
 
 
 !--------------------------------------------------------------------------------   
-subroutine finish_spectral_dynamics(tem, tr, u, v)
+subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
 !--------------------------------------------------------------------------------   
+    type(time_type), intent(in) :: Time
     real, intent(in), dimension(nlev,jsc:jec,isc:iec)       :: u, v, tem
     real, intent(in), dimension(nlev,jsc:jec,isc:iec,ntrac) :: tr
 
     complex, dimension(nlev,nwaves_oe,2) :: rqt
+    real, dimension(nlev,jsc:jec,isc:iec) :: gtmp1
 
     real :: pcorr, plvl1(nlev+1)
     integer :: k, j, ntr
+    integer :: used
 
     call calc_mass_corr(exp(gatm(2)%prs(1,:,:)), tr, moist_ind, pcorr)
 
@@ -391,8 +539,9 @@ subroutine finish_spectral_dynamics(tem, tr, u, v)
     call grid_to_spherical(gatm(2)%tem, satm(2)%tem, do_trunc=.true.)
     call grid_to_spherical(gatm(2)%u, sucos, do_trunc=.false.)
     call grid_to_spherical(gatm(2)%v, svcos, do_trunc=.false.)
+
     do ntr = 1, ntrac
-        call grid_to_spherical(gatm(2)%tr(:,:,:,ntr),satm(2)%tr(:,:,:,ntr),do_trunc=.true.)
+        call grid_to_spherical(tr(:,:,:,ntr),satm(2)%tr(:,:,:,ntr),do_trunc=.true.)
     enddo
  
     call compute_vor_div(sucos,svcos,satm(2)%vor,satm(2)%div)
@@ -428,6 +577,19 @@ subroutine finish_spectral_dynamics(tem, tr, u, v)
                     sph_wave, spdmax, trunc, deltim)
 
     call time_filter2()
+
+    if (id_dttot>0) then
+        call spherical_to_grid((satm(2)%tem-stmp3d)/deltim,grid=gtmp1)
+        used = send_data(id_dttot,gtmp1,Time)
+    endif
+
+    do ntr = 1, ntrac
+        if (id_dtrtot(ntr)>0) then
+            call spherical_to_grid((satm(2)%tr(:,:,:,ntr) &
+                    - stmp3d1(:,:,:,ntr))/deltim,grid=gtmp1)
+            used = send_data(id_dtrtot(ntr),gtmp1,Time)
+        endif
+    enddo
 
     return
 end subroutine finish_spectral_dynamics
@@ -560,15 +722,16 @@ subroutine init_bfiltr(sph_wave, jcap)
         enddo
     enddo
 
+    return
 end subroutine init_bfiltr
 
-subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,deltim)
+subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,delt)
     implicit none
     complex, intent(inout), dimension(:,:,:) :: dive, vore, teme
     complex, intent(inout), dimension(:,:,:,:) :: rte
     integer, intent(in), dimension(:,:) :: ndexev
     real, intent(in), dimension(:) :: spdmax
-    real, intent(in) :: deltim
+    real, intent(in) :: delt
     integer, intent(in) :: jcap
 
     integer :: it, k, nw, i
@@ -589,8 +752,8 @@ subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,deltim)
     cons2p5   = 2.5d0       !constant
 
     alfa=cons2p5                    !constant
-    beta=RADIUS*cons1p009/deltim     !constant
-    alfadt=alfa*deltim/RADIUS
+    beta=RADIUS*cons1p009/delt     !constant
+    alfadt=alfa*delt/RADIUS
 
     do k = 1, nlev 
         rncrit=beta/spdmax(k)

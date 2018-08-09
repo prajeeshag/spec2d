@@ -24,6 +24,11 @@ integer :: nlevs
 
 logical :: initialized=.false.
 
+interface get_pressure_at_levels
+    module procedure get_pressure_at_levels1D
+    module procedure get_pressure_at_levels3D
+end interface get_pressure_at_levels
+
 contains
 
 !--------------------------------------------------------------------------------   
@@ -95,9 +100,58 @@ subroutine omegtes_drv(imax,km,pgr, dphi, dlam, div, u, v, vvel)
     enddo
 end subroutine omegtes_drv
 
+!--------------------------------------------------------------------------------   
+subroutine get_pressure_at_levels1D(pgr,prsi,prsl,prsik,prslk)
+!--------------------------------------------------------------------------------   
+    implicit none
+    real, intent(in)  :: pgr
+    real, intent(out), optional :: prsi(:), prsik(:)
+    real, intent(out), optional :: prsl(:), prslk(:)
+
+    real, dimension(nlevs+1) :: prsi1, prsi1k
+    real, dimension(nlevs  ) :: prsl1, prsl1k
+    real :: tem
+    integer :: k
+
+    if(.not.initialized) call mpp_error('vertical_levels_mod','module not initialized',fatal)
+
+    if(.not.present(prsi).and. &
+       .not.present(prsl).and. &
+       .not.present(prsik).and. &
+       .not.present(prslk)) return
+
+    do k=1,nlevs+1
+        prsi1(nlevs+2-k) = ak(k) + bk(k) * pgr
+    enddo
+
+    if (present(prsi)) prsi = prsi1
+
+    if(.not.present(prsl).and. &
+       .not.present(prsik).and. &
+       .not.present(prslk)) return
+    
+    prsi1k = (prsi1*pt01) ** rk
+
+    if (present(prsik)) prsik = prsi1k
+   
+    if(.not.present(prsl).and. &
+       .not.present(prslk)) return
+    
+    do k=1,nlevs
+        tem = rk1 * (prsi1(k) - prsi1(k+1))
+        prsl1k(k) = (prsi1k(k)*prsi1(k)-prsi1k(k+1)*prsi1(k+1))/tem
+        prsl1(k)    = r100 * prsl1k(k) ** rkr
+    enddo
+
+    if(present(prsl)) prsl = prsl1
+    if(present(prslk)) prslk = prsl1k
+    
+    return
+end subroutine get_pressure_at_levels1D
+
 
 !--------------------------------------------------------------------------------   
-subroutine get_pressure_at_levels(pgr,prsi,prsl,prsik,prslk)
+subroutine get_pressure_at_levels3D(pgr,prsi,prsl,prsik,prslk)
 !--------------------------------------------------------------------------------   
     implicit none
     real, intent(in)  :: pgr(:,:)
@@ -143,7 +197,7 @@ subroutine get_pressure_at_levels(pgr,prsi,prsl,prsik,prslk)
     if(present(prslk)) prslk = prsl1k
     
     return
-end subroutine get_pressure_at_levels
+end subroutine get_pressure_at_levels3D
 
 
 !--------------------------------------------------------------------------------   

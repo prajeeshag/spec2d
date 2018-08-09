@@ -1,13 +1,13 @@
 module phys_mod
 
-use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
-use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe
-use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
-use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
-use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
+use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error, mpp_npes, &
+                    mpp_get_current_pelist, mpp_pe, mpp_exit, mpp_clock_id, &
+                    mpp_clock_begin, mpp_clock_end, mpp_sync, mpp_root_pe, &
+                    mpp_broadcast, mpp_gather, mpp_declare_pelist, &
+                    mpp_set_current_pelist
 
-use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
-use mpp_domains_mod, only : mpp_get_global_domain, mpp_global_field
+use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain, &
+                            mpp_get_global_domain, mpp_global_field
 
 use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
 use fms_mod, only : file_exist
@@ -21,6 +21,10 @@ use time_manager_mod, only : time_type, set_time, operator(==), operator(+), ass
                              print_date
 
 use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
+
+use tracer_manager_mod, only : get_tracer_index, get_tracer_name, get_number_tracers
+
+use field_manager_mod, only : MODEL_ATMOS
 
 use radiation_mod, only : init_radiation, con_solr, radiation, NF_ALBD
 
@@ -53,13 +57,13 @@ type(domain2D), pointer :: domain
 integer :: ntrac, nlev
 integer :: is, ie, ilen, js, je, jlen
 integer :: nlon, nlat
-integer :: ind_q = 1, ind_clw = 2, ind_cli = 0
+integer :: ind_q = 0, ind_clw = 0, ind_cli = 0
 
 integer :: dt_rad
 real :: dt_phys, rdt_phys, dt_atmos, rdt_atmos
 type(time_type) :: time_step_rad, rad_time, time_step
 
-real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lat_deg, lon_deg, gdlen
+real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lon_deg, lat_deg, gdlen
 real, allocatable, dimension(:,:,:) :: htsw
 real, allocatable, dimension(:,:,:) :: htlw
 real, allocatable, dimension(:,:) :: rldsz
@@ -73,14 +77,15 @@ character(len=16) :: resfnm = 'phys_res'
 character (len=8) :: rou='am_phys'
 
 integer :: id_rsds, id_rsus, id_rsns, id_dtlw, id_dtrd, id_shflx, id_lhflx, id_taux, &
-           id_tauy, id_dtvd, id_hpbl, id_dqvd, id_duvd, id_dvvd, id_rlds, id_rlus, id_tskin, &
+           id_tauy, id_dtvd, id_hpbl, id_duvd, id_dvvd, id_rlds, id_rlus, id_tskin, &
            id_sfcemis
 integer :: id_dugwd, id_dvgwd, id_ducgwd, id_dvcgwd
-integer :: id_dtcu, id_dqcu, id_ducu, id_dvcu, id_lprcu, id_kcnv, id_fprcu
-integer :: id_dtsc, id_dqsc
-integer :: id_dtmp, id_dqmp, id_lprmp, id_fprmp
-integer :: id_dtphy, id_dqphy, id_lpr, id_fpr, id_pr, id_duphy, id_dvphy
-integer :: id_tr1
+integer :: id_dtcu, id_ducu, id_dvcu, id_lprcu, id_kcnv, id_fprcu
+integer :: id_dtsc, id_dtmp, id_lprmp, id_fprmp, id_inmpclw, id_inmpq
+integer :: id_dtphy, id_lpr, id_fpr, id_pr, id_duphy, id_dvphy, id_ua, id_va
+           
+
+integer, allocatable, dimension(:) :: id_dtrvd, id_dtrmp, id_dtrphy, id_dtrcu, id_dtrsc, id_trin
 
 integer :: clck_phys, clck_rad, clck_sfc, clck_vd, clck_gwd, clck_cu, clck_sc, clck_mp, clck_gwdc
 
@@ -91,20 +96,21 @@ namelist/phys_nml/dt_rad
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in, &
-                     lat_deg_in, lon_deg_in, rstrt)
+subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
+                     lat_deg_in, lon_deg_in, rstrt, axes)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     type(domain2d), target :: domain_in
     real, intent(in) :: dt_phys_in, dt_atmos_in 
-    integer, intent(in) :: ntrac_in, nlev_in
+    integer, intent(in) :: nlev_in
     real, intent(in) :: lat_deg_in(:), lon_deg_in(:)
     type(restart_file_type), intent(inout) :: rstrt
+    integer, intent(in) :: axes(4)
     
     real, allocatable :: fland(:,:), ilevs(:), ilevsp(:)
-    integer :: axes(4), id_lev, unit, i, j
+    integer :: unit, i, j
     integer :: jsg,jeg,isg,ieg
-    integer :: indx
+    integer :: indx, num_prog, num_diag
     real :: tem1, tem2
 
     unit = open_namelist_file()
@@ -119,6 +125,9 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
     dt_atmos = dt_atmos_in
     rdt_atmos = 1./dt_atmos
 
+    domain => domain_in
+    nlev = nlev_in
+
     if (mod(real(dt_rad),dt_atmos)/=0.) &
              call mpp_error('phys_mod', 'dt for radiation ' &
                   //'should be a multiple of model timestep', FATAL)
@@ -127,32 +136,20 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
     time_step = set_time(int(dt_rad))
     rad_time = Time
 
-    domain => domain_in
+    call get_number_tracers(MODEL_ATMOS, ntrac, num_prog, num_diag)
 
-    ntrac = ntrac_in
-    
-    nlev = nlev_in
-
+    ind_q = get_tracer_index(MODEL_ATMOS, 'sphum')   
+    ind_clw = get_tracer_index(MODEL_ATMOS, 'clw')
+    ind_cli = get_tracer_index(MODEL_ATMOS, 'cli')
+ 
     call mpp_get_compute_domain(domain,js,je,is,ie)
     call mpp_get_global_domain(domain,jsg,jeg,isg,ieg)
 
+    nlat = jeg - jsg + 1
+    nlon = ieg - isg + 1
+
     jlen = je - js + 1
     ilen = ie - is + 1
-
-    allocate(ilevs(nlev))
-    allocate(ilevsp(nlev+1))
-
-    forall(i=1:nlev) ilevs(i) = i
-    forall(i=1:nlev+1) ilevsp(i) = i
-
-    axes(1) = diag_axis_init('lat',lat_deg_in(js:je),'degrees_N','Y', & 
-              long_name='latitude',domain_decomp=[jsg,jeg,js,je])
-    axes(2) = diag_axis_init('lon',lon_deg_in(is:ie),'degrees_E','X', &
-              long_name='longitude',domain_decomp=[isg,ieg,is,ie])
-    axes(3) = diag_axis_init('lev',ilevs,'','Z',long_name='')
-    axes(4) = diag_axis_init('levp',ilevsp,'','Z',long_name='')
-
-    deallocate(ilevs,ilevsp)
 
     allocate(lat_rad(js:je,is:ie))
     allocate(lat_deg(js:je,is:ie))
@@ -172,8 +169,8 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
 
     do i = is, ie
         do j = js, je
-            tem1 = 2. * PI * RADIUS * cos(lat_rad(j,i)) / (ieg-isg+1)
-            tem2 = PI * RADIUS / (jeg-jsg+1)
+            tem1 = 2. * PI * RADIUS * cos(lat_rad(j,i)) / nlon 
+            tem2 = PI * RADIUS / nlat
             gdlen(j,i) = sqrt(tem1**2 + tem2**2)
         enddo
     enddo
@@ -221,19 +218,38 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
     deallocate(fland)
 
     clck_phys = mpp_clock_id('Physics')
-    clck_rad  = mpp_clock_id('  Radiation')
-    clck_sfc  = mpp_clock_id('  Surface')
-    clck_vd   = mpp_clock_id('  Vertical Diffusion')
-    clck_gwd  = mpp_clock_id('  GW Drag')
-    clck_gwdc = mpp_clock_id('  CGW Drag')
-    clck_cu   = mpp_clock_id('  Cumulus Convection')
-    clck_sc   = mpp_clock_id('  Shallow Convection')
-    clck_mp   = mpp_clock_id('  Micro Physics')
-    
+    clck_rad  = mpp_clock_id(':---> Radiation')
+    clck_sfc  = mpp_clock_id(':---> Surface')
+    clck_vd   = mpp_clock_id(':---> Vertical Diffusion')
+    clck_gwd  = mpp_clock_id(':---> GW Drag')
+    clck_gwdc = mpp_clock_id(':---> CGW Drag')
+    clck_cu   = mpp_clock_id(':---> Cumulus Convection')
+    clck_sc   = mpp_clock_id(':---> Shallow Convection')
+    clck_mp   = mpp_clock_id(':---> Micro Physics')
+
+    call init_diag_out(Time, axes)   
+
+    initialized = .true.
+
+end subroutine init_phys
+
+
+
+!--------------------------------------------------------------------------------   
+subroutine init_diag_out(Time, axes)
+!--------------------------------------------------------------------------------   
+    type(time_type), intent(in) :: Time
+    integer, intent(in) :: axes(4)
+    integer :: n
+    character(len=256) :: longname, units, fldnm, name
+ 
+    allocate(id_dtrvd(ntrac), id_dtrsc(ntrac), &
+             id_dtrmp(ntrac), id_dtrcu(ntrac), &
+             id_dtrphy(ntrac), id_trin(ntrac))
 
     ! Diag out
     ! -------------------------------------------------------------------------------- 
-    
+    !->rd 
     id_rsds = reg_df(rou, 'rsds', axes(1:2), time, 'surface downwelling shortwave',  'w m-2')
 
     id_rsus = reg_df(rou, 'rsus', axes(1:2), time, 'surface upwelling shortwave',  'w m-2')
@@ -251,6 +267,10 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
 
     id_dtlw = reg_df(rou, 'dtlw', [axes(3),axes(1),axes(2)], time, &
                'temperature tendency (lw)',  'ks-1')
+
+    !<-rd
+
+    !->vd
     id_shflx = reg_df(rou, 'shflx', [axes(1),axes(2)], time, &
                'sensible heat flux', 'wm-2')
     id_lhflx = reg_df(rou, 'lhflx', [axes(1),axes(2)], time, &
@@ -263,26 +283,39 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
                'height of planetary boundary layer', 'm')
     id_dtvd = reg_df(rou, 'dtvd', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (vertical diffusion)', 'k s-1')
-    id_dqvd = reg_df(rou, 'dqvd', [axes(3),axes(1),axes(2)], time,  &
-               'moisture tendency (vertical diffusion)', 's-1')
+
     id_duvd = reg_df(rou, 'duvd', [axes(3),axes(1),axes(2)], time,  &
                'u-velocity tendency (vertical diffusion)', 'm/s-2')
     id_dvvd = reg_df(rou, 'dvvd', [axes(3),axes(1),axes(2)], time,  &
                'v-velocity tendency (vertical diffusion)', 'm/s-2')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'phys_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'vd'
+        longname = trim(longname)//' tendency (vertical diffusion)'
+        units = trim(units)//' s-1'
+        id_dtrvd(n) = reg_df(rou, fldnm, [axes(3),axes(1),axes(2)], time,  &
+                        longname, units)
+    enddo
+    !<-vd
+    
+    !-> gwd
     id_dugwd = reg_df(rou, 'dugwd', [axes(3),axes(1),axes(2)], time,  &
                'u-velocity tendency (gravity wave drag)', 'm/s-2')
     id_dvgwd = reg_df(rou, 'dvgwd', [axes(3),axes(1),axes(2)], time,  &
                'v-velocity tendency (gravity wave drag)', 'm/s-2')
+    !<-gwd
 
+    !->gwdc
     id_ducgwd = reg_df(rou, 'ducgwd', [axes(3),axes(1),axes(2)], time,  &
                'u-velocity tendency (convective gravity wave drag)', 'm/s-2')
     id_dvcgwd = reg_df(rou, 'dvcgwd', [axes(3),axes(1),axes(2)], time,  &
                'v-velocity tendency (convective gravity wave drag)', 'm/s-2')
+    !<-gwdc
 
+    !->cu
     id_dtcu = reg_df(rou, 'dtcu', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (cumulus conv)', 'k s-1')
-    id_dqcu = reg_df(rou, 'dqcu', [axes(3),axes(1),axes(2)], time,  &
-               'moisture tendency (cumulus conv)', 's-1')
     id_ducu = reg_df(rou, 'ducu', [axes(3),axes(1),axes(2)], time,  &
                'u-velocity tendency (cumulus conv)', 'm/s-2')
     id_dvcu = reg_df(rou, 'dvcu', [axes(3),axes(1),axes(2)], time,  &
@@ -293,25 +326,60 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
                 'snowfall rate (cumulus conv)', 'kg m-2 s-1')
     id_kcnv = reg_df(rou, 'kcnv', [axes(1),axes(2)], time, &
                 'cumulus conv occurence', '1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'phys_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'cu'
+        longname = trim(longname)//' tendency (cumulus convection)'
+        units = trim(units)//' s-1'
+        id_dtrcu(n) = reg_df(rou, fldnm, [axes(3),axes(1),axes(2)], time,  &
+                        longname, units)
+    enddo
+    !<-cu
 
+    !->sc
     id_dtsc = reg_df(rou, 'dtsc', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (shallow conv)', 'k s-1')
-    id_dqsc = reg_df(rou, 'dqsc', [axes(3),axes(1),axes(2)], time,  &
-               'moisture tendency (shallow conv)', 's-1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'phys_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'sc'
+        longname = trim(longname)//' tendency (shallow convection)'
+        units = trim(units)//' s-1'
+        id_dtrsc(n) = reg_df(rou, fldnm, [axes(3),axes(1),axes(2)], time,  &
+                        longname, units)
+    enddo
+    !<-sc
 
+    !->mp
+    id_inmpclw = reg_df(rou, 'inmpclw', [axes(3),axes(1),axes(2)], time,  &
+               'temperature tendency (micro phys)', 'k s-1')
+    id_inmpq = reg_df(rou, 'inmpq', [axes(3),axes(1),axes(2)], time,  &
+               'temperature tendency (micro phys)', 'k s-1')
     id_dtmp = reg_df(rou, 'dtmp', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (micro phys)', 'k s-1')
-    id_dqmp = reg_df(rou, 'dqmp', [axes(3),axes(1),axes(2)], time,  &
-               'moisture tendency (micro phys)', 's-1')
     id_lprmp = reg_df(rou, 'lprmp', [axes(1),axes(2)], time, &
                 'rainfall rate (micro phys)', 'kg m-2 s-1')
     id_fprmp = reg_df(rou, 'fprmp', [axes(1),axes(2)], time, &
                 'snowfall rate (micro phys)', 'kg m-2 s-1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'phys_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'mp'
+        longname = trim(longname)//' tendency (micro phys)'
+        units = trim(units)//' s-1'
+        id_dtrmp(n) = reg_df(rou, fldnm, [axes(3),axes(1),axes(2)], time,  &
+                        longname, units)
+    enddo
+    !<-mp
 
+    !->phy
+    id_ua = reg_df(rou, 'ua', [axes(3),axes(1),axes(2)], time,  &
+               'u-velocity (phys-in)', 'ms-1')
+    id_va = reg_df(rou, 'va', [axes(3),axes(1),axes(2)], time,  &
+               'v-velocity (phys-in)', 'ms-1')
     id_dtphy = reg_df(rou, 'dtphy', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (phys)', 'k s-1')
-    id_dqphy = reg_df(rou, 'dqphy', [axes(3),axes(1),axes(2)], time,  &
-               'moisture tendency (phys)', 's-1')
     id_duphy = reg_df(rou, 'duphy', [axes(3),axes(1),axes(2)], time,  &
                'u-velocity tendency (phys)', 'm/s-2')
     id_dvphy = reg_df(rou, 'dvphy', [axes(3),axes(1),axes(2)], time,  &
@@ -322,15 +390,29 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, ntrac_in, nlev_in
                 'snowfall rate', 'kg m-2 s-1')
     id_pr = reg_df(rou, 'pr', [axes(1),axes(2)], time, &
                'precipitation rate', 'kg m-2 s-1')
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'phys_mod: get_tracer_name failed')
+        fldnm = 'd'//trim(name)//'phy'
+        longname = trim(longname)//' tendency (phys)'
+        units = trim(units)//' s-1'
+        id_dtrphy(n) = reg_df(rou, fldnm, [axes(3),axes(1),axes(2)], time,  &
+                        longname, units)
+    enddo
 
-    id_tr1 = reg_df(rou, 'tr1', [axes(3),axes(1),axes(2)], time, &
-               'temperature tendency (lw)',  'ks-1')
-    !--------------------------------------------------------------------------------    
-
-    initialized = .true.
-
-end subroutine init_phys
-
+    do n = 1, ntrac
+        if (.not.get_tracer_name(MODEL_ATMOS,n,name,longname,units)) &
+            call mpp_error(FATAL,'phys_mod: get_tracer_name failed')
+        fldnm = trim(name)//'_in'
+        longname = trim(longname)//' (phys)'
+        id_trin(n) = reg_df(rou, fldnm, [axes(3),axes(1),axes(2)], time,  &
+                        longname, units)
+    enddo
+    !<-phy
+    
+    return
+end subroutine init_diag_out
+    
 
 !--------------------------------------------------------------------------------   
 subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
@@ -358,7 +440,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     real, dimension(NF_ALBD,js:je,is:ie) :: sfcalb
     real :: solcon, rrsun
-    integer :: k, imax
+    integer :: k, imax, n
     logical :: used
 
 
@@ -451,10 +533,11 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     used = send_data(id_taux, dusfc1, Time)
     used = send_data(id_tauy, dvsfc1, Time)
     used = send_data(id_dtvd, dtdt1, Time)
-    used = send_data(id_dqvd, dqdt1(:,:,:,ind_q), Time)
     used = send_data(id_duvd, dudt1, Time)
     used = send_data(id_dvvd, dvdt1, Time)
-
+    do n = 1, ntrac
+        used = send_data(id_dtrvd(n), dqdt1(:,:,:,n), Time)
+    enddo
 
     dtdt = dtdt + dtdt1 
     dudt = dudt + dudt1 
@@ -506,8 +589,10 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     tmp3d = rdt_phys*(dtdt1-dtdt)
     if (id_dtcu>0) used = send_data(id_dtcu, tmp3d, Time)
-    if (id_dqcu>0) used = send_data(id_dqcu, rdt_phys*(dqdt1(:,:,:,ind_q) &
-                                            - dqdt(:,:,:,ind_q)), Time)
+    do n = 1, ntrac
+        if (id_dtrcu(n)>0) used = send_data(id_dtrcu(n), rdt_phys*(dqdt1(:,:,:,n) &
+                                            - dqdt(:,:,:,n)), Time)
+    enddo
     if (id_ducu>0) used = send_data(id_ducu, rdt_phys*(dudt1-dudt), Time)
     if (id_dvcu>0) used = send_data(id_dvcu, rdt_phys*(dvdt1-dvdt), Time)
     if (id_lprcu>0) used = send_data(id_lprcu, rdt_phys*rain1*rhoh2o, Time)
@@ -549,8 +634,10 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     call shallow_conv(imax, nlev, dt_phys, delp, plvl, plyr, plyrk, kcnv, &
                       dqdt1(:,:,:,ind_q), dtdt1)
     if (id_dtsc>0) used = send_data(id_dtsc, rdt_phys*(dtdt1-dtdt), Time)
-    if (id_dqsc>0) used = send_data(id_dqsc, rdt_phys*(dqdt1(:,:,:,ind_q) &
-                                            - dqdt(:,:,:,ind_q)), Time)
+    do n = 1, ntrac
+        if (id_dtrsc(n)>0) used = send_data(id_dtrsc(n), rdt_phys*(dqdt1(:,:,:,n) &
+                                            - dqdt(:,:,:,n)), Time)
+    enddo
     dtdt = dtdt1
     dqdt = dqdt1
     call mpp_clock_end(clck_sc)
@@ -561,12 +648,17 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     dtdt1 = dtdt
     dqdt1 = dqdt 
 
+    if (id_inmpclw>0) used = send_data(id_inmpclw, dqdt1(:,:,:,ind_clw), Time)
+    if (id_inmpq>0) used = send_data(id_inmpq, dqdt1(:,:,:,ind_q), Time)
+
     call micro_phys(dt_phys, plyr, p1, plyrk, delp, dqdt1(:,:,:,ind_q), &
                     dqdt1(:,:,:,ind_clw), dtdt1, rain1, snow1)
 
     if (id_dtmp>0) used = send_data(id_dtmp, rdt_phys*(dtdt1-dtdt), Time)
-    if (id_dqmp>0) used = send_data(id_dqmp, rdt_phys*(dqdt1(:,:,:,ind_q) &
-                                            - dqdt(:,:,:,ind_q)), Time)
+    do n = 1, ntrac
+        if (id_dtrmp(n)>0) used = send_data(id_dtrmp(n), rdt_phys*(dqdt1(:,:,:,n) &
+                                                         - dqdt(:,:,:,n)), Time)
+    enddo
     if (id_lprmp>0) used = send_data(id_lprmp, rdt_phys*rain1*rhoh2o, Time)
     if (id_fprmp>0) used = send_data(id_fprmp, rdt_phys*snow1*rhoh2o, Time)
 
@@ -585,12 +677,15 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     if (id_pr>0) used = send_data(id_pr, rdt_phys*(rain+snow)*rhoh2o, Time)
 
     if (id_dtphy>0) used = send_data(id_dtphy, rdt_phys*(dtdt-tlyr1), Time)
-    if (id_dqphy>0) used = send_data(id_dqphy, rdt_phys*(dqdt(:,:,:,ind_q) &
-                                            - tr1(:,:,:,ind_q)), Time)
     if (id_duphy>0) used = send_data(id_duphy, rdt_phys*(dudt-u1), Time)
     if (id_dvphy>0) used = send_data(id_dvphy, rdt_phys*(dvdt-v1), Time)
-
-    if (id_tr1>0) used = send_data(id_tr1, tr1(:,:,:,1), Time)
+    if (id_ua>0) used = send_data(id_ua, u1, Time)
+    if (id_va>0) used = send_data(id_va, v1, Time)
+    do n = 1, ntrac
+        if (id_dtrphy(n)>0) used = send_data(id_dtrphy(n), rdt_phys*(dqdt(:,:,:,n) &
+                                                 - tr1(:,:,:,n)), Time)
+        if (id_trin(n)>0) used = send_data(id_trin(n), tr1(:,:,:,n), Time)
+    enddo
 
     call mpp_clock_end(clck_phys)
 

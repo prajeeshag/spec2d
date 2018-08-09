@@ -73,7 +73,7 @@ integer :: moist_tracer_ind(10) = 0
 integer :: nmoist_tracers = 0
 
 
-namelist/atmos_nml/ trunc, nlon, nlat, nlev, deltim, moist_tracer_names
+namelist/atmos_nml/ trunc, nlon, nlat, nlev, deltim
 
 
 contains
@@ -86,42 +86,23 @@ subroutine init_atmos(Time,deltim_in)
     real, intent(in) :: deltim_in
     integer :: layout(2), tmp, idx
 
-    integer :: num_tracers, num_prog, num_diag, n
+    integer :: num_prog, num_diag, n
+    integer :: axis(4)
 
     call mpp_init()
     call fms_init()
 
     layout = [1,mpp_npes()]
 
-    moist_tracer_names(:) = ''
-    moist_tracer_names(1:2) = ['sphum','clw']   
- 
     unit = open_namelist_file()
     read(unit,nml=atmos_nml)
     call close_file(unit)
 
     deltim = deltim_in
 
-    nmoist_tracers=count(moist_tracer_names/='')   
- 
     call tracer_manager_init()
+    call get_number_tracers(MODEL_ATMOS,ntrac,num_prog,num_diag)
 
-    call get_number_tracers(MODEL_ATMOS,num_tracers,num_prog,num_diag)
-
-    if(mpp_pe()==mpp_root_pe()) then
-        print *, ' num_tracers,num_prog,num_diag=',  num_tracers,num_prog,num_diag
-        print *, 'nmoist_tracers =', nmoist_tracers
-    endif
-    
-    ntrac = num_prog
-
-    do n = 1, nmoist_tracers
-        idx = get_tracer_index(MODEL_ATMOS, moist_tracer_names(n))
-        if (idx<=0) call mpp_error(FATAL,'init_atmos: tracer not found: '// &
-                          trim(moist_tracer_names(n)))
-        moist_tracer_ind(n) = idx
-    enddo
-    
     ishuff = 2
     if(layout(1)==1) ishuff=0
     
@@ -131,8 +112,6 @@ subroutine init_atmos(Time,deltim_in)
     jlen = jec-jsc+1
 
     call data_override_init(Atm_domain_in=domain_g)
-    
-
  
     allocate(u(nlev,jsc:jec,isc:iec))
     allocate(v(nlev,jsc:jec,isc:iec))
@@ -156,13 +135,12 @@ subroutine init_atmos(Time,deltim_in)
 
     idx = reg_rf(rstrt, 'amfi_res', 'tmp', tmp, domain_g, mandatory=.false.) !-> Just for registering the restart filename
 
-    call init_spectral_dynamics(nlon, nlat, nlev, trunc, ntrac, domain_g, &
-                               deltim, rstrt, moist_tracer_ind(1:nmoist_tracers))
+    call init_spectral_dynamics(Time, nlev, trunc, domain_g, deltim, rstrt, axis)
 
     call get_lons(deglon=lon_deg)
     call get_lats(deglat=lat_deg)
     
-    call init_phys(Time,deltim*2,deltim,domain_g,ntrac,nlev,lat_deg,lon_deg,rstrt)
+    call init_phys(Time,deltim*2,deltim,domain_g,nlev,lat_deg,lon_deg,rstrt,axis)
 
     call restore_state(rstrt)
     call restore_spec_restart()
@@ -178,7 +156,7 @@ subroutine update_atmos(Time)
     type(time_type), intent(in) :: Time
     integer :: ntr
 
-    call spectral_dynamics(u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
+    call spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 
     !call write_data('rgloopa','u',u,domain_g)
     !call write_data('rgloopa','v',v,domain_g)
@@ -202,7 +180,7 @@ subroutine update_atmos(Time)
 
     call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
 
-    call finish_spectral_dynamics(tem2,tr2,u2,v2)
+    call finish_spectral_dynamics(Time,tem2,tr2,u2,v2)
 
 end subroutine update_atmos
 
