@@ -7,7 +7,8 @@ use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error, &
                     mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_max, &
                     mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
                     mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather, &
-                    mpp_declare_pelist, mpp_set_current_pelist
+                    mpp_declare_pelist, mpp_set_current_pelist, &
+                    mpp_get_current_pelist
 
 use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain, &
                             mpp_global_field, mpp_get_global_domain
@@ -87,6 +88,8 @@ integer :: nwaves_oe=0
     
 integer :: isc, iec, ilen
 integer :: jsc, jec, jlen
+integer, allocatable :: pelist(:)
+integer :: commID
 real :: deltim=600.
 real :: filta = 0.85 
 logical :: mass_corr=.true.
@@ -162,7 +165,10 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
 
     call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
     call mpp_get_global_domain(domain_g, jsg, jeg, isg, ieg)
-    
+   
+    allocate(pelist(mpp_npes())) 
+    call mpp_get_current_pelist(pelist, commid=commID)
+
     nlon = ieg - isg + 1
     nlat = jeg - jsg + 1
     
@@ -413,13 +419,9 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
             dphi%tem, dlam%tem, dphi%tr, dlam%tr, dlam%u, dlam%v, dphi%u, dphi%v, &
             dt%prs, dt%tem, dt%tr, dt%u, dt%v, spdmax)
   
-    do k = 1, size(spdmax) 
-        call mpp_max(spdmax(k)) 
-    enddo
-
+    call mpi_max_arr(spdmax,size(spdmax))
     spdmax = sqrt(spdmax)
 
-    if(mpp_pe()==mpp_root_pe())print *, 'spdmax=', spdmax
     call grid_to_spherical(dt%prs, satm(3)%prs, do_trunc=.true.)
     call grid_to_spherical(dt%tem, satm(3)%tem, do_trunc=.true.)
     call grid_to_spherical(dt%u, sucos, do_trunc=.false.)
@@ -725,6 +727,7 @@ subroutine init_bfiltr(sph_wave, jcap)
     return
 end subroutine init_bfiltr
 
+
 subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,delt)
     implicit none
     complex, intent(inout), dimension(:,:,:) :: dive, vore, teme
@@ -777,5 +780,19 @@ subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,delt)
 
     return
 end subroutine damp_speed
+
+subroutine mpi_max_arr(arr,n)
+    include 'mpif.h'
+    integer, intent(in) :: n
+    real(kind=8), intent(inout) :: arr(n) 
+    real(kind=8) :: buff(n) 
+    integer :: ierr
+ 
+    call MPI_ALLREDUCE(arr, buff, n, MPI_REAL8, MPI_MAX, commID, ierr)
+
+    arr = buff
+
+    return
+end subroutine mpi_max_arr
 
 end module spectral_dynamics_mod

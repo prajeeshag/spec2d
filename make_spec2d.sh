@@ -91,7 +91,7 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 make $@
 #--------------------------------------------------------------------------------	
 
-cd $thisdir/work1
+cd $thisdir/work
 
 mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
