@@ -47,7 +47,7 @@ MODULE diag_util_mod
        & increment_time, get_calendar_type, get_date, get_time, leap_year, OPERATOR(-),&
        & OPERATOR(<), OPERATOR(>=), OPERATOR(<=)
   USE mpp_io_mod, ONLY : mpp_close
-  USE mpp_mod, ONLY : mpp_npes
+  USE mpp_mod, ONLY : mpp_npes, NOTE, mpp_error
   USE constants_mod, ONLY : SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_MINUTE
 
   IMPLICIT NONE
@@ -2192,8 +2192,9 @@ CONTAINS
        IF ( .NOT.output_fields(i)%static ) CYCLE
        CALL diag_data_out(file, i, output_fields(i)%buffer, files(file)%last_flush, .TRUE., .TRUE.)
     END DO
-    ! Close up this file   
+    ! Close up this file
     CALL mpp_close(files(file)%file_unit)
+    call mpp_error(NOTE,'Flushed output file: '//trim(files(file)%name))
     files(file)%file_unit = -1
   END SUBROUTINE write_static
   ! </SUBROUTINE>
