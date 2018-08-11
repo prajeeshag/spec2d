@@ -50,17 +50,11 @@ if (mod(nlat,4).ne.0) then
 end if
 
 do i = 0, ocny-1
-	ie(0,i) = is(0,i) + lonsperlat(pack(0,i))
+	ie(0,i) = is(0,i) + lonsperlat(pack(0,i)) - 1
 	is(1,i) = ie(0,i) + 1
 	ilen(0,i) = lonsperlat(pack(0,i))
 	ilen(1,i) = lonsperlat(pack(1,i))
 end do
-
-do i = 0, nlat/2-1
-	print("pack = " + pack(0,i) + " " +pack(1,i) +" "+is(1,i)+" "+ilen(1,i))
-end do
-
-exit
 
 ;--------------------------------------------------------------------------------	
 function get_cart(ax:string,fid:file)
@@ -142,12 +136,49 @@ end
 
 ;-------------------------------------------------------------------------------
 function stack_and_fold(dati:numeric)
+local siz, rsiz, dato, datii, ndim
 begin
 ;--------------------------------------------------------------------------------	
-
 	printVarSummary(dati)
+	siz = dimsizes(dati)
+	ndim = dimsizes(siz)
 
-return(True)
+	if (ndim .eq. 2) then
+		howmany=1
+		rsiz=siz(0:1)
+		osiz=(/ocny,ocnx/)
+	else if (ndim .eq. 3) then
+		howmany=siz(0)
+		rsiz=siz(1:2)
+		osiz=(/siz(0),ocny,ocnx/)
+	else if (ndim .eq. 4) then
+		howmany=siz(0)*siz(1)
+		rsiz=siz(2:3)
+		osiz = (/siz(0),siz(1),ocny,ocnx/) 
+	else
+		print("FATAL: ndim cannot be < 2 and > 4")
+		exit
+	end if
+	end if
+	end if 
+		
+	datii = reshape(dati,(/howmany,rsiz(0),rsiz(1)/))
+	datoi = new((/howmany,ocny,ocnx/),typeof(dati)) 
+	
+    do j = 0, 1
+        do i = 0, ocny-1
+            lonc = lonGlobeF(ilen(j,i), "lon", "longitude", "degrees_E")
+			print(is(j,i)+" "+ie(j,i)+" "+j+" "+ilen(j,i))
+            datoi(:,i,is(j,i):ie(j,i)) = linint1(lonf,datii(:,pack(j,i),:),True,lonc,0)
+			delete(lonc)
+        end do
+    end do
+
+	dato = reshape(datoi,osiz)
+
+	copy_VarCoords_2(dati,dato)
+
+	return(dato)
 
 end
 
@@ -181,10 +212,11 @@ begin
 	end if
 	end if
 
-    datf = area_conserve_remap_Wrap(dati&$xnm$, dati&$ynm$, dati, lonf, latf, False)
-	fo->$vnm$ = datf
+    datf = linint2_Wrap(dati&$xnm$, dati&$ynm$, dati, True, lonf, latf, 0)
 	
 	dato=stack_and_fold(datf)
+
+	fo->$vnm$ = dato
 
 	delete(dati)
 	delete(datf)
