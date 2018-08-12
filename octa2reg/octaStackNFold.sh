@@ -189,18 +189,23 @@ begin
 		print("Cannot determine cartesian axis attribute for "+ax)
 		exit
 	end if	
+
 	if (any(atts.eq."axis")) then
 		cart = var@axis
 		return(cart)
 	else if (any(atts.eq."cartesian_axis")) then
 		cart = var@cartesian_axis
 		return(cart)
-	else
-		print("Cannot determine cartesian axis attribute for "+ax)
-		exit
 	end if
 	end if
-	return
+
+	if (any(atts.eq."calendar")) then
+		cart = "T"
+		return(cart)
+	end if
+
+	print("Cannot determine cartesian axis attribute for "+ax)
+	exit
 end
 
 ;--------------------------------------------------------------------------------	
