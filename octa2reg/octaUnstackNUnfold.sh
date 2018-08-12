@@ -1,35 +1,33 @@
 #!/bin/bash 
 
-usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-o outfile.nc] [-v vars] [-p optionlist]" 1>&2; exit 1;}
+usage() { echo "Usage: $0 -x nlon -y nlat [-v varlist] [-p optionlist] inputfiles" 1>&2; exit 1;}
 
-while getopts 'x:y:i:o:v:p:' flag; do
+while getopts 'x:y:p:v' flag; do
     case "${flag}" in
-    x) NLON="$OPTARG" ;;
-    y) NLAT="$OPTARG" ;;
-    i) infile="$OPTARG" ;;
-    o) outfile="$OPTARG" ;;
-	v) valist="$OPTARG" ;;
 	p) oplist="$OPTARG" ;;
+	x) NLON="$OPTARG" ;;
+	y) NLAT="$OPTARG" ;;
+	v) valist="$OPTARG" ;;
     *)
 		usage	
 		;;
     esac
 done
 
+shift $(expr $OPTIND - 1)
 
-if [[ -z $NLON ]] || \
-       [[ -z $NLAT ]] || [[ -z $infile ]]; then
+infiles=$*
+
+if [[ -z $infiles ]] || [[ -z $NLON ]] || [[ -z $NLAT ]]; then
 	usage
-fi
-
-if [[ -z $outfile ]]; then
-	outfile="Oc"$NLAT"_"$infile
 fi
 
 varlist="\" \""
 if ! [[ -z $valist ]]; then
 varlist="\"$valist\""
 fi
+
+filelist="\"$infiles\""
 
 optlist="\" \""
 if ! [[ -z $oplist ]]; then
@@ -42,14 +40,18 @@ echo $tfile
 
 cat <<EOF > $tfile
 
-;external DISRGRD "./discre.so"
-
 begin
 
 ;********************************************************************************	
 ;GLOBAL SECTION
 NLON = $NLON
 NLAT = $NLAT
+
+filelist = rm_single_dims(str_split_csv($filelist," ",0))
+
+optlist = rm_single_dims(str_split_csv($optlist,":",0))
+
+varlist = rm_single_dims(str_split_csv($varlist,",",0))
 
 if (mod(NLAT,2).ne.0) then
 	print("FATAL: NLAT should be a multiple of 2")
@@ -122,10 +124,6 @@ OCNXNY = OCNY*OCNX
 OCLON1d = reshape(OCLON,(/OCNXNY/))
 OCLAT1d = reshape(OCLAT,(/OCNXNY/))
 
-varlist = rm_single_dims(str_split_csv($varlist,",",0))
-
-optlist = rm_single_dims(str_split_csv($optlist,":",0))
-
 NOPT = dimsizes(optlist)
 
 OPTDIC = new((/2,NOPT/),string)
@@ -133,6 +131,8 @@ OPTDIC = new((/2,NOPT/),string)
 do i = 0, NOPT-1
 	OPTDIC(:,i) = rm_single_dims(str_split_csv(optlist(i),"=",0))
 end do
+
+delete(optlist)
 
 ;GLOBAL SECTION END
 ;********************************************************************************	
@@ -239,20 +239,18 @@ begin
 		end if
 	end do
 
+	noxy=False
 	if (ynm.eq."".or.xnm.eq."") then
-		print("Cannot find X or Y coordinate for variable: "+varnm)
-		exit
+		noxy=True
 	end if
 
 	axnm = (/ynm,xnm/)
-	axnm@z=False
 	if (znm.ne."") then
 		axnm1 = axnm
 		delete(axnm)
 		axnm=new(dimsizes(axnm1)+1,typeof(axnm1))
 		axnm(0) = znm
 		axnm(1:) = axnm1
-		axnm@z=True
 		delete(axnm1)
 	end if
 	
@@ -264,6 +262,8 @@ begin
 		axnm(1:) = axnm1
 		delete(axnm1)
 	end if
+
+	axnm@noxy = noxy
 
 	return (axnm)
 end
@@ -537,37 +537,14 @@ begin
 end
 
 ;-------------------------------------------------------------------------------
-function stack_and_fold_conserve(datf:numeric,xi:numeric,yi:numeric,ongrid:string)
+function unstack_and_unfold_conserve(dati:numeric,xi:numeric,yi:numeric)
 local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, j, k, ongrid, ongrd
 begin
 ;--------------------------------------------------------------------------------	
 
-	ongrd = stringtochar(ongrid)
-
-	xxi = xi
-	yyi = yi
-
-	if (ongrd(0).eq."T") then
-		delete(yyi)
-		yyi = LATF
-	end if
-
-	if (ongrd(1).eq."T") then
-		delete(xxi)
-		xxi = LONF
-	end if
-
-	if (ongrd(0).eq."T".and.ongrd(1).eq."T") then
-		dati = datf
-	else
-    	dati = area_conserve_remap_Wrap(xxi, yyi, datf, LONF, LATF, False)
-	end if
-
 	siz = dimsizes(dati)
 	ndim = dimsizes(siz)
 
-	nx=siz(ndim-1)
-	ny=siz(ndim-2)
 	howmany = 1
 	
 	do i = 0, ndim-3
@@ -580,29 +557,29 @@ begin
 		osiz(i) = siz(i)
 	end do
 
-	osiz(ndim-2) = OCNY
-	osiz(ndim-1) = OCNX
+	osiz(ndim-2) = NLAT
+	osiz(ndim-1) = NLON
 
-	datii = reshape(dati,(/howmany,ny,nx/))
-	datoi = new((/howmany,OCNY,OCNX/),typeof(dati)) 
+	datii = reshape(dati,(/howmany,OCNY,OCNX/))
+	datoi = new((/howmany,NLAT,NLON/),typeof(dati)) 
 	
 	ncopy = 4
-	rfi = new((/howmany,ncopy,nx/),typeof(datii))
 	latfi = latGau(ncopy, "lat", "latitude", "degrees_N")
 
     do j = 0, 1
         do i = 0, OCNY-1
             lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
 			ip = PACK(j,i)
+			rfi = new((/howmany,ncopy,ILEN(j,i)/),typeof(datii))
 			do k = 0, ncopy-1
-				rfi(:,k,:) = datii(:,ip,:)
+				rfi(:,k,:) = datii(:,i,IS(j,i):IE(j,i))
 			end do
-            rfo = area_conserve_remap(LONF,latfi,rfi,lonc,latfi,False)
+            rfo = area_conserve_remap(lonc,latfi,rfi,LONF,latfi,False)
 			do k = 0, 1
-            	datoi(:,i,IS(j,i):IE(j,i)) = (/rfo(:,(ncopy+1)/2-1,:)/)
+            	datoi(:,ip,:) = (/rfo(:,(ncopy+1)/2-1,:)/)
 			end do
 			delete(lonc)
-			delete(rfo)
+			delete(rfi)
         end do
     end do
 
@@ -612,52 +589,28 @@ begin
 	copy_VarAtts(dati,dato)
 	
 	nnd = ndim - 1
-	dato!nnd = "x"
+	dato!nnd = "lon"
 	nnd = ndim - 2
-	dato!nnd = "y"
-	dato&x = ispan(1,OCNX,1)
-	dato&y = ispan(1,OCNY,1)
-	dato&x@axis = "X"
-	dato&y@axis = "Y"
+	dato!nnd = "lat"
+	dato&lon = LONF
+	dato&lat = LATF
+	dato&lon@axis = "X"
+	dato&lat@axis = "Y"
 
 	return(dato)
-
 end
-;end function stack_and_fold_conserve
+;end unstack_and_unfold_conserve
 
 
 ;-------------------------------------------------------------------------------
-function stack_and_fold_linint2(datf:numeric,xi:numeric,yi:numeric,ongrid:string)
+function unstack_and_unfold_linint2(dati:numeric,xi:numeric,yi:numeric)
 local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, j, k, ongrid, ongrd
 begin
 ;--------------------------------------------------------------------------------	
 
-	ongrd = stringtochar(ongrid)
-
-	xxi = xi
-	yyi = yi
-
-	if (ongrd(0).eq."T") then
-		delete(yyi)
-		yyi = LATF
-	end if
-
-	if (ongrd(1).eq."T") then
-		delete(xxi)
-		xxi = LONF
-	end if
-
-	if (ongrd(0).eq."T".and.ongrd(1).eq."T") then
-		dati = datf
-	else
-    	dati = linint2_Wrap(xxi, yyi, datf, True, LONF, LATF, 0)
-	end if
-
 	siz = dimsizes(dati)
 	ndim = dimsizes(siz)
 
-	nx=siz(ndim-1)
-	ny=siz(ndim-2)
 	howmany = 1
 	
 	do i = 0, ndim-3
@@ -670,16 +623,16 @@ begin
 		osiz(i) = siz(i)
 	end do
 
-	osiz(ndim-2) = OCNY
-	osiz(ndim-1) = OCNX
+	osiz(ndim-2) = NLAT
+	osiz(ndim-1) = NLON
 
-	datii = reshape(dati,(/howmany,ny,nx/))
-	datoi = new((/howmany,OCNY,OCNX/),typeof(dati)) 
+	datii = reshape(dati,(/howmany,OCNY,OCNX/))
+	datoi = new((/howmany,NLAT,NLON/),typeof(dati)) 
 	
     do j = 0, 1
         do i = 0, OCNY-1
             lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
-            datoi(:,i,IS(j,i):IE(j,i)) = linint1(LONF,datii(:,PACK(j,i),:),True,lonc,0)
+            datoi(:,PACK(j,i),:) = linint1(lonc,datii(:,i,IS(j,i):IE(j,i)),True,LONF,0)
 			delete(lonc)
         end do
     end do
@@ -690,81 +643,56 @@ begin
 	copy_VarAtts(dati,dato)
 	
 	nnd = ndim - 1
-	dato!nnd = "x"
+	dato!nnd = "lon"
 	nnd = ndim - 2
-	dato!nnd = "y"
-	dato&x = ispan(1,OCNX,1)
-	dato&y = ispan(1,OCNY,1)
-	dato&x@axis = "X"
-	dato&y@axis = "Y"
+	dato!nnd = "lat"
+	dato&lon = LONF
+	dato&lat = LATF
+	dato&lon@axis = "X"
+	dato&lat@axis = "Y"
 
 	return(dato)
-
 end
-
+;end unstack_and_unfold_linint2 
 
 ;--------------------------------------------------------------------------------	
-procedure toOcta_and_write(fo:file, fi:file, vnm:string, xynm[*]:string, intmethd:string, \
-							ongrid:string, conv2int:logical)
+procedure fromOcta_and_write(fo:file, fi:file, vnm:string, intmethd:string, xynm:string)
 local i, lonin, latin, NLATin, NLONin, dati, fo, fi, vnm, xynm, intmethd, ndim, siz, conv2int
 begin
 ;--------------------------------------------------------------------------------	
 
 	ndim = dimsizes(xynm) 
 
-	if (ndim.eq.3) then
-		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:,\$xynm(2)\$|:)
-	else if (ndim.eq.4) then
+	if (ndim.gt.3) then
 		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:,\$xynm(2)\$|:,\$xynm(3)\$|:)
-	else if (ndim.eq.2) then
+	else if (ndim.eq.3) then
+		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:,\$xynm(2)\$|:)
+	else 
 		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:)
 	end if
 	end if
-	end if
+			
+	siz = dimsizes(dati) 
 
-	siz = dimsizes(dati)
-	xi = fi->\$xynm(ndim-1)\$
-	yi = fi->\$xynm(ndim-2)\$
+	xi = dati&\$xynm(ndim-1)\$
+	yi = dati&\$xynm(ndim-2)\$
 
-	if (intmethd.eq."unstruct") then
-		dato=stack_and_fold_unstrct(dati,xi,yi,ongrid)
-	else if (intmethd.eq."dtype") then
-		dato=stack_and_fold_dtype(dati,xi,yi,ongrid,conv2int)
-	else if (intmethd.eq."linint") then
-		dato=stack_and_fold_linint2(dati,xi,yi,ongrid)
+	if (intmethd.eq."linint") then
+		dato=unstack_and_unfold_linint2(dati,xi,yi)
 	else if (intmethd.eq."conserve") then
-		dato=stack_and_fold_conserve(dati,xi,yi,ongrid)
+		dato=unstack_and_unfold_conserve(dati,xi,yi)
 	else
 		print("FATAL: invalid interpmethod: "+intmethd)
-		print("NOTE: available interpmethods are: 'unstruct', 'linint', 'conserve', and "+\
-				"'dtype' (for discrete type interpolation)")
-	end if
-	end if
+		print("NOTE: available interpmethods are: 'linint', 'conserve'.")
 	end if
 	end if
 
-	xnm = "x"
-	ynm = "y" 
-	if (ndim.gt.3) then
-		znm=xynm(ndim-3)
-		fo->\$vnm\$ = dato(\$xynm(0)\$|:,\$xnm\$|:,\$ynm\$|:,\$znm\$|:)
-	else if (ndim.eq.3) then
-		znm=xynm(ndim-3)
-		if (xynm@z) then
-			fo->\$vnm\$ = dato(\$xnm\$|:,\$ynm\$|:,\$znm\$|:)
-		else
-			fo->\$vnm\$ = dato(\$znm(0)\$|:,\$xnm\$|:,\$ynm\$|:)
-		end if
-	else
-		fo->\$vnm\$ = dato(\$xnm\$|:,\$ynm\$|:)
-	end if
-	end if
-				
+	fo->\$vnm\$ = dato
+
 	delete(dati)
 	delete(dato)
 	return
 end
-
 
 ;********************************************************************************	
 ;END FUNCTION SECTION
@@ -774,38 +702,41 @@ end
 ;********************************************************************************	
 ;--> Main SECTION
 
+do f = 0, dimsizes(filelist)-1
+    filnm=filelist(f)
+	fi = addfile(filnm,"r")
+	outfnm = "gs"+NLAT+"_"+filnm
+	system("rm -rf "+outfnm)
+	fo = addfile(outfnm,"c")
 
-fi = addfile("$infile","r")
+	fvnms = getfilevarnames(fi)
 
-system("rm -rf $outfile")
-fo = addfile("$outfile","c")
-
-fvnms = getfilevarnames(fi)
-
-do i = 0, dimsizes(fvnms)-1
-	if (any(fvnms(i).eq.getfilevardims(fi,fvnms(i)))) then
-		continue
-	end if
-	n = -1
-	if (any(varlist.ne." ")) then
-		do j = 0, dimsizes(varlist)-1
-			if (fvnms(i).eq.varlist(j)) then
-				n = j
-			end if
-		end do
-		if (n.lt.0) then
+	do i = 0, dimsizes(fvnms)-1
+		if (any(fvnms(i).eq.getfilevardims(fi,fvnms(i)))) then
 			continue
 		end if
-	end if
-	axnm=find_axis_nms(fvnms(i),fi)
-	intpmthd=get_option_val("interpmethod","linint",n)
-	ongrid=get_option_val("ongrid","FF",n)
-	conv2int=get_option_val("conv2int","F",n).eq."T"
-	print("stacking and folding "+fvnms(i)+" with options interpmethod = "+intpmthd+", ongrid = "+ongrid)
-	toOcta_and_write(fo,fi,fvnms(i),axnm,intpmthd,ongrid,conv2int)	
-	delete(axnm)
+		n = -1
+		if (any(varlist.ne." ")) then
+			do j = 0, dimsizes(varlist)-1
+				if (fvnms(i).eq.varlist(j)) then
+					n = j
+				end if
+			end do
+			if (n.lt.0) then
+				continue
+			end if
+		end if
+		axnm = find_axis_nms(fvnms(i),fi)
+		if (axnm@noxy) then
+			fo->\$fvnms(i)\$ = fi->\$fvnms(i)\$
+			continue
+		end if
+		intpmthd=get_option_val("interpmethod","linint",n)
+		print("unstacking and unfolding "+fvnms(i)+" with options interpmethod = "+intpmthd)
+		fromOcta_and_write(fo,fi,fvnms(i),intpmthd, axnm)	
+		delete(axnm)
+	end do
 end do
-
 end
 
 EOF
