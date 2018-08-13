@@ -17,6 +17,8 @@ use constants_mod, only : RADIUS, PI
 
 use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian 
 
+use ocpack_mod, only : get_ocpack_info, get_ocpack, ocpacktype
+
 
 !-------------------------------------------------------------------------
 !   provides operations on spectral spherical harmonics fields that do not 
@@ -109,6 +111,9 @@ logical :: debug
 integer :: clck_f2s, clck_s2f
 
 integer, parameter, public :: ev=1, od=2
+
+type(ocpacktype), allocatable :: ocpk(:,:)
+integer :: npack, 
 
 logical :: initialized=.false., notfpe=.false.
 
