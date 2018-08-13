@@ -51,9 +51,9 @@ character (len=256) :: null_plan_msg
 type(plan_type) :: g2fplans(max_plans)
 type(plan_type) :: f2gplans(max_plans)
 
-public :: init_grid_fourier, end_grid_fourier
-public :: grid_to_fourier, fourier_to_grid
+public :: init_grid_fourier, end_grid_fourier, grid_to_fourier, fourier_to_grid
 !public :: fft_1dr2c_serial, fft_1dc2c_serial
+
 
 namelist/grid_fourier_nml/plan_level, debug
 
@@ -67,14 +67,18 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
     integer, intent(in) :: comm_in !MPI Communicator
     integer, intent(in) :: ilen ! No: of longitudes in this proc
     integer, intent(in) :: nfourier ! fourier truncation
-    integer, intent(inout) :: flen ! No: fouriers in this proc
-    integer, intent(inout) :: isf ! Starting of the fourier in this proc
+    integer, intent(out) :: flen ! No: fouriers in this proc
+    integer, intent(out) :: isf ! Starting of the fourier in this proc
     integer, intent(out), optional :: Tshuff(nfourier+1) !if present shuffle the fourier for 
                                                          !load balance for triangular truncation
                                                          !and give the order of shuffled fouriers
                                                          !in Tshuff
     character (len=32) :: routine = 'init_grid_fourier'
     integer :: unit, i, k, stat
+    integer :: n, flags, t
+    integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1, local_n1_prev
+    integer(C_INTPTR_T) :: alloc_local, n0(2)
+    integer(C_INTPTR_T) :: howmany
 
     unit = open_namelist_file()
 
@@ -152,11 +156,37 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
         endif
     endif
 
+    howmany = 1
+    n0=[NLON,howmany]
+
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+                   block0, block0, comm_in, local_n0, &
+                   local_0_start, local_n1, local_1_start)
+
+    local_n1_prev = local_n1
+
+    if (ilen/=local_n0) & 
+        call mpp_error('init_grid_fourier', 'ilen/=local_n0', FATAL)
+
+    n0=[howmany,FTRUNC]
+
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+                   block0, block0, comm_in, local_n0, &
+                   local_0_start, local_n1, local_1_start)
+
+    if (local_n1_prev/=local_n0) &
+        call mpp_error('init_grid_fourier', 'local_n1_prev/=local_n0', FATAL)
+
+    isf = local_1_start
+
+    flen = local_n1
+    FLOCAL = local_n1
+
     !grid_to_fourier
-    id_grid2four = plan_grid_to_fourier(1,NLON_LOCAL,comm_in, isf, flen)
+    !id_grid2four = plan_grid_to_fourier(1,NLON_LOCAL,comm_in, isf, flen)
 
     !fourier_to_grid -> should be called after plan_grid_to_fourier
-    id_four2grid = plan_fourier_to_grid(1,NLON_LOCAL,comm_in)
+    !id_four2grid = plan_fourier_to_grid(1,NLON_LOCAL,comm_in)
 
     initialized = .true.
     call mpp_error(routine, 'grid_to_fourier initialized !!!', NOTE)
