@@ -35,6 +35,8 @@ use transforms_mod, only : get_spherical_wave, get_lons, compute_ucos_vcos, comp
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel, &
                                get_pressure_at_levels
 
+use ocpack_mod, only : init_ocpack
+
 use implicit_mod, only : init_implicit, do_implicit, do_implicit_adj
 
 use gfidi_mod, only : gfidi_drv
@@ -140,7 +142,6 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     nlev = nlev_in 
     trunc = trunc_in 
     deltim = deltim_in 
-
     domain_g => domain
 
     moist_tracer_names(:) = ''
@@ -174,6 +175,8 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     
     ilen = iec - isc + 1
     jlen = jec - jsc + 1
+
+    call init_ocpack(nlat,maxlon=nlon,ispacked=.false.,isreduced=.false.)
     
     call init_transforms(domain_g,trunc,nwaves_oe)
  
@@ -181,9 +184,9 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     
     allocate(sph_wave(nwaves_oe,2))
     
-    allocate(sin_lat(jsc:jec), cosm2_lat(jsc:jec))
-    allocate(deg_lat(jsc:jec), cosm_lat(jsc:jec))
-    allocate(wts_lat(jsc:jec), cos_lat(jsc:jec))
+    allocate(sin_lat(nlat), cosm2_lat(nlat))
+    allocate(deg_lat(nlat), cosm_lat(nlat))
+    allocate(wts_lat(nlat), cos_lat(nlat))
     allocate(deg_lon(isc:iec))
     
     call get_lats(sinlat=sin_lat,cosm2lat=cosm2_lat, &
@@ -394,6 +397,19 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
     
     call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
+
+    do j = jsc, jec
+        if(mpp_pe()==mpp_root_pe()) print*,j, sum(gatm(1)%tem(1,j,:))/size(gatm(1)%tem(1,j,:))
+    enddo
+
+    call write_data('test_octa','tem',gatm(1)%tem(1,:,:),domain=domain_g)
+
+    call fms_io_exit()
+
+    call mpp_sync()
+    call mpp_exit()
+    stop
+    call mpp_error(FATAL,'testing.....')
     
     do ntr = 1, ntrac
         call spherical_to_grid(satm(2)%tr(:,:,:,ntr),grid=gatm(1)%tr(:,:,:,ntr), &

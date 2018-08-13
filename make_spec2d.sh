@@ -16,7 +16,7 @@ execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
 
 mkmftemplate="$thisdir/bin/mkmf.template"
-#mkmftemplate="$thisdir/bin/mkmf.template.debug"
+mkmftemplate="$thisdir/bin/mkmf.template.debug"
 
 amfi="$thisdir/amfi"
 
@@ -35,7 +35,8 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
        $thisdir/shared/time_interp $thisdir/shared/axis_utils \
        $thisdir/shared/astronomy $thisdir/shared/diag_manager \
        $thisdir/shared/sat_vapor_pres $thisdir/shared/mersenne_twister \
-	   $thisdir/shared/tracer_manager $thisdir/shared/field_manager"
+	   $thisdir/shared/tracer_manager $thisdir/shared/field_manager \
+	   $thisdir/shared/strman"
 #--------------------------------------------------------------------------------	
 
 #-------------------------mppnccombine SRC---------------------------------------	

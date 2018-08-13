@@ -237,11 +237,11 @@ begin
 		exit
 	end if	
 
-	if (any(atts.eq."axis")) then
-		cart = var@axis
-		return(cart)
-	else if (any(atts.eq."cartesian_axis")) then
+	if (any(atts.eq."cartesian_axis")) then
 		cart = var@cartesian_axis
+		return(cart)
+	else if (any(atts.eq."axis")) then
+		cart = var@axis
 		return(cart)
 	end if
 	end if
@@ -281,7 +281,7 @@ begin
 		end if
 		end if
 	end do
-
+	
 	noxy=False
 	if (ynm.eq."".or.xnm.eq."") then
 		noxy=True
@@ -668,7 +668,7 @@ begin
 
 	osiz(ndim-2) = NLAT
 	osiz(ndim-1) = NLON
-
+	
 	if (isinteger(dati)) then
 		datii = tofloat(reshape(dati,(/howmany,OCNY,OCNX/)))
 	else
@@ -776,7 +776,8 @@ do f = 0, dimsizes(filelist)-1
 		end if
 		axnm = find_axis_nms(fvnms(i),fi)
 		if (axnm@noxy) then
-			fo->\$fvnms(i)\$ = fi->\$fvnms(i)\$
+			print("No x or y found for : "+fvnms(i))
+			;fo->\$fvnms(i)\$ = fi->\$fvnms(i)\$
 			continue
 		end if
 		intpmthd=get_option_val("interpmethod","linint",n)
