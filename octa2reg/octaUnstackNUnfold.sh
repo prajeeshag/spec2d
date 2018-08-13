@@ -626,8 +626,13 @@ begin
 	osiz(ndim-2) = NLAT
 	osiz(ndim-1) = NLON
 
-	datii = reshape(dati,(/howmany,OCNY,OCNX/))
-	datoi = new((/howmany,NLAT,NLON/),typeof(dati)) 
+	if (isinteger(dati)) then
+		datii = tofloat(reshape(dati,(/howmany,OCNY,OCNX/)))
+	else
+		datii = reshape(dati,(/howmany,OCNY,OCNX/))
+	end if
+
+	datoi = new((/howmany,NLAT,NLON/),typeof(datii)) 
 	
     do j = 0, 1
         do i = 0, OCNY-1
