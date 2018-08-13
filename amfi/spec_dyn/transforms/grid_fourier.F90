@@ -182,24 +182,16 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
     flen = local_n1
     FLOCAL = local_n1
 
-    !grid_to_fourier
-    !id_grid2four = plan_grid_to_fourier(1,NLON_LOCAL,comm_in, isf, flen)
-
-    !fourier_to_grid -> should be called after plan_grid_to_fourier
-    !id_four2grid = plan_fourier_to_grid(1,NLON_LOCAL,comm_in)
-
     initialized = .true.
     call mpp_error(routine, 'grid_to_fourier initialized !!!', NOTE)
 
 end subroutine init_grid_fourier
 
 !--------------------------------------------------------------------------------   
-function plan_grid_to_fourier(howmany, ilen, comm_in, isf, flen)
+function plan_grid_to_fourier(howmany)
 !--------------------------------------------------------------------------------   
     implicit none
-    integer(C_INTPTR_T), intent(in) :: howmany, ilen
-    integer, intent(inout), optional :: isf, flen
-    integer, intent(in) :: comm_in
+    integer(C_INTPTR_T), intent(in) :: howmany
     integer :: plan_grid_to_fourier, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1, local_n1_prev
     integer(C_INTPTR_T) :: alloc_local, n0(2)
@@ -221,11 +213,11 @@ function plan_grid_to_fourier(howmany, ilen, comm_in, isf, flen)
     n0=[NLON,howmany]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
-    if (ilen/=local_n0) & 
-        call mpp_error('plan_grid_to_fourier', 'ilen/=local_n0', FATAL)
+    if (NLON_LOCAL/=local_n0) & 
+        call mpp_error('plan_grid_to_fourier', 'NLON_LOCAL/=local_n0', FATAL)
 
     flags = plan_flags
 
@@ -236,7 +228,7 @@ function plan_grid_to_fourier(howmany, ilen, comm_in, isf, flen)
 
     g2fplans(n)%plan = fftw_mpi_plan_many_transpose(NLON, howmany, 1, &
                             block0, block0, g2fplans(n)%rin, g2fplans(n)%trin, &
-                            comm_in, flags)
+                            COMM_FFT, flags)
     
     if (.not.c_associated(g2fplans(n)%plan)) &
         call mpp_error('plan_grid_to_fourier: transpose1:',trim(null_plan_msg),FATAL)
@@ -263,21 +255,13 @@ function plan_grid_to_fourier(howmany, ilen, comm_in, isf, flen)
     n0=[howmany,FTRUNC]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     if (local_n1_prev/=local_n0) &
         call mpp_error('plan_grid_to_fourier', 'local_n1_prev/=local_n0', FATAL)
 
-    if(present(flen)) then
-        flen = local_n1
-        FLOCAL = local_n1
-    else
-        !FLOCAL should already have assinged and should be equal to local_n1
-        if (FLOCAL/=local_n1) call mpp_error('plan_grid_to_fourier', 'FLOCAL/=local_n1', FATAL)
-    endif 
-
-    if(present(isf))isf = local_1_start
+    if (FLOCAL/=local_n1) call mpp_error('plan_grid_to_fourier', 'FLOCAL/=local_n1', FATAL)
 
     g2fplans(n)%cdat = fftw_alloc_complex(alloc_local)
 
@@ -287,7 +271,7 @@ function plan_grid_to_fourier(howmany, ilen, comm_in, isf, flen)
 
     g2fplans(n)%tplan = fftw_mpi_plan_many_transpose(howmany, FTRUNC, 2, &
                             block0, block0, g2fplans(n)%srout, g2fplans(n)%tsrout, &
-                            comm_in, flags) 
+                            COMM_FFT, flags) 
 
     if (.not.c_associated(g2fplans(n)%tplan)) &
         call mpp_error('plan_grid_to_fourier: transpose2:',trim(null_plan_msg),FATAL)
@@ -380,7 +364,7 @@ subroutine grid_to_fourier(rinp, coutp, id_in)
     endif
     
     if (id<1) then
-        id = plan_grid_to_fourier(howmany,NLON_LOCAL,COMM_FFT)
+        id = plan_grid_to_fourier(howmany)
     endif
                  
     call mpp_clock_begin(clck_grid_to_fourier)
@@ -424,11 +408,10 @@ end subroutine grid_to_fourier
 
 
 !--------------------------------------------------------------------------------   
-function plan_fourier_to_grid(howmany, ilen, comm_in)
+function plan_fourier_to_grid(howmany)
 !--------------------------------------------------------------------------------   
     implicit none
-    integer(C_INTPTR_T), intent(in) :: howmany, ilen
-    integer, intent(in) :: comm_in
+    integer(C_INTPTR_T), intent(in) :: howmany
     integer :: plan_fourier_to_grid, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
     integer(C_INTPTR_T) :: local_n0_prev
@@ -455,11 +438,11 @@ function plan_fourier_to_grid(howmany, ilen, comm_in)
     n0=[howmany,NLON]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
-    if (ilen/=local_n1) & 
-        call mpp_error('plan_fourier_to_grid', 'ilen/=local_n1', FATAL)
+    if (NLON_LOCAL/=local_n1) & 
+        call mpp_error('plan_fourier_to_grid', 'NLON_LOCAL/=local_n1', FATAL)
 
     f2gplans(n)%tcdat = fftw_alloc_complex(alloc_local)
 
@@ -470,7 +453,7 @@ function plan_fourier_to_grid(howmany, ilen, comm_in)
 
     f2gplans(n)%plan = fftw_mpi_plan_many_transpose(howmany, NLON, 1, &
                             block0, block0, f2gplans(n)%trin, f2gplans(n)%rin, &
-                            comm_in, flags)
+                            COMM_FFT, flags)
     if (.not.c_associated(f2gplans(n)%plan)) &
         call mpp_error('plan_fourier_to_grid: transpose1:',trim(null_plan_msg),FATAL)
 
@@ -496,7 +479,7 @@ function plan_fourier_to_grid(howmany, ilen, comm_in)
     n0=[FTRUNC,howmany]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     if (local_n0_prev /= local_n1) &
@@ -512,7 +495,7 @@ function plan_fourier_to_grid(howmany, ilen, comm_in)
 
     f2gplans(n)%tplan = fftw_mpi_plan_many_transpose(FTRUNC, howmany, 2, &
                             block0, block0, f2gplans(n)%tsrout, f2gplans(n)%srout, &
-                            comm_in, flags) 
+                            COMM_FFT, flags) 
     if (.not.c_associated(f2gplans(n)%tplan)) &
         call mpp_error('plan_fourier_to_grid: transpose2:',trim(null_plan_msg),FATAL)
 
@@ -553,7 +536,7 @@ subroutine fourier_to_grid(coutp, rinp, id_in)
     endif
     
     if (id<1) then
-        id = plan_fourier_to_grid(howmany,NLON_LOCAL,COMM_FFT)
+        id = plan_fourier_to_grid(howmany)
     endif
                  
     call mpp_clock_begin(clck_fourier_to_grid)
