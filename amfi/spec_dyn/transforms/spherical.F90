@@ -112,8 +112,13 @@ integer :: clck_f2s, clck_s2f
 
 integer, parameter, public :: ev=1, od=2
 
+type jhem_type
+    integer :: s, n
+end type jhem_type
+
+type(jhem_type), allocatable :: jh
+
 type(ocpacktype), allocatable :: ocpk(:,:)
-integer :: npack, 
 
 logical :: initialized=.false., notfpe=.false.
 
@@ -1318,6 +1323,14 @@ subroutine get_lonsperlat(nlat_in,lonslat_lcl)
     lonslat_lcl(:) = lonslat(js_hem:je_hem)
 
 end subroutine get_lonsperlat
+
+function get_js(jj)
+    integer, intent(in) :: jj
+    integer :: get_js
+
+    get_js = 2*(jj-1)+mod(jj,2)
+    return
+end function get_js
 
 end module spherical_mod
 

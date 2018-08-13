@@ -6,7 +6,7 @@ use strman_mod, only : int2str
 implicit none
 private
 
-public :: ocpack_type, init_ocpack, get_ocpack
+public :: ocpack_type, init_ocpack, get_ocpack, is_packed, is_reduced
 
 type ocpack_type
     integer :: is
@@ -19,6 +19,8 @@ type(ocpack_type), dimension(:,:), allocatable :: ocpk1
 type(ocpack_type), dimension(:,:), allocatable :: ocpk2
 
 integer :: nplon = 20
+
+logical :: packed=.true., reduced=.true.
 
 logical :: initialized=.false.
 
@@ -33,7 +35,6 @@ subroutine get_ocpack1(ocpack)
 
     if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
 
-    
     if(size(ocpack,1)==size(ocpk1,2)) then
         ocpack = ocpk1(1,:)
     else
@@ -42,6 +43,7 @@ subroutine get_ocpack1(ocpack)
 
     return
 end subroutine get_ocpack1
+
 
 subroutine get_ocpack2(ocpack) 
     type(ocpack_type), intent(out) :: ocpack(:,:)
@@ -60,30 +62,48 @@ subroutine get_ocpack2(ocpack)
     return
 end subroutine get_ocpack2
 
+logical function is_packed()
+    is_packed = packed
+    return
+end function is_packed
 
-subroutine init_ocpack(nlat, maxlon, reduce)
+logical function is_reduced()
+    is_reduced = reduced
+    return
+end function is_reduced
+
+subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
 
     integer, intent(in) :: nlat
     integer, intent(in), optional :: maxlon
-    logical, intent(in), optional :: reduce
+    logical, intent(in), optional :: isreduced
+    logical, intent(in), optional :: ispacked
 
-    logical :: reduce1
-    integer :: i, j, nplon_new
+    integer :: i, j, nplon_new, npack
     integer, dimension(nlat) :: lonsperlat
     integer :: nlon, ocnx1, ocny1, ocnx2, ocny2
 
+    if(initialized) return
 
     call mpp_init()
 
-    reduce1 = .true.
+    reduced = .true.
+    npack = 2
 
-    if(present(reduce)) reduce1 = reduce
+    if(present(ispacked).and..not.ispacked) then
+        packed = .false.
+        npack = 1
+    endif
+
+    if(present(isreduced)) reduced = isreduced
+
+    if(packed) reduced = .true.
 
     if (mod(nlat,2).ne.0) then
         call mpp_error(fatal, 'ocpack_mod: nlat should be a multiple of 2')
     end if
 
-    if (reduce1.and.present(maxlon)) then
+    if (reduced.and.present(maxlon)) then
         nplon_new = maxlon-(4*(nlat/2-1))
         if (nplon_new/=nplon) then
             nplon = nplon_new
@@ -94,47 +114,27 @@ subroutine init_ocpack(nlat, maxlon, reduce)
 
     lonsperlat(1) = nplon
     lonsperlat(nlat) = nplon
-
     do i = 2, nlat/2
         lonsperlat(i) = lonsperlat(i-1) + 4
         lonsperlat(nlat-i+1) = lonsperlat(i)
     end do
 
     nlon = maxval(lonsperlat)
+
+    if (.not.reduced) then
+        lonsperlat = nlon
+        if (present(maxlon)) lonsperlat = maxlon
+    end if
   
     ocnx1 = nlon
     ocny1 = nlat
 
-    ocnx2 = nplon+nlon
-    ocny2 = nlat/2
+    ocnx2 = (npack-1)*nplon+nlon
+    ocny2 = nlat/npack
    
     allocate(ocpk1(1,ocny1))
-    allocate(ocpk2(2,ocny2))
- 
-    ocpk2(1,:)%is = 1
-    ocpk2(2,:)%ie = ocnx2
-    ocpk2(:,:)%glat = -1
-  
-    do i = 1, nlat/4
-        ocpk2(1,2*i-1)%glat = i
-        ocpk2(2,2*i-1)%glat = nlat/2-i+1
-        ocpk2(1,2*i)%glat   = nlat-i+1
-        ocpk2(2,2*i)%glat   = nlat/2+i
-    end do
+    allocate(ocpk2(npack,ocny2))
 
-    if (mod(nlat,4)/=0) then
-        ocpk2(1,nlat/2)%glat = nlat/4
-        ocpk2(2,nlat/2)%glat = nlat-nlat/4-1
-    end if
-
-    do i = 1, ocny2
-        ocpk2(1,i)%ie = ocpk2(1,i)%is + lonsperlat(ocpk2(1,i)%glat) - 1
-        ocpk2(2,i)%is = ocpk2(1,i)%ie + 1
-        ocpk2(1,i)%ilen = lonsperlat(ocpk2(1,i)%glat)
-        ocpk2(2,i)%ilen = lonsperlat(ocpk2(2,i)%glat)
-    end do
-
-    
     ocpk1(1,:)%is = 1
     ocpk1(:,:)%glat = -1
 
@@ -153,6 +153,33 @@ subroutine init_ocpack(nlat, maxlon, reduce)
         ocpk1(1,i)%ie = ocpk1(1,i)%is + lonsperlat(ocpk1(1,i)%glat) - 1
         ocpk1(1,i)%ilen = lonsperlat(ocpk1(1,i)%glat)
     end do
+
+    if (npack==2) then 
+        ocpk2(1,:)%is = 1
+        ocpk2(2,:)%ie = ocnx2
+        ocpk2(:,:)%glat = -1
+  
+        do i = 1, nlat/4
+            ocpk2(1,2*i-1)%glat = i
+            ocpk2(2,2*i-1)%glat = nlat/2-i+1
+            ocpk2(1,2*i)%glat   = nlat-i+1
+            ocpk2(2,2*i)%glat   = nlat/2+i
+        end do
+
+        if (mod(nlat,4)/=0) then
+            ocpk2(1,nlat/2)%glat = nlat/4
+            ocpk2(2,nlat/2)%glat = nlat-nlat/4-1
+        end if
+
+        do i = 1, ocny2
+            ocpk2(1,i)%ie = ocpk2(1,i)%is + lonsperlat(ocpk2(1,i)%glat) - 1
+            ocpk2(2,i)%is = ocpk2(1,i)%ie + 1
+            ocpk2(1,i)%ilen = lonsperlat(ocpk2(1,i)%glat)
+            ocpk2(2,i)%ilen = lonsperlat(ocpk2(2,i)%glat)
+        end do
+    else
+        ocpk2 = ocpk1
+    end if
 
     initialized = .true.
 
@@ -195,10 +222,10 @@ use ocpack_mod
 type(ocpack_type), allocatable :: ocpk1(:,:), ocpk2(:,:)
 integer :: ny=94
 
-call init_ocpack(94)
+call init_ocpack(94,maxlon=192,ispacked=.false.,isreduced=.true.)
 
 allocate(ocpk1(1,ny))
-allocate(ocpk2(2,ny/2))
+allocate(ocpk2(1,ny))
 
 call get_ocpack(ocpk1)
 call get_ocpack(ocpk2)

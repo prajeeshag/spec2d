@@ -1,8 +1,13 @@
 #!/bin/bash 
 
-usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-o outfile.nc] [-v vars] [-p optionlist]" 1>&2; exit 1;}
+usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-n] [-r] [-o outfile.nc] [-v vars] [-p optionlist]" 1>&2; exit 1;}
 
-while getopts 'x:y:i:o:v:p:' flag; do
+npack=2
+reduce=1
+
+outfile=""
+
+while getopts 'x:y:i:o:v:p:nr' flag; do
     case "${flag}" in
     x) NLON="$OPTARG" ;;
     y) NLAT="$OPTARG" ;;
@@ -10,6 +15,8 @@ while getopts 'x:y:i:o:v:p:' flag; do
     o) outfile="$OPTARG" ;;
 	v) valist="$OPTARG" ;;
 	p) oplist="$OPTARG" ;;
+	n) npack=1 ;;
+	r) reduce=0 ;;
     *)
 		usage	
 		;;
@@ -20,10 +27,6 @@ done
 if [[ -z $NLON ]] || \
        [[ -z $NLAT ]] || [[ -z $infile ]]; then
 	usage
-fi
-
-if [[ -z $outfile ]]; then
-	outfile="Oc"$NLAT"_"$infile
 fi
 
 varlist="\" \""
@@ -42,14 +45,21 @@ echo $tfile
 
 cat <<EOF > $tfile
 
-;external DISRGRD "./discre.so"
-
 begin
 
 ;********************************************************************************	
 ;GLOBAL SECTION
 NLON = $NLON
 NLAT = $NLAT
+
+ifpack="$npack".eq.2
+reduce="$reduce".eq.1
+
+NPACK=1
+if (ifpack) then
+	NPACK=2
+	reduce = True
+end if
 
 if (mod(NLAT,2).ne.0) then
 	print("FATAL: NLAT should be a multiple of 2")
@@ -61,61 +71,95 @@ YUNITS=(/"degrees_north", "degree_north", "degree_N", "degrees_N", "degreeN", "d
 XUNITS=(/"degrees_east", "degree_east", "degree_E", "degrees_E", "degreeE", "degreesE"/)
 
 LONSPERLAT=new((/NLAT/),integer)
+
 NPLON = NLON - (NLAT/2-1)*4
-LONSPERLAT(0) = NPLON
-LONSPERLAT(NLAT-1) = NPLON
-do i = 1, NLAT/2-1
-	LONSPERLAT(i) = LONSPERLAT(i-1) + 4
-	LONSPERLAT(NLAT-1-i) = LONSPERLAT(i)
-end do
+
+LONSPERLAT = NLON
+
+if (reduce) then
+	LONSPERLAT(0) = NPLON
+	LONSPERLAT(NLAT-1) = NPLON
+	
+	do i = 1, NLAT/2-1
+		LONSPERLAT(i) = LONSPERLAT(i-1) + 4
+		LONSPERLAT(NLAT-1-i) = LONSPERLAT(i)
+	end do
+end if
 
 NLAT@double = True
 NLON@double = True
 LONF = lonGlobeF(NLON, "lon", "longitude", "degrees_E")
 LATF = latGau(NLAT, "lat", "latitude", "degrees_N")
 
-OCNX = NPLON+max(LONSPERLAT)
-OCNY = NLAT/2
+OCNX = (NPACK-1)*NPLON+max(LONSPERLAT)
+OCNY = NLAT/NPACK
 
-IS=new((/2,OCNY/),integer)
-IE=new((/2,OCNY/),integer)
-ILEN=new((/2,OCNY/),integer)
-PACK=new((/2,OCNY/),integer)
+IS=new((/NPACK,OCNY/),integer)
+IE=new((/NPACK,OCNY/),integer)
+ILEN=new((/NPACK,OCNY/),integer)
+PACK=new((/NPACK,OCNY/),integer)
 
-IS(0,:) = 0
-IE(1,:) = OCNX-1
 
-PACK = -1
-do i = 0, NLAT/4-1
-	PACK(0,i*2) = i
-	PACK(0,i*2+1) = NLAT-1-i
-	PACK(1,i*2) = NLAT/2-i-1
-	PACK(1,i*2+1) = NLAT/2+i
-end do
+if (ifpack) then
+	IS(0,:) = 0
+	IE(1,:) = OCNX-1
+	
+	PACK = -1
+	do i = 0, NLAT/4-1
+		PACK(0,i*2) = i
+		PACK(0,i*2+1) = NLAT-1-i
+		PACK(1,i*2) = NLAT/2-i-1
+		PACK(1,i*2+1) = NLAT/2+i
+	end do
+	
+	if (mod(NLAT,4).ne.0) then
+		PACK(0,NLAT/2-1) = NLAT/4
+		PACK(1,NLAT/2-1) = NLAT-NLAT/4-1
+	end if
+	
+	do i = 0, OCNY-1
+		IE(0,i) = IS(0,i) + LONSPERLAT(PACK(0,i)) - 1
+		IS(1,i) = IE(0,i) + 1
+		ILEN(0,i) = LONSPERLAT(PACK(0,i))
+		ILEN(1,i) = LONSPERLAT(PACK(1,i))
+	end do
 
-if (mod(NLAT,4).ne.0) then
-	PACK(0,NLAT/2-1) = NLAT/4
-	PACK(1,NLAT/2-1) = NLAT-NLAT/4-1
+else
+
+	IS(0,:) = 0
+	PACK = -1
+	do i = 0, NLAT/4-1
+		PACK(0,4*i) = i
+		PACK(0,4*i+1) = NLAT/2-i-1
+		PACK(0,4*i+2) = NLAT-1-i
+		PACK(0,4*i+3) = NLAT/2+i
+	end do
+	
+	if (mod(NLAT,4).ne.0) then
+		PACK(0,NLAT-2) = NLAT/4
+		PACK(0,NLAT-1) = NLAT-NLAT/4-1
+	end if
+	
+	do i = 0, OCNY-1
+		IE(0,i) = IS(0,i) + LONSPERLAT(PACK(0,i)) - 1
+		ILEN(0,i) = LONSPERLAT(PACK(0,i))
+	end do
+
 end if
 
-do i = 0, OCNY-1
-	IE(0,i) = IS(0,i) + LONSPERLAT(PACK(0,i)) - 1
-	IS(1,i) = IE(0,i) + 1
-	ILEN(0,i) = LONSPERLAT(PACK(0,i))
-	ILEN(1,i) = LONSPERLAT(PACK(1,i))
-end do
-
-OCLON = new((/OCNY,OCNX/),typeof(LONF))
-OCLAT = new((/OCNY,OCNX/),typeof(LATF))
-
-do j = 0, 1
-    do i = 0, OCNY-1
-        lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
-        OCLON(i,IS(j,i):IE(j,i)) = lonc
-        OCLAT(i,IS(j,i):IE(j,i)) = LATF(PACK(j,i))
-        delete(lonc)
-    end do
-end do
+	OCLON = new((/OCNY,OCNX/),typeof(LONF))
+	OCLAT = new((/OCNY,OCNX/),typeof(LATF))
+	OCLON = 0.
+	OCLAT = 90.
+	
+	do j = 0, NPACK-1
+	    do i = 0, OCNY-1
+	        lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
+	        OCLON(i,IS(j,i):IE(j,i)) = lonc
+	        OCLAT(i,IS(j,i):IE(j,i)) = LATF(PACK(j,i))
+	        delete(lonc)
+	    end do
+	end do
 
 OCNXNY = OCNY*OCNX
 
@@ -501,7 +545,7 @@ begin
 	rfi = new((/howmany,ncopy,nx/),typeof(datii))
 	latfi = latGau(ncopy, "lat", "latitude", "degrees_N")
 
-    do j = 0, 1
+    do j = 0, NPACK-1
         do i = 0, OCNY-1
             lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
 			ip = PACK(j,i)
@@ -590,7 +634,7 @@ begin
 	rfi = new((/howmany,ncopy,nx/),typeof(datii))
 	latfi = latGau(ncopy, "lat", "latitude", "degrees_N")
 
-    do j = 0, 1
+    do j = 0, NPACK-1
         do i = 0, OCNY-1
             lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
 			ip = PACK(j,i)
@@ -676,7 +720,7 @@ begin
 	datii = reshape(dati,(/howmany,ny,nx/))
 	datoi = new((/howmany,OCNY,OCNX/),typeof(dati)) 
 	
-    do j = 0, 1
+    do j = 0, NPACK-1
         do i = 0, OCNY-1
             lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
             datoi(:,i,IS(j,i):IE(j,i)) = linint1(LONF,datii(:,PACK(j,i),:),True,lonc,0)
@@ -774,11 +818,23 @@ end
 ;********************************************************************************	
 ;--> Main SECTION
 
+infile="$infile"
+fi = addfile(infile,"r")
 
-fi = addfile("$infile","r")
+ofile="$outfile"
+if (ofile.eq."") then
+	pref="OCx"
+	if (ifpack) then
+		pref=pref+"Px"
+	else if (reduce) then
+		pref=pref+"Rx"
+	end if
+	end if
+	ofile=pref+infile
+end if
 
-system("rm -rf $outfile")
-fo = addfile("$outfile","c")
+system("rm -rf "+ofile)
+fo = addfile(ofile,"c")
 
 fvnms = getfilevarnames(fi)
 
