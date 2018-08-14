@@ -6,7 +6,7 @@ use strman_mod, only : int2str
 implicit none
 private
 
-public :: ocpack_type, init_ocpack, get_ocpack, is_packed, is_reduced
+public :: ocpack_type, init_ocpack, get_ocpack, npack, is_reduced
 
 type ocpack_type
     integer :: is
@@ -20,7 +20,8 @@ type(ocpack_type), dimension(:,:), allocatable :: ocpk2
 
 integer :: nplon = 20
 
-logical :: packed=.true., reduced=.true.
+integer :: num_pack = 2
+logical :: reduced=.true.
 
 logical :: initialized=.false.
 
@@ -62,10 +63,12 @@ subroutine get_ocpack2(ocpack)
     return
 end subroutine get_ocpack2
 
-logical function is_packed()
-    is_packed = packed
+integer function npack()
+
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    npack = num_pack
     return
-end function is_packed
+end function npack
 
 logical function is_reduced()
     is_reduced = reduced
@@ -79,7 +82,7 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
     logical, intent(in), optional :: isreduced
     logical, intent(in), optional :: ispacked
 
-    integer :: i, j, nplon_new, npack
+    integer :: i, j, nplon_new
     integer, dimension(nlat) :: lonsperlat
     integer :: nlon, ocnx1, ocny1, ocnx2, ocny2
 
@@ -88,16 +91,15 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
     call mpp_init()
 
     reduced = .true.
-    npack = 2
+    num_pack = 2
 
     if(present(ispacked).and..not.ispacked) then
-        packed = .false.
-        npack = 1
+        num_pack = 1
     endif
 
     if(present(isreduced)) reduced = isreduced
 
-    if(packed) reduced = .true.
+    if(num_pack==2) reduced = .true.
 
     if (mod(nlat,2).ne.0) then
         call mpp_error(fatal, 'ocpack_mod: nlat should be a multiple of 2')
@@ -129,11 +131,11 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
     ocnx1 = nlon
     ocny1 = nlat
 
-    ocnx2 = (npack-1)*nplon+nlon
-    ocny2 = nlat/npack
+    ocnx2 = (num_pack-1)*nplon+nlon
+    ocny2 = nlat/num_pack
    
     allocate(ocpk1(1,ocny1))
-    allocate(ocpk2(npack,ocny2))
+    allocate(ocpk2(num_pack,ocny2))
 
     ocpk1(1,:)%is = 1
     ocpk1(:,:)%glat = -1
@@ -154,7 +156,7 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
         ocpk1(1,i)%ilen = lonsperlat(ocpk1(1,i)%glat)
     end do
 
-    if (npack==2) then 
+    if (num_pack==2) then 
         ocpk2(1,:)%is = 1
         ocpk2(2,:)%ie = ocnx2
         ocpk2(:,:)%glat = -1
