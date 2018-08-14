@@ -365,7 +365,7 @@ subroutine grid_to_fourier(rinp, coutp, id_in)
     call mpp_clock_begin(clck_g2f_tran)
     call fftw_mpi_execute_r2r(g2fplans(id)%plan, g2fplans(id)%rin, g2fplans(id)%trin)
     call mpp_clock_end(clck_g2f_tran)
-    
+
     !Serial FFT
     call mpp_clock_begin(clck_g2f_dft)
     call fftw_execute_dft_r2c(g2fplans(id)%splan, g2fplans(id)%srin, g2fplans(id)%scout) 
@@ -632,4 +632,56 @@ subroutine fft_1dc2c_serial(coutp)
 end subroutine fft_1dc2c_serial
 
 end module grid_fourier_mod 
+
+
+#ifdef test_grid_fourier
+
+program main
+
+use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
+use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_sum
+use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
+use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
+use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
+
+use grid_fourier_mod
+
+implicit none
+
+integer, allocatable :: pelist(:)
+integer :: comm, nlon, ilen, trunc, isf, flen, nlat, howmany
+integer :: j
+real, allocatable :: grd(:,:,:)
+real, allocatable :: grd1(:,:)
+complex, allocatable :: four(:,:)
+
+call mpp_init()
+
+nlon = 10
+ilen = nlon/mpp_npes()
+trunc = nlon/2
+nlat = 3
+howmany = 6
+
+
+allocate(pelist(mpp_npes()))
+call mpp_get_current_pelist(pelist,commid=comm)
+call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm)
+
+allocate(grd(howmany,nlat,ilen), four(howmany*nlat,flen), &
+grd1(howmany*nlat,ilen))
+
+do j = 1, nlat
+    grd(:,j,:) = j
+end do
+
+grd1 = reshape(grd,[howmany*nlat,ilen])
+
+call grid_to_fourier(grd1,four)
+
+call mpp_exit()
+
+end program main
+
+#endif
 
