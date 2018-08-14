@@ -6,17 +6,32 @@ export CC=mpiicc
 export MPICC=mpiicc
 export F77=mpiifort
 
-cppDef="-Duse_netCDF -Duse_libMPI " #-Dtest_grid_to_fourier " 
-
 thisdir=$(pwd)
+
+mkmftemplate="$thisdir/bin/mkmf.template"
+numproc=16
+
+while getopts 'gj:' flag; do
+    case "${flag}" in
+    g) mkmftemplate="$thisdir/bin/mkmf.template.debug" ;;
+	j) numproc="$OPTARG" ;;
+    *)
+		echo "error"
+		exit 1
+        ;;
+    esac
+done
+
+shift $(expr $OPTIND - 1)
+
+echo $mkmftemplate
+
+cppDef="-Duse_netCDF -Duse_libMPI "  
 
 EXE="spec2d"
 
 execdir="$thisdir/exec"
 mkmf="$thisdir/bin/mkmf"
-
-mkmftemplate="$thisdir/bin/mkmf.template"
-mkmftemplate="$thisdir/bin/mkmf.template.debug"
 
 amfi="$thisdir/amfi"
 
@@ -89,7 +104,7 @@ LIBS="$execdir/lib_fms/lib_fms.a $execdir/fftw/lib/libfftw3_mpi.a $execdir/fftw/
 
 $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 
-make $@
+make -j $numproc
 #--------------------------------------------------------------------------------	
 
 cd $thisdir/work
