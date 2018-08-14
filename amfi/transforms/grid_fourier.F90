@@ -18,6 +18,12 @@ integer, parameter :: max_plans=10
 integer, parameter :: rank=2
 integer(C_INTPTR_T), parameter :: TWO=2, ONE=1
 
+type ocplan_type
+    type(C_PTR) :: plan
+    integer(C_INTPTR_T) :: howmany
+    integer :: is, ie, ilen
+end type ocplan_type
+
 type plan_type
     integer(C_INTPTR_T) :: howmany
     type(C_PTR) :: plan, tplan, splan, tcdat, cdat, r2c
@@ -25,7 +31,7 @@ type plan_type
     complex(C_DOUBLE_COMPLEX), pointer :: scout(:,:), scouttr(:,:)
     real(C_DOUBLE), pointer :: srout(:,:,:), tsrout(:,:,:)
     complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:)
-    type(ocpack_type), allocatable :: oc
+    type(ocplan_type), allocatable :: oc(:,:)
 endtype plan_type
 
 integer(C_INTPTR_T) :: NX, FTRUNC, NX_LOCAL, FLOCAL=-1
@@ -237,17 +243,20 @@ function plan_grid_to_fourier(howmany)
     !FFT
     call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%srin, [TWO*(NX/2+1),local_n1])
     call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%scout, [(NX/2+1),local_n1])
-    
-    allocate(g2fplans(n)%oc(size(ocP,1),local_n1))
-    call set_ocpack_for(local_n1, local_1_start, g2fplans(n)%oc, sps, spe)
+   
+    n_oc_plans = num_plans_for(local_n1, local_1_start, howmany) 
+    allocate(g2fplans(n)%oc(size(ocP,1),n_oc_plans))
+    call set_ocplan_parm(local_n1, local_1_start, howmany, g2fplans(n)%oc)
 
-    nn(1) = NLON 
-    idist = NLON; odist= NLON/2+1
+    nn(1) = g2fplans(n)%oc(i,j)%ilen
+    idist = NX; odist= NX/2+1
     istride = 1; ostride = 1
-    inembed = [NLON]; onembed = [NLON/2+1]
+    inembed = [g2fplans(n)%oc(i,j)%ilen]; 
+    onembed = [g2fplans(n)%oc(i,j)%ilen/2+1]
     flags = plan_flags
+    howmany1 = int(local_n1)
 
-    g2fplans(n)%splan = fftw_plan_many_dft_r2c(ONE, nn, int(local_n1), &
+    g2fplans(n)%splan = fftw_plan_many_dft_r2c(ONE, nn, howmany1, &
                             g2fplans(n)%srin, inembed, istride, idist, &
                             g2fplans(n)%scout, onembed, ostride, odist, flags) 
     if (.not.c_associated(g2fplans(n)%splan)) &
@@ -291,11 +300,33 @@ function plan_grid_to_fourier(howmany)
 end function plan_grid_to_fourier
 
 !--------------------------------------------------------------------------------   
-subroutine set_ocpack_for(hmlen, shmn, howmany, oc)
-    integer, intent(in) :: hmlen, shmn, howmany
-    type(ocpack_type), intent(out) :: oc(:,shmn+1:)
-
+function num_plans_for(hmlen, shm, howmany)
+    integer, intent(in) :: hmlen, shm, howmany
+    integer :: num_plans_for
     integer :: hms, hme, numj, j, h
+
+    hms = shm + 1 ! shmn is start of homany from fftw, which starts from 0.
+    hme = hms + hmlen - 1
+    numj = howmany/jlen
+
+    num_plans_for = 0
+    h = hms
+    do while(h <= hme)
+        rem = numj - mod(j,numj)
+        h = h + rem + 1
+        num_plans_for = num_plans_for+1
+    end do
+    
+    return
+end function num_plans_for
+          
+
+!--------------------------------------------------------------------------------   
+subroutine set_ocpack_parm(hmlen, shmn, howmany, oc)
+    integer, intent(in) :: hmlen, shmn, howmany
+    type(ocplan_type), intent(out) :: oc(:,:)
+
+    integer :: hms, hme, numj, j, h, n, howmany1
 
     if (size(oc,1)/=size(ocP,1)) call mpp_error(FATAL,'set_ocpack_for: size(oc,1)/=size(ocP,1)')
 
@@ -303,13 +334,45 @@ subroutine set_ocpack_for(hmlen, shmn, howmany, oc)
     hme = hms + hmlen - 1
     numj = howmany/jlen
 
-    do h = hms, hme
-        j = js + h/numj !-> j associated with h
-        do i = 1, size(oc,1)
-            oc(i,h) = ocP(i,j)
-        end do
-    end do
+    call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%srin, [TWO*(NX/2+1),local_n1])
+    call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%scout, [(NX/2+1),local_n1])
    
+    n = 0
+    h = hms
+    do while(h<=hme)
+        rem = numj - mod(j,numj)
+        howmany1 = rem + 1
+        n = n + 1
+        j = js + (h-1)/numj
+        do i = 1, size(ocP,1)
+
+            oc(i,n)%ilen = ocP(i,j)%ilen
+            oc(i,n)%is = ocP(i,j)%is
+            oc(i,n)%ie = ocP(i,j)%ie
+            oc(i,n)%rlat = ocP(i,j)%rlat
+            oc(i,n)%howmany = howmany1
+
+            nn(1) = ocP(i,j)%ilen
+            idist = NX; odist= NX/2+1
+            istride = 1; ostride = 1
+            inembed = [ocP(i,j)%ilen]; 
+            onembed = [ocP(i,j)%ilen/2+1]
+            flags = plan_flags
+
+            oc(i,n)%iptr = C_LOC(g2fplans(n)%srin(1,h))
+            call c_f_pointer(iptr,g2fplans(n)%oc(i,n)%srin,[TWO*(NX/2+1),
+
+            g2fplans(n)%splan = fftw_plan_many_dft_r2c(ONE, nn, howmany1, &
+                                    g2fplans(n)%oc(i,n)%srin, inembed, istride, idist, &
+                                    g2fplans(n)%oc(i,n)%scout, onembed, ostride, odist, flags)
+
+            if (.not.c_associated(g2fplans(n)%splan)) &
+                call mpp_error('plan_grid_to_fourier: dft_r2c:',trim(null_plan_msg),FATAL)
+
+        end do
+        h = h + rem + 1
+    end do
+
     return 
 end subroutine set_ocpack_for
         
