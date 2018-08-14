@@ -9,10 +9,8 @@ private
 public :: ocpack_type, init_ocpack, get_ocpack, npack, is_reduced
 
 type ocpack_type
-    integer :: is
-    integer :: ie
-    integer :: ilen
-    integer :: glat
+    integer :: is, ie, ilen
+    integer :: glat, rlat
 end type 
 
 type(ocpack_type), dimension(:,:), allocatable :: ocpk1
@@ -139,16 +137,23 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
 
     ocpk1(1,:)%is = 1
     ocpk1(:,:)%glat = -1
+    ocpk1(:,:)%rlat = -1
 
     do i = 1, nlat/4
         ocpk1(1,4*i-3)%glat = i
         ocpk1(1,4*i-2)%glat = nlat/2-i+1
         ocpk1(1,4*i-1)%glat = nlat-i+1
         ocpk1(1,4*i)%glat   = nlat/2+i
+        ocpk1(1,4*i-3)%rlat = 4*i-3
+        ocpk1(1,4*i-2)%rlat = 4*i-2
+        ocpk1(1,4*i-1)%rlat = 4*i-1
+        ocpk1(1,4*i)%rlat   = 4*i
     end do
     if (mod(nlat,4)/=0) then
         ocpk1(1,nlat-1)%glat = nlat/4
         ocpk1(1,nlat)%glat = nlat-nlat/4-1
+        ocpk1(1,nlat-1)%rlat = nlat-1
+        ocpk1(1,nlat)%rlat = nlat
     end if
 
     do i = 1, ocny1
@@ -160,17 +165,25 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
         ocpk2(1,:)%is = 1
         ocpk2(2,:)%ie = ocnx2
         ocpk2(:,:)%glat = -1
+        ocpk2(:,:)%rlat = -1
   
         do i = 1, nlat/4
             ocpk2(1,2*i-1)%glat = i
             ocpk2(2,2*i-1)%glat = nlat/2-i+1
             ocpk2(1,2*i)%glat   = nlat-i+1
             ocpk2(2,2*i)%glat   = nlat/2+i
+
+            ocpk2(1,2*i-1)%rlat = 4*i-3
+            ocpk2(2,2*i-1)%rlat = 4*i-2
+            ocpk2(1,2*i)%rlat   = 4*i-1
+            ocpk2(2,2*i)%rlat   = 4*i
         end do
 
         if (mod(nlat,4)/=0) then
             ocpk2(1,nlat/2)%glat = nlat/4
             ocpk2(2,nlat/2)%glat = nlat-nlat/4-1
+            ocpk2(1,nlat/2)%rlat = nlat-1
+            ocpk2(2,nlat/2)%rlat = nlat
         end if
 
         do i = 1, ocny2
