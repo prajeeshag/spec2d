@@ -1,4 +1,9 @@
 module ocpack_mod
+!--------------------------------------------------------------------------------   
+! Module for grid specifications of octahedral packing
+! ocpkP is the grid domain in (packed or unpacked)
+! ocpkF is the fourier domain (always unpacked)
+!
 
 use mpp_mod, only : mpp_error, fatal, warning, note, mpp_init
 use strman_mod, only : int2str
@@ -6,83 +11,114 @@ use strman_mod, only : int2str
 implicit none
 private
 
-public :: ocpack_type, init_ocpack, get_ocpack, npack, is_reduced
+public :: ocpack_typeP, ocpack_typeF, init_ocpack, get_ocpackP, get_ocpackF, oc_npack, &
+          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour
 
-type ocpack_type
-    integer :: is, ie, ilen
-    integer :: glat, rlat
+type ocpack_typeP
+    integer :: is, ie, ilen ! longitude start, end and length
+    integer :: fs, fe, flen ! fourier, start, end and length
+    integer :: f !-> connection to F-grid (ocpkF)
+    integer :: g !-> index g is latitude index in a regular globe
 end type 
 
-type(ocpack_type), dimension(:,:), allocatable :: ocpk1
-type(ocpack_type), dimension(:,:), allocatable :: ocpk2
+type ocpack_typeF
+    integer :: flen ! 
+    integer :: i, p !-> connection to P-grid (ocpkP)
+    integer :: g !-> index g is latitude index in a regular globe
+end type 
+
+type(ocpack_typeF), dimension(:), allocatable :: ocpkF
+type(ocpack_typeP), dimension(:,:), allocatable :: ocpkP
 
 integer :: nplon = 20
 
+integer :: ocny, ocnx, nlat, maxlon, nfour
 integer :: num_pack = 2
 logical :: reduced=.true.
 
 logical :: initialized=.false.
 
-interface get_ocpack
-    module procedure get_ocpack1, get_ocpack2
-end interface get_ocpack
-
 contains
 
-subroutine get_ocpack1(ocpack) 
-    type(ocpack_type), intent(out) :: ocpack(:)
+subroutine get_ocpackF(ocpack) 
+    type(ocpack_typeF), intent(out) :: ocpack(:)
 
     if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
 
-    if(size(ocpack,1)==size(ocpk1,2)) then
-        ocpack = ocpk1(1,:)
+    if(size(ocpack,1)==size(ocpkF,1)) then
+        ocpack = ocpkF(:)
     else
         call mpp_error(fatal, 'get_ocpack: invalid size for argument "ocpack"!!!!') 
     end if
 
     return
-end subroutine get_ocpack1
+end subroutine get_ocpackF
 
-
-subroutine get_ocpack2(ocpack) 
-    type(ocpack_type), intent(out) :: ocpack(:,:)
+subroutine get_ocpackP(ocpack) 
+    type(ocpack_typeP), intent(out) :: ocpack(:,:)
 
     if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
 
-    
-    if(size(ocpack,1)==1.and.size(ocpack,2)==size(ocpk1,2)) then
-        ocpack = ocpk1
-    elseif(size(ocpack,1)==2.and.size(ocpack,2)==size(ocpk2,2)) then
-        ocpack = ocpk2
+    if(size(ocpack,1)==size(ocpkP,1).and.size(ocpack,2)==size(ocpkP,2)) then
+        ocpack = ocpkP
     else
         call mpp_error(fatal, 'get_ocpack: invalid size for argument "ocpack"!!!!') 
     end if
 
     return
-end subroutine get_ocpack2
+end subroutine get_ocpackP
 
-integer function npack()
-
+integer function oc_nx()
     if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
-    npack = num_pack
+    oc_nx = ocnx
     return
-end function npack
+end function oc_nx
 
-logical function is_reduced()
-    is_reduced = reduced
+integer function oc_nfour()
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    oc_nfour = nfour
     return
-end function is_reduced
+end function oc_nfour
 
-subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
+integer function oc_ny()
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    oc_ny = ocny
+    return
+end function oc_ny
 
-    integer, intent(in) :: nlat
-    integer, intent(in), optional :: maxlon
+integer function oc_nlat()
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    oc_nlat = nlat
+    return
+end function oc_nlat
+
+integer function oc_maxlon()
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    oc_maxlon = maxlon
+    return
+end function oc_maxlon
+
+integer function oc_npack()
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    oc_npack = num_pack
+    return
+end function oc_npack
+
+logical function oc_isreduced()
+    oc_isreduced = reduced
+    return
+end function oc_isreduced
+
+subroutine init_ocpack(nlat_in, trunc, maxlon_in, isreduced, ispacked)
+
+    integer, intent(in) :: nlat_in
+    integer, intent(in) :: trunc
+    integer, intent(in), optional :: maxlon_in
     logical, intent(in), optional :: isreduced
     logical, intent(in), optional :: ispacked
 
     integer :: i, j, nplon_new
-    integer, dimension(nlat) :: lonsperlat
-    integer :: nlon, ocnx1, ocny1, ocnx2, ocny2
+    integer, dimension(nlat_in) :: lonsperlat
 
     if(initialized) return
 
@@ -90,6 +126,8 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
 
     reduced = .true.
     num_pack = 2
+    nlat = nlat_in
+    nfour = trunc + 1
 
     if(present(ispacked).and..not.ispacked) then
         num_pack = 1
@@ -103,8 +141,8 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
         call mpp_error(fatal, 'ocpack_mod: nlat should be a multiple of 2')
     end if
 
-    if (reduced.and.present(maxlon)) then
-        nplon_new = maxlon-(4*(nlat/2-1))
+    if (reduced.and.present(maxlon_in)) then
+        nplon_new = maxlon_in-(4*(nlat/2-1))
         if (nplon_new/=nplon) then
             nplon = nplon_new
             call mpp_error(warning, 'changing default number of (20) pole '// &
@@ -119,85 +157,114 @@ subroutine init_ocpack(nlat, maxlon, isreduced, ispacked)
         lonsperlat(nlat-i+1) = lonsperlat(i)
     end do
 
-    nlon = maxval(lonsperlat)
+    maxlon = maxval(lonsperlat)
 
     if (.not.reduced) then
-        lonsperlat = nlon
-        if (present(maxlon)) lonsperlat = maxlon
+        lonsperlat = maxlon
+        if (present(maxlon_in)) then
+            lonsperlat = maxlon_in
+            maxlon = maxlon_in
+        endif
     end if
-  
-    ocnx1 = nlon
-    ocny1 = nlat
+ 
+    ocnx = (num_pack-1)*nplon+maxlon 
+    ocny = nlat/num_pack
+    
+    allocate(ocpkF(nlat))
+    allocate(ocpkP(num_pack,ocny))
 
-    ocnx2 = (num_pack-1)*nplon+nlon
-    ocny2 = nlat/num_pack
-   
-    allocate(ocpk1(1,ocny1))
-    allocate(ocpk2(num_pack,ocny2))
-
-    ocpk1(1,:)%is = 1
-    ocpk1(:,:)%glat = -1
-    ocpk1(:,:)%rlat = -1
+    ocpkF(:)%flen = nfour 
+    ocpkF(:)%g = -1
+    ocpkF(:)%i = 0
+    ocpkF(:)%p = 0
 
     do i = 1, nlat/4
-        ocpk1(1,4*i-3)%glat = i
-        ocpk1(1,4*i-2)%glat = nlat/2-i+1
-        ocpk1(1,4*i-1)%glat = nlat-i+1
-        ocpk1(1,4*i)%glat   = nlat/2+i
-        ocpk1(1,4*i-3)%rlat = 4*i-3
-        ocpk1(1,4*i-2)%rlat = 4*i-2
-        ocpk1(1,4*i-1)%rlat = 4*i-1
-        ocpk1(1,4*i)%rlat   = 4*i
+        ocpkF(4*i-3)%g = i
+        ocpkF(4*i-2)%g = nlat/2-i+1
+        ocpkF(4*i-1)%g = nlat-i+1
+        ocpkF(  4*i)%g = nlat/2+i
+
+        ocpkF(4*i-3)%i = 1
+        ocpkF(4*i-2)%i = 2
+        ocpkF(4*i-1)%i = 1
+        ocpkF(  4*i)%i = 2
+
+        ocpkF(4*i-3)%p = 2*i-1 
+        ocpkF(4*i-2)%p = 2*i-1
+        ocpkF(4*i-1)%p = 2*i
+        ocpkF(  4*i)%p = 2*i
     end do
+
     if (mod(nlat,4)/=0) then
-        ocpk1(1,nlat-1)%glat = nlat/4
-        ocpk1(1,nlat)%glat = nlat-nlat/4-1
-        ocpk1(1,nlat-1)%rlat = nlat-1
-        ocpk1(1,nlat)%rlat = nlat
+        ocpkF(nlat-1)%g = nlat/4
+        ocpkF(nlat  )%g = nlat-nlat/4-1
+        ocpkF(nlat-1)%i = 1
+        ocpkF(nlat  )%i = 2
+        ocpkF(nlat-1)%p = nlat/2
+        ocpkF(nlat  )%p = nlat/2
     end if
 
-    do i = 1, ocny1
-        ocpk1(1,i)%ie = ocpk1(1,i)%is + lonsperlat(ocpk1(1,i)%glat) - 1
-        ocpk1(1,i)%ilen = lonsperlat(ocpk1(1,i)%glat)
-    end do
+    ocpkP(1,:)%is = 1
+    ocpkP(:,:)%g = -1
+    ocpkP(:,:)%f = -1
 
-    if (num_pack==2) then 
-        ocpk2(1,:)%is = 1
-        ocpk2(2,:)%ie = ocnx2
-        ocpk2(:,:)%glat = -1
-        ocpk2(:,:)%rlat = -1
-  
+    ocpkP(1,:)%fs = 1
+    ocpkP(1,:)%fe = ocpkP(1,:)%fs + maxlon/2 + 1 - 1
+    ocpkP(1,:)%flen = maxlon/2+1
+
+    if (num_pack==2) then
+        ocpkP(2,:)%ie = ocnx
+        ocpkP(2,:)%fs = ocpkP(1,:)%fe + 1
+        ocpkP(2,:)%fe = ocpkP(2,:)%fs + maxlon/2 + 1 - 1
+        ocpkP(2,:)%flen = maxlon/2+1
         do i = 1, nlat/4
-            ocpk2(1,2*i-1)%glat = i
-            ocpk2(2,2*i-1)%glat = nlat/2-i+1
-            ocpk2(1,2*i)%glat   = nlat-i+1
-            ocpk2(2,2*i)%glat   = nlat/2+i
+            ocpkP(1,2*i-1)%g = i
+            ocpkP(2,2*i-1)%g = nlat/2-i+1
+            ocpkP(1,  2*i)%g = nlat-i+1
+            ocpkP(2,  2*i)%g = nlat/2+i
 
-            ocpk2(1,2*i-1)%rlat = 4*i-3
-            ocpk2(2,2*i-1)%rlat = 4*i-2
-            ocpk2(1,2*i)%rlat   = 4*i-1
-            ocpk2(2,2*i)%rlat   = 4*i
+            ocpkP(1,2*i-1)%f = 4*i-3
+            ocpkP(2,2*i-1)%f = 4*i-2
+            ocpkP(1,  2*i)%f = 4*i-1
+            ocpkP(2,  2*i)%f = 4*i
         end do
-
         if (mod(nlat,4)/=0) then
-            ocpk2(1,nlat/2)%glat = nlat/4
-            ocpk2(2,nlat/2)%glat = nlat-nlat/4-1
-            ocpk2(1,nlat/2)%rlat = nlat-1
-            ocpk2(2,nlat/2)%rlat = nlat
+            ocpkP(1,nlat/2)%g = nlat/4
+            ocpkP(2,nlat/2)%g = nlat-nlat/4-1
+            ocpkP(1,nlat/2)%f = nlat-1
+            ocpkP(2,nlat/2)%f = nlat
         end if
-
-        do i = 1, ocny2
-            ocpk2(1,i)%ie = ocpk2(1,i)%is + lonsperlat(ocpk2(1,i)%glat) - 1
-            ocpk2(2,i)%is = ocpk2(1,i)%ie + 1
-            ocpk2(1,i)%ilen = lonsperlat(ocpk2(1,i)%glat)
-            ocpk2(2,i)%ilen = lonsperlat(ocpk2(2,i)%glat)
-        end do
     else
-        ocpk2 = ocpk1
+        do i = 1, nlat/4
+            ocpkP(1,4*i-3)%g = i
+            ocpkP(1,4*i-2)%g = nlat/2-i+1
+            ocpkP(1,4*i-1)%g = nlat-i+1
+            ocpkP(1,  4*i)%g = nlat/2+i
+
+            ocpkP(1,4*i-3)%f = 4*i-3  
+            ocpkP(1,4*i-2)%f = 4*i-2
+            ocpkP(1,4*i-1)%f = 4*i-1
+            ocpkP(1,  4*i)%f = 4*i
+        end do
+        if (mod(nlat,4)/=0) then
+            ocpkP(1,nlat-1)%g = nlat/4
+            ocpkP(1,nlat  )%g = nlat-nlat/4-1
+            ocpkP(1,nlat-1)%f = nlat-1
+            ocpkP(1,nlat  )%f = nlat
+        end if
     end if
+
+    do i = 1, ocny
+        do j = 1, num_pack
+            if (j==2) ocpkP(2,i)%is = ocpkP(1,i)%ie + 1
+            ocpkP(j,i)%ie = ocpkP(j,i)%is + lonsperlat(ocpkP(j,i)%g) - 1
+            ocpkP(j,i)%ilen = lonsperlat(ocpkP(j,i)%g)
+        end do
+    end do
 
     initialized = .true.
 
+    return
 end subroutine init_ocpack
 
 
@@ -233,28 +300,32 @@ end  module ocpack_mod
 #ifdef test_ocpack
 program test
 use ocpack_mod
+implicit none
+integer, parameter :: nlat=94, nfour=62
+type(ocpack_typeP), allocatable :: ocpkP(:,:)
+type(ocpack_typeF), allocatable :: ocpkF(:)
+integer :: i, j
 
-type(ocpack_type), allocatable :: ocpk1(:,:), ocpk2(:,:)
-integer :: ny=94
+!call init_ocpack(nlat,nfour,maxlon=192,ispacked=.false.,isreduced=.true.)
+!call init_ocpack(nlat,nfour,ispacked=.false.,isreduced=.true.)
+call init_ocpack(nlat,nfour,ispacked=.true.,isreduced=.true.)
 
-call init_ocpack(94,maxlon=192,ispacked=.false.,isreduced=.true.)
+allocate(ocpkF(oc_nlat()))
+allocate(ocpkP(oc_npack(),oc_ny()))
 
-allocate(ocpk1(1,ny))
-allocate(ocpk2(1,ny))
+call get_ocpackF(ocpkF)
+call get_ocpackP(ocpkP)
 
-call get_ocpack(ocpk1)
-call get_ocpack(ocpk2)
-
-do i = 1, 94/2
-    print '(8(i4,2x))', ocpk2(1,i)%is, ocpk2(1,i)%ie, ocpk2(1,i)%ilen, &
-                        ocpk2(1,i)%glat, ocpk2(2,i)%is, ocpk2(2,i)%ie,&
-                        ocpk2(2,i)%ilen, ocpk2(2,i)%glat
+do i = 1, oc_ny()
+    do j = 1, oc_npack()
+        print '(8(i4,2x))', i, j, ocpkP(j,i)%is, ocpkP(j,i)%ie, &
+                      ocpkP(j,i)%fs, ocpkP(j,i)%fe, ocpkP(j,i)%g, ocpkP(j,i)%f
+    end do
 end do
 
-    print *, 'ocpk1+++++++++'
-do i = 1, 94
-    print '(4(i4,2x))', ocpk1(1,i)%is, ocpk1(1,i)%ie, ocpk1(1,i)%ilen, &
-                        ocpk1(1,i)%glat
+    print *, 'ocpkF+++++++++'
+do i = 1, oc_nlat()
+    print '(5(i4,2x))', ocpkF(i)%p, ocpkF(i)%i, ocpkF(i)%flen, ocpkF(i)%g
 end do
 
 end program test
