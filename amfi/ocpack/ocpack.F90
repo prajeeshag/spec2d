@@ -109,11 +109,11 @@ logical function oc_isreduced()
     return
 end function oc_isreduced
 
-subroutine init_ocpack(nlat_in, trunc, maxlon_in, isreduced, ispacked)
+subroutine init_ocpack(nlat_in, trunc, max_lon, isreduced, ispacked)
 
     integer, intent(in) :: nlat_in
     integer, intent(in) :: trunc
-    integer, intent(in), optional :: maxlon_in
+    integer, intent(in), optional :: max_lon
     logical, intent(in), optional :: isreduced
     logical, intent(in), optional :: ispacked
 
@@ -141,8 +141,9 @@ subroutine init_ocpack(nlat_in, trunc, maxlon_in, isreduced, ispacked)
         call mpp_error(fatal, 'ocpack_mod: nlat should be a multiple of 2')
     end if
 
-    if (reduced.and.present(maxlon_in)) then
-        nplon_new = maxlon_in-(4*(nlat/2-1))
+    if (reduced.and.present(max_lon)) then
+        nplon_new = max_lon-(4*(nlat/2-1))
+        if (nplon_new<8) call mpp_error(FATAL, 'nplon < 8, increase max_lon')
         if (nplon_new/=nplon) then
             nplon = nplon_new
             call mpp_error(warning, 'changing default number of (20) pole '// &
@@ -161,9 +162,9 @@ subroutine init_ocpack(nlat_in, trunc, maxlon_in, isreduced, ispacked)
 
     if (.not.reduced) then
         lonsperlat = maxlon
-        if (present(maxlon_in)) then
-            lonsperlat = maxlon_in
-            maxlon = maxlon_in
+        if (present(max_lon)) then
+            lonsperlat = max_lon
+            maxlon = max_lon
         endif
     end if
  
@@ -210,13 +211,11 @@ subroutine init_ocpack(nlat_in, trunc, maxlon_in, isreduced, ispacked)
 
     ocpkP(1,:)%fs = 1
     ocpkP(1,:)%fe = ocpkP(1,:)%fs + maxlon/2 + 1 - 1
-    ocpkP(1,:)%flen = maxlon/2+1
 
     if (num_pack==2) then
         ocpkP(2,:)%ie = ocnx
         ocpkP(2,:)%fs = ocpkP(1,:)%fe + 1
         ocpkP(2,:)%fe = ocpkP(2,:)%fs + maxlon/2 + 1 - 1
-        ocpkP(2,:)%flen = maxlon/2+1
         do i = 1, nlat/4
             ocpkP(1,2*i-1)%g = i
             ocpkP(2,2*i-1)%g = nlat/2-i+1
@@ -259,6 +258,7 @@ subroutine init_ocpack(nlat_in, trunc, maxlon_in, isreduced, ispacked)
             if (j==2) ocpkP(2,i)%is = ocpkP(1,i)%ie + 1
             ocpkP(j,i)%ie = ocpkP(j,i)%is + lonsperlat(ocpkP(j,i)%g) - 1
             ocpkP(j,i)%ilen = lonsperlat(ocpkP(j,i)%g)
+            ocpkP(j,i)%flen = ocpkP(j,i)%ilen/2 + 1
         end do
     end do
 

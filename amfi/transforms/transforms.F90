@@ -29,20 +29,40 @@ use spherical_mod, only : spherical_to_fourier
 use spherical_mod, only : compute_lon_deriv_cos, compute_lat_deriv_cos
 use spherical_mod, only : compute_vor_div, compute_ucos_vcos
 use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave
-use spherical_mod, only : get_lats, get_wdecompa
+use spherical_mod, only : get_latsP, get_wdecompa, get_latsF
 
+use ocpack_mod, only : npack=>oc_npack, get_ocpackF, get_ocpackP, ocpack_typeP, ocpack_typeF, &
+                       oc_ny, oc_nx, oc_nlat, oc_maxlon, oc_nfour, oc_isreduced
 
 implicit none
 private
 
-public :: compute_ucos_vcos, compute_vor_div, get_lats
-public :: get_wdecomp, get_spherical_wave, get_lons, get_wdecompa
-public :: spherical_to_grid, grid_to_spherical, init_transforms
-public :: register_spec_restart, save_spec_restart, restore_spec_restart
+public :: compute_ucos_vcos, compute_vor_div, get_latsF, get_latsP, &
+         get_wdecomp, get_spherical_wave, get_lonsP, get_wdecompa, &
+         spherical_to_grid, grid_to_spherical, init_transforms, &
+         register_spec_restart, save_spec_restart, restore_spec_restart
+
+!--> tranforms_mod operates both on P-grid and F-grid, so it need grid
+! parameters in both the grids. F-grid is for fourier. 
+!
+! P-grid automatically becomes F-grid, which is fully controlled in ocpack.
+! to facilitate that, ocpack P [ocP(npack,oc_ny())] should be used in P-grid operations, and 
+! ocpack F [ocF(oc_nlat())] should be used in F-grid operations.
+!
+! from ocP and ocF we can get information on P-grid and F-grid and their
+! relationships.
+! 
+! isp, iep, ilenp, oc_nx() and jsp, jep, jlenp, oc_ny() represent P-grid
+! isf, ief, ilenf, num_fourier and jsf, jef, jlenf, oc_nlat() represent F-grid
 
 type(domain2d) :: domainf
 
-integer :: ilen, jlen
+integer :: isp, iep, ilenp, jsp, jep, jlenp
+integer :: isf, ief, ilenf, num_fourier, jsf, jef, jlenf
+
+type(ocpack_typeF), allocatable :: ocF(:)
+type(ocpack_typeP), allocatable :: ocP(:,:)
+
 integer :: nwaves_oe=0
 integer :: nwaves_oe_total=0
 
@@ -52,26 +72,19 @@ integer, allocatable :: pelist(:), extent(:)
 integer, allocatable :: fpelist(:), fextent(:)
 integer, allocatable :: Tshuff(:), spextent(:)
 
-real, allocatable :: cosm_lat(:), cosm2_lat(:)
-real, allocatable :: deg_lat(:), deg_lon(:)
+real, allocatable :: cosm_latF(:), cosm2_latF(:), cosm_latP(:,:)
 
-real :: lon_start = 0.
-real :: dlon = 0.
+real, allocatable :: deg_lonP(:,:)
 
-integer :: comm, n
-real :: ref_temp
-integer :: isc, iec, m, l, t, i, k
-integer :: isf, ief, flen, jsc, jec, j, jsf, jef
-integer :: trunc, nlon, nlat
-integer :: pe
-integer :: ishuff=0
+real, parameter :: lon_start = 0.
 
+!-> For restart files
 integer, parameter :: max_num_dom=10
-integer :: num_dom = 0
 type(domain2d) :: spresdom(max_num_dom)
+integer :: num_dom = 0
 type(restart_file_type) :: specres
-
 character(len=32) :: resnm='spec_res'
+!----------------------------------------
 
 integer :: clck_g2s, clck_s2g
 
@@ -107,44 +120,44 @@ contains
 !--------------------------------------------------------------------------------   
 subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
 !--------------------------------------------------------------------------------
-
-    type(domain2d) :: domainl
+    type(domain2d) :: domainl !-> domainl is on P-grid
     integer, intent(in) :: trunc_in
     integer, intent(out) :: nwaves
     logical, optional :: Tshuffle
-    integer :: isg, ieg, jsg, jeg
+    integer :: comm, i, k, j, is, ie
 
     call mpp_init() 
     call fms_init()
 
-    trunc = trunc_in
-
-    pe = mpp_pe()
+    num_fourier = trunc_in
 
     allocate(pelist(mpp_npes()))
     allocate(extent(mpp_npes()))
 
-    call mpp_get_compute_domain(domainl, jsc, jec, isc, iec,ishuff=ishuff)
-    call mpp_get_global_domain(domainl, jsg, jeg, isg, ieg)
+    call mpp_get_compute_domain(domainl, jsp, jep, isp, iep)
+    ilenp = iep-isp+1
+    jlenp = jep-jsp+1
 
-    ilen = iec-isc+1
-    jlen = jec-jsc+1
+    allocate(ocP(npack(),oc_ny()))
+    call get_ocpackP(ocP)
 
-    nlon = ieg-isg+1
-    nlat = jeg-jsg+1
+    allocate(ocF(oc_nlat()))
+    call get_ocpackF(ocF)
 
     call mpp_get_current_pelist(pelist,commid=comm)
 
-    allocate(Tshuff(0:trunc))
-    forall(i=0:trunc) Tshuff(i) = i
+    allocate(Tshuff(0:num_fourier))
+    forall(i=0:num_fourier) Tshuff(i) = i
     
     if (present(Tshuffle).and.(.not.Tshuffle)) then
-        call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm)
+        call init_grid_fourier (jsp, jep, ilenp, num_fourier, isf, ilenf, comm)
+        !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm)
     else
-        call init_grid_fourier (nlon, ilen, trunc, isf, flen, comm, Tshuff)
+        call init_grid_fourier (jsp, jep, ilenp, num_fourier, isf, ilenf, comm, Tshuff)
+        !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm, Tshuff)
     endif
 
-    call mpp_gather([flen], extent)
+    call mpp_gather([ilenf], extent)
     call mpp_broadcast(extent,size(extent), mpp_root_pe())
 
     allocate(fextent(count(extent>0)))
@@ -165,18 +178,20 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     call mpp_declare_pelist(fpelist,'fourier_pes')
    
     isf = 0; ief = -1 
-    jsf = 0; jef = -1 
-
+    jsf = 0; jef = -1; 
+    jlenf = 0
     if (fpe) then
         call mpp_set_current_pelist(fpelist,no_sync=.true.)
-        call mpp_define_domains([1,nlat, 0,trunc], [1,mpp_npes()], domainf, &
+        call mpp_define_domains([1,oc_nlat(), 0,num_fourier], [1,mpp_npes()], domainf, &
                                 yextent=fextent, pelist=fpelist)
 
         call mpp_get_compute_domain(domainf, jsf, jef, isf, ief)
+        jlenf = jef-jsf+1
 
-        if(flen /= ief-isf+1) call mpp_error('transforms_mod', 'flen /= ief-isf+1', FATAL)
+        if(ilenf /= ief-isf+1) call mpp_error('transforms_mod', 'number of fourier in '//&
+                 'differs from grid_fourier_mod.!', FATAL)
 
-        call init_spherical(trunc, ishuff, nwaves_oe, domainf, Tshuff) 
+        call init_spherical(num_fourier, nwaves_oe, domainf, Tshuff) 
 
         nwaves_oe_total=nwaves_oe
 
@@ -186,25 +201,28 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
 
         call mpp_broadcast(spextent,size(spextent),mpp_root_pe())
     else
-        call init_spherical(domainl, ishuff)
+        call init_spherical(domainl)
     endif
 
     call mpp_set_current_pelist(no_sync=.true.)
 
     nwaves = nwaves_oe
 
-    allocate(cosm_lat(jsc:jec))
-    allocate(cosm2_lat(jsc:jec))
-    allocate(deg_lat(nlat))
-    allocate(deg_lon(nlon))
+    allocate(deg_lonP(oc_ny(),oc_nx()))
+    do i = 1, oc_ny()
+        do j = 1, npack()
+            is = ocP(j,i)%is
+            ie = ocP(j,i)%ie
+            call global_lons(ocP(j,i)%ilen, deg_lonP(i,is:ie))
+        end do
+    end do 
 
-    call get_lats(cosmlat=cosm_lat,cosm2lat=cosm2_lat,deglat=deg_lat)
+    allocate(cosm_latF(oc_nlat()))
+    allocate(cosm2_latF(oc_nlat()))
+    allocate(cosm_latP(oc_ny(),oc_nx()))
+    call get_latsF(cosmlat=cosm_latF,cosm2lat=cosm2_latF)
+    call get_latsP(cosmlat=cosm_latP)
 
-    dlon = 360./nlon
-    deg_lon(1) = lon_start
-    do i = 2, nlon
-       deg_lon(i) = deg_lon(i-1) + dlon
-    enddo 
 
     clck_g2s = mpp_clock_id('grid2spectral')
     clck_s2g = mpp_clock_id('spectral2grid')
@@ -214,25 +232,37 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     return
 end subroutine init_transforms
 
+!--------------------------------------------------------------------------------   
+subroutine global_lons(num_lon, deglon)
+!--------------------------------------------------------------------------------   
+    integer, intent(in) :: num_lon
+    real, intent(out) :: deglon(num_lon)
+    real :: dlon
+    integer :: i
+
+    dlon = 360./num_lon
+    deglon(1) = lon_start
+    do i = 2, num_lon
+        deglon(i) = deglon(i-1) + dlon
+    end do
+    return
+end subroutine global_lons
+
 
 !--------------------------------------------------------------------------------   
-subroutine get_lons(deglon)
+subroutine get_lonsP(deglon)
 !--------------------------------------------------------------------------------   
-    real, intent(out) :: deglon(:)
+    real, intent(out) :: deglon(:,:)
 
     if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
 
-    if (size(deglon,1)==nlon) then
-        deglon = deg_lon
-    elseif (size(deglon,1)==ilen) then
-        deglon = deg_lon(isc:iec)
+    if (sum(shape(deglon)-[oc_ny(),oc_nx()])==0) then
+        deglon = deg_lonP
     else
-        call mpp_error(FATAL,'get_lons: Wrong size, deglon should either be on' &
-                             //' compute domain or global domain.')
-
+        call mpp_error(FATAL,'get_lonsP: Wrong size for argument deglon' )
     endif
 
-end subroutine get_lons
+end subroutine get_lonsP
     
 !--------------------------------------------------------------------------------   
 function register_spec_restart(fieldname,data,mandatory,data_default)
@@ -243,7 +273,7 @@ function register_spec_restart(fieldname,data,mandatory,data_default)
     logical, optional, intent(in) :: mandatory
     integer :: register_spec_restart 
 
-    integer :: isize, jsize, idx_dom, gdom(4), layout(2)
+    integer :: isize, jsize, idx_dom, gdom(4), layout(2), i
     type(C_PTR) :: cptr
     real, pointer :: rdata(:,:,:) => NULL()
    
@@ -327,6 +357,7 @@ subroutine vor_div_to_uv_grid3d(vor,div,u,v,getcosuv)
     logical, intent(in), optional :: getcosuv
     complex,dimension(size(vor,1),size(vor,2),2) :: sucos, svcos
     logical :: getcosuv1
+    integer :: i, j
 
     if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
     getcosuv1 = .false.
@@ -341,9 +372,11 @@ subroutine vor_div_to_uv_grid3d(vor,div,u,v,getcosuv)
 
     if (getcosuv1) return
 
-    do j = jsc, jec
-        u(:,j,:) = u(:,j,:) * cosm_lat(j)
-        v(:,j,:) = v(:,j,:) * cosm_lat(j)
+    do i = isp, iep
+        do j = jsp, jep
+            u(:,j,i) = u(:,j,i) * cosm_latP(j,i)
+            v(:,j,i) = v(:,j,i) * cosm_latP(j,i)
+        end do
     end do
 
     return
@@ -379,41 +412,38 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
 
     complex,dimension(size(vor,1),size(vor,2),2) :: usm, vsm, usp, vsp
 
-    complex :: four(size(u,1)*size(u,2), flen)
+    complex :: four(size(u,1)*jlenf, ilenf)
     complex, pointer :: four3(:,:,:)
 
     real, pointer :: grd(:,:)
     type(C_PTR) :: pgrd, pfour
 
     real :: rradius=1./RADIUS
-    integer :: nk, nj, ni, howmany
-    integer :: i, j, k
+    integer :: i, j, k, nk
     logical :: uvcos_in1
 
-    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+    if (.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
     uvcos_in1=.false.
 
-    if(present(uvcos_in)) uvcos_in1=uvcos_in
+    if (present(uvcos_in)) uvcos_in1=uvcos_in
 
-    nk = size(u,1); nj = size(u,2); ni = size(u,3)
-
-    howmany = nk*nj
+    nk = size(u,1)
 
     pgrd = C_LOC(u)
-    call c_f_pointer(pgrd, grd, [howmany, ni])
+    call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp]) !p-grid
 
     pfour = C_LOC(four)
-    call c_f_pointer(pfour, four3, [nk, nj, flen])
+    call c_f_pointer(pfour, four3, [nk, jlenf, ilenf]) !F-grid
 
     call grid_to_fourier(grd,four)
 
     if (uvcos_in1) then
-        do j = jsc, jec
-            four3(:,j,:) = four3(:,j,:) * cosm2_lat(j)
+        do j = 1, size(four3,2)
+            four3(:,j,:) = four3(:,j,:) * cosm2_latF(jsf+j-1)
         enddo
     else
-        do j = jsc, jec
-            four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+        do j = 1, size(four3,2)
+            four3(:,j,:) = four3(:,j,:) * cosm_latF(jsf+j-1)
         enddo
     endif
     
@@ -432,17 +462,17 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     endif
 
     pgrd = C_LOC(v)
-    call c_f_pointer(pgrd, grd, [howmany, ni])
+    call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp])
 
     call grid_to_fourier(grd,four)
 
     if (uvcos_in1) then
-        do j = jsc, jec
-            four3(:,j,:) = four3(:,j,:) * cosm2_lat(j)
+        do j = 1, size(four3,2)
+            four3(:,j,:) = four3(:,j,:) * cosm2_latF(jsf+j-1)
         enddo
     else
-        do j = jsc, jec
-            four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+        do j = 1, size(four3,2)
+            four3(:,j,:) = four3(:,j,:) * cosm_latF(jsf+j-1)
         enddo
     endif
     
@@ -464,6 +494,7 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     vor = vsm + (usp*rradius)
     div = usm - (vsp*rradius)
 
+    return
 end subroutine vor_div_from_uv_grid3D 
 
 !--------------------------------------------------------------------------------   
@@ -474,30 +505,29 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
 
     complex,dimension(size(vor,1),size(vor,2),2) :: us, vs
 
-    complex :: four(size(u,1)*size(u,2), flen)
+    complex :: four(size(u,1)*jlenf, ilenf)
     complex, pointer :: four3(:,:,:)
 
     real, pointer :: grd(:,:)
     type(C_PTR) :: pgrd, pfour
 
-    integer :: nk, nj, ni, howmany
+    integer :: nk
     integer :: i, j, k
 
     if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
-    nk = size(u,1); nj = size(u,2); ni = size(u,3)
 
-    howmany = nk*nj
-
-    pgrd = C_LOC(u)
-    call c_f_pointer(pgrd, grd, [howmany, ni])
+    nk = size(u,1)
 
     pfour = C_LOC(four)
-    call c_f_pointer(pfour, four3, [nk, nj, flen])
+    call c_f_pointer(pfour, four3, [nk, jlenf, ilenf]) ! F-grid
 
-    call grid_to_fourier(grd,four)
+    pgrd = C_LOC(u)
+    call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp]) ! P-grid
 
-    do j = jsc, jec
-        four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+    call grid_to_fourier(grd,four) 
+
+    do j = 1, jlenf
+        four3(:,j,:) = four3(:,j,:) * cosm_latF(jsf-j+1)
     enddo
     
     if (fpe) then
@@ -507,12 +537,12 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
     endif
 
     pgrd = C_LOC(v)
-    call c_f_pointer(pgrd, grd, [howmany, ni])
+    call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp])
 
     call grid_to_fourier(grd,four)
 
-    do j = jsc, jec
-        four3(:,j,:) = four3(:,j,:) * cosm_lat(j)
+    do j = 1, jlenf
+        four3(:,j,:) = four3(:,j,:) * cosm_latF(jsf-j+1)
     enddo
     
     if (fpe) then
@@ -559,13 +589,13 @@ subroutine grid_to_spherical3D(grid,spherical,do_trunc)
     real, intent(in) :: grid(:,:,:)
     complex, dimension(:,:,:), intent(out) :: spherical
     logical, intent(in), optional :: do_trunc
-    complex :: four(size(grid,1)*size(grid,2), flen)
+    complex :: four(size(grid,1)*jlenf, ilenf)
     complex, pointer :: four3(:,:,:)
 
     real, pointer :: grd(:,:)
     type(C_PTR) :: pgrd, pfour
 
-    integer :: nk, nj, ni, howmany
+    integer :: nk
     integer :: i, j, k
     logical :: do_trunc1
 
@@ -575,15 +605,13 @@ subroutine grid_to_spherical3D(grid,spherical,do_trunc)
     
     if(present(do_trunc)) do_trunc1 = do_trunc
 
-    nk = size(grid,1); nj = size(grid,2); ni = size(grid,3)
-
-    howmany = nk*nj
+    nk = size(grid,1)
 
     pgrd = C_LOC(grid)
-    call c_f_pointer(pgrd, grd, [howmany, ni])
+    call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp])
 
     pfour = C_LOC(four)
-    call c_f_pointer(pfour, four3, [nk, nj, flen])
+    call c_f_pointer(pfour, four3, [nk, jlenf, ilenf])
 
     call grid_to_fourier(grd,four)
 
@@ -606,25 +634,23 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
     real, intent(out), optional :: lat_deriv(:,:,:)
     real, intent(out), optional :: lon_deriv(:,:,:)
 
-    complex :: four(size(spherical,1)*jlen, isf:ief)
+    complex :: four(size(spherical,1)*jlenf, isf:ief)
     complex, pointer :: four3(:,:,:)
 
     real, pointer :: grd(:,:)
     type(C_PTR) :: pgrd, pfour
 
-    integer :: nk, nj, ni, howmany
-    integer :: i, j, k
+    integer :: nk
+    integer :: i, j, k, m
     real :: ma
     real, parameter :: rRADIUS = 1./RADIUS
 
     call mpp_clock_begin(clck_s2g)   
 
-    nk = size(spherical,1); nj = jlen; ni = iec-isc+1
-
-    howmany = nk*nj
+    nk = size(spherical,1)
 
     pfour = C_LOC(four)
-    call c_f_pointer(pfour, four3, [nk, nj, flen])
+    call c_f_pointer(pfour, four3, [nk, jlenf, ilenf])
 
     if (present(lat_deriv)) then
         if (fpe) then
@@ -634,7 +660,7 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
         endif
 
         pgrd = C_LOC(lat_deriv)
-        call c_f_pointer(pgrd, grd, [howmany, ni])
+        call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp])
 
         call fourier_to_grid(four,grd)
     endif
@@ -653,14 +679,14 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
 
     if (present(grid)) then
         pgrd = C_LOC(grid)
-        call c_f_pointer(pgrd, grd, [howmany, ni])
+        call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp])
 
         call fourier_to_grid(four,grd)
     endif
      
     if (present(lon_deriv)) then
         pgrd = C_LOC(lon_deriv)
-        call c_f_pointer(pgrd, grd, [howmany, ni])
+        call c_f_pointer(pgrd, grd, [nk*jlenp, ilenp])
 
         do m = isf, ief
             ma = Tshuff(m)*rRADIUS
@@ -699,8 +725,8 @@ subroutine spherical_to_grid2D(spherical,grid,lat_deriv,lon_deriv)
     real, intent(out), optional :: lon_deriv(:,:)
 
     complex :: buff(1,size(spherical,1),size(spherical,2))
-    real :: buff1(1,jec-jsc+1,iec-isc+1)
-    real :: buff2(1,jec-jsc+1,iec-isc+1)
+    real :: buff1(1,jlenp,ilenp)
+    real :: buff2(1,jlenp,ilenp)
 
     buff(1,:,:) = spherical
 

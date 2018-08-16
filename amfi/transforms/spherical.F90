@@ -17,8 +17,8 @@ use constants_mod, only : RADIUS, PI
 
 use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian 
 
-use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackP, oc_nx, oc_ny, &
-                oc_nlat, npack=>oc_npack
+use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackF, oc_nx, oc_ny, &
+                oc_nlat, npack=>oc_npack 
 
 !-------------------------------------------------------------------------
 !   provides operations on spectral spherical harmonics fields that do not 

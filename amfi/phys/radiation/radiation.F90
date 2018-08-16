@@ -85,7 +85,7 @@ subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
     type(time_type), intent(in) :: Time
     type(domain2D), target :: domain_in
     integer, intent(in) :: nlev_in, ntrac_in
-    real, intent(in) :: lat_deg_in(:), lon_deg_in(:)
+    real, intent(in) :: lat_deg_in(:,:), lon_deg_in(:,:)
     real, intent(in) :: fland_in(:,:)
     integer, intent(in) :: axes_in(:)
     integer, intent(in), optional :: ind_q_in, ind_oz_in, ind_clw_in
@@ -122,16 +122,11 @@ subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
 
     fland(js:je,is:ie) = fland_in
 
-    do i = is, ie
-        lat_deg(js:je,i) = lat_deg_in(js:je)
-        lat_rad(js:je,i) = lat_deg_in(js:je)*PI/180.
-    enddo
+    lat_deg(js:je,is:ie) = lat_deg_in(js:je,is:ie)
+    lat_rad(js:je,is:ie) = lat_deg_in(js:je,is:ie)*PI/180.
 
-    do j = js, je
-        lon_deg(j,is:ie) = lon_deg_in(is:ie)
-        lon_rad(j,is:ie) = lon_deg_in(is:ie)*PI/180.
-    enddo
-
+    lon_deg(js:je,is:ie) = lon_deg_in(js:je,is:ie)
+    lon_rad(js:je,is:ie) = lon_deg_in(js:je,is:ie)*PI/180.
 
     me = 1
     if (mpp_pe()==mpp_root_pe()) me = 0

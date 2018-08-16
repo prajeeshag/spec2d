@@ -10,6 +10,8 @@ use gscond_mod, only : gscond
 
 use precpd_mod, only : precpd 
 
+use ocpack_mod, only : ocpack_typeP, oc_ny, oc_nlat, oc_npack, get_ocpackP
+
 implicit none
 private
 
@@ -31,19 +33,17 @@ subroutine init_micro_phys(domain,nlev_in,rstrt,lat)
     type(domain2d) :: domain
     integer, intent(in) :: nlev_in
     type(restart_file_type), intent(inout) :: rstrt
-    real, intent(in) :: lat(:)
+    real, intent(in) :: lat(:,:)
 
     real, parameter :: dxmax=-16.118095651, dxmin=-9.800790154, &
                        dxinv=1.0/(dxmax-dxmin)
-    integer :: indx, j, isg, ieg, jsg, jeg, nlons, latg
+    integer :: indx, j, nlons, i
     real :: tmp1
+    type(ocpack_typeP), allocatable :: ocpkP(:,:)
 
     nlev = nlev_in
 
     call mpp_get_compute_domain(domain,js,je,is,ie)
-    call mpp_get_global_domain(domain,jsg,jeg,isg,ieg)
-    nlons = ieg-isg+1
-    latg = jeg-jsg+1
 
     allocate(tp(nlev,js:je,is:ie), tp1(nlev,js:je,is:ie), &
              qp(nlev,js:je,is:ie), qp1(nlev,js:je,is:ie), &
@@ -61,11 +61,18 @@ subroutine init_micro_phys(domain,nlev_in,rstrt,lat)
 
     allocate(work1(js:je,is:ie), work2(js:je,is:ie))
 
-    do j = js, je
-        tmp1 = (log(cos(lat(j)) / (nlons*latg)) - dxmin) * dxinv
-        tmp1 = max( 0.0, min( 1.0, tmp1 ) )
-        work1(j,:) = tmp1
-    enddo
+    allocate(ocpkP(oc_npack(),oc_ny()))
+    call get_ocpackP(ocpkP)
+
+    do i = is, ie
+        do j = js, je
+            nlons = ocpkP(1,j)%ilen
+            if (i>nlons) nlons = ocpkP(2,j)%ilen
+            tmp1 = (log(cos(lat(j,i)) / (nlons*oc_nlat())) - dxmin) * dxinv
+            tmp1 = max( 0.0, min( 1.0, tmp1 ) )
+            work1(j,i) = tmp1
+        end do
+    end do
     work2 = 1.0 - work1
 
     initialized = .true. 

@@ -16,15 +16,15 @@ integer, parameter :: lons_lat=1
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine gfidi_drv(levs, ntrac, ni, nj, deltim, sinlat_in, rcl_in, & 
-           dg,tg,ug,vg,rqg,dphi,dlam,qg, &
-           dtdf,dtdl,drdf,drdl,dudl,dvdl,dudf,dvdf, &
-           dqdt,dtdt,drdt,dudt,dvdt,spdmax)
+subroutine gfidi_drv(levs,  ntrac,  ni,  nj,  deltim,  sinlat,  rcl,  & 
+           dg, tg, ug, vg, rqg, dphi, dlam, qg,  &
+           dtdf, dtdl, drdf, drdl, dudl, dvdl, dudf, dvdf,  &
+           dqdt, dtdt, drdt, dudt, dvdt, spdmax)
 !--------------------------------------------------------------------------------   
     implicit none
 
     integer, intent(in) :: levs, ntrac, ni, nj
-    real, intent(in) :: sinlat_in(nj), deltim, rcl_in(nj)
+    real, intent(in) :: sinlat(nj*ni), deltim, rcl(nj*ni)
     real, intent(in)  :: dg(levs,nj*ni), tg(levs,nj*ni), &
                          ug(levs,nj*ni), vg(levs,nj*ni), &
                          rqg(levs,nj*ni,ntrac), &
@@ -38,26 +38,13 @@ subroutine gfidi_drv(levs, ntrac, ni, nj, deltim, sinlat_in, rcl_in, &
                          drdt(levs,nj*ni,ntrac)
     real, intent(inout) :: spdmax(levs)
 
-    real :: rcl(nj*ni), sinlat(nj*ni)
     type(c_ptr) :: ptr1, ptr2
-    real, pointer :: ptmp1(:,:), ptmp2(:,:)
 
     real, dimension(levs,ntrac,nj*ni) :: rqg1, drdf1, drdl1, drdt1
 
     integer :: i, np
 
     np = nj*ni
-
-    ptr1 = c_loc(rcl)
-    call c_f_pointer(ptr1,ptmp1,[nj,ni])
-
-    ptr2 = c_loc(sinlat)
-    call c_f_pointer(ptr2,ptmp2,[nj,ni])
-
-    do i = 1, ni
-        ptmp1(1:nj,i) = rcl_in(1:nj) 
-        ptmp2(1:nj,i) = sinlat_in(1:nj)
-    enddo
 
     do i = 1, ntrac
         rqg1(:,i,:) = rqg(:,:,i) 

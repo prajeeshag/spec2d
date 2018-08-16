@@ -8,7 +8,7 @@ use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error, &
                     mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
                     mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather, &
                     mpp_declare_pelist, mpp_set_current_pelist, &
-                    mpp_get_current_pelist
+                    mpp_get_current_pelist, mpp_sum
 
 use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain, &
                             mpp_global_field, mpp_get_global_domain
@@ -27,9 +27,9 @@ use tracer_manager_mod, only : get_tracer_index, get_tracer_name, get_number_tra
 
 use field_manager_mod, only : MODEL_ATMOS
 
-use transforms_mod, only : get_spherical_wave, get_lons, compute_ucos_vcos, compute_vor_div, &
-                           spherical_to_grid, grid_to_spherical, init_transforms, get_lats, &
-                           get_lons, register_spec_restart, save_spec_restart, &
+use transforms_mod, only : get_spherical_wave, get_lonsP, compute_ucos_vcos, compute_vor_div, &
+                           spherical_to_grid, grid_to_spherical, init_transforms, get_latsF, &
+                           register_spec_restart, save_spec_restart, get_latsP, &
                            restore_spec_restart 
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel, &
@@ -41,10 +41,12 @@ use gfidi_mod, only : gfidi_drv
 
 use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
 
+use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, get_ocpackP
+
 implicit none
 private
 
-public :: init_spectral_dynamics, spectral_dynamics, get_lats, get_lons, &
+public :: init_spectral_dynamics, spectral_dynamics, get_latsP, get_lonsP, &
           finish_spectral_dynamics, save_spec_restart, restore_spec_restart
 
 type satm_type
@@ -79,16 +81,20 @@ real, allocatable, dimension(:,:) :: gtopo
 
 real, allocatable, dimension(:) :: spdmax
 
+real, allocatable, dimension(:,:) :: wtsbynlon
+
 real, allocatable :: bfilt(:,:,:)
 
-integer :: nlon, nlat, nlev
+integer :: nlev
 integer :: trunc
 integer :: ntrac=0
 integer :: nwaves_oe=0
     
-integer :: isc, iec, ilen
-integer :: jsc, jec, jlen
+integer :: isp, iep, ilenp, ocnx
+integer :: jsp, jep, jlenp, ocny
+type(ocpack_typeP) , allocatable :: ocpkP(:,:)
 integer, allocatable :: pelist(:)
+
 integer :: commID
 real :: deltim=600.
 real :: filta = 0.85 
@@ -98,8 +104,8 @@ integer :: i0 = -1
 
 type(domain2d), pointer :: domain_g => NULL()
 
-real, allocatable :: sin_lat(:), cosm2_lat(:), deg_lat(:), cosm_lat(:), wts_lat(:), &
-                     cos_lat(:), deg_lon(:)
+real, allocatable :: sin_latP(:,:), cosm2_latP(:,:), cosm_latP(:,:), wts_latP(:,:), &
+                     cos_latP(:,:)
 real, allocatable :: typdel(:)
 
 integer, allocatable :: sph_wave(:,:)
@@ -131,7 +137,8 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     real :: ref_temp
     real, dimension(nlev_in+1) :: ak, bk, si, plevp
     real, dimension(nlev_in) :: sl, plev
-    integer :: idx, tr, isg, ieg, jsg, jeg, n
+    real, allocatable :: tmpg(:,:)
+    integer :: idx, tr, n, is, ie, nlon
     integer :: num_prog, num_diag
     
     call mpp_init()
@@ -163,34 +170,54 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
         moist_ind(n) = idx
     enddo
 
-    call mpp_get_compute_domain(domain_g, jsc, jec, isc, iec)
-    call mpp_get_global_domain(domain_g, jsg, jeg, isg, ieg)
+    ocnx = oc_nx()
+    ocny = oc_ny()
+    allocate(ocpkP(npack(),ocny))
+    call get_ocpackP(ocpkP)
+
+    call mpp_get_compute_domain(domain_g, jsp, jep, isp, iep)
+    ilenp = iep - isp + 1
+    jlenp = jep - jsp + 1
    
     allocate(pelist(mpp_npes())) 
     call mpp_get_current_pelist(pelist, commid=commID)
 
-    nlon = ieg - isg + 1
-    nlat = jeg - jsg + 1
-    
-    ilen = iec - isc + 1
-    jlen = jec - jsc + 1
-    
     call init_transforms(domain_g,trunc,nwaves_oe)
  
     call init_vertical_levels(nlev)
     
     allocate(sph_wave(nwaves_oe,2))
+   
+    allocate(tmpg(ocny,ocnx)) 
+    allocate(sin_latP(jsp:jep,isp:iep), cosm2_latP(jsp:jep,isp:iep))
+    allocate(cosm_latP(jsp:jep,isp:iep))
+    allocate(wts_latP(jsp:jep,isp:iep), cos_latP(jsp:jep,isp:iep))
+    allocate(wtsbynlon(jsp:jep,isp:iep))
     
-    allocate(sin_lat(jsc:jec), cosm2_lat(jsc:jec))
-    allocate(deg_lat(jsc:jec), cosm_lat(jsc:jec))
-    allocate(wts_lat(jsc:jec), cos_lat(jsc:jec))
-    allocate(deg_lon(isc:iec))
-    
-    call get_lats(sinlat=sin_lat,cosm2lat=cosm2_lat, &
-                  deglat=deg_lat,cosmlat=cosm_lat,wtslat=wts_lat, &
-                  coslat=cos_lat)
+    call get_latsP(sinlat = tmpg)
+    sin_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
 
-    call get_lons(deg_lon)
+    call get_latsP(cosm2lat = tmpg)
+    cosm2_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
+
+    call get_latsP(cosmlat = tmpg)
+    cosm_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
+
+    call get_latsP(wtslat = tmpg)
+    wts_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
+
+    call get_latsP(coslat = tmpg)
+    cos_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
+
+    deallocate(tmpg)
+
+    do j = jsp, jep
+        do i = isp, iep
+            nlon = ocpkP(1,j)%ilen
+            if (i > ocpkP(1,j)%ie) nlon = ocpkP(2,j)%ilen 
+            wtsbynlon(j,i) = wts_latP(j,i)/nlon
+        end do
+    end do
 
     call get_ak_bk(ak_out=ak,bk_out=bk,sl_out=sl,si_out=si)
     allocate(typdel(nlev))
@@ -200,11 +227,14 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     forall(k=1:nlev) plev(k) = k
     forall(k=1:nlev+1) plevp(k) = k
     
-    gaxis(1) = diag_axis_init('lat',deg_lat(jsc:jec),'degrees_N','Y', &
-                long_name='latitude', domain_decomp=[jsg,jeg,jsc,jec])
-    gaxis(2) = diag_axis_init('lon',deg_lon(isc:iec),'degrees_E','X', &
-                long_name='longitude', domain_decomp=[isg,ieg,isc,iec])
+    gaxis(1) = diag_axis_init('ocy',[(float(i),i=jsp,jep)],'degrees_N','Y', &
+                long_name='y', domain_decomp=[1,ocny,jsp,jep])
+
+    gaxis(2) = diag_axis_init('ocx',[(float(i),i=isp,iep)],'degrees_E','X', &
+                long_name='x', domain_decomp=[1,ocnx,isp,iep])
+
     gaxis(3) = diag_axis_init('lev',plev,'','Z',long_name='')
+
     gaxis(4) = diag_axis_init('levp',plevp,'','Z',long_name='')
 
     call init_diag_out(gaxis,Time) 
@@ -264,33 +294,33 @@ subroutine init_data()
     stopo = 0.
     
     do i = 1, 2
-        allocate(gatm(i)%u(nlev,jsc:jec,isc:iec))
-        allocate(gatm(i)%v(nlev,jsc:jec,isc:iec))
-        allocate(gatm(i)%tem(nlev,jsc:jec,isc:iec))
-        allocate(gatm(i)%tr(nlev,jsc:jec,isc:iec,ntrac))
-        allocate(gatm(i)%prs(1,jsc:jec,isc:iec))
+        allocate(gatm(i)%u(nlev,jsp:jep,isp:iep))
+        allocate(gatm(i)%v(nlev,jsp:jep,isp:iep))
+        allocate(gatm(i)%tem(nlev,jsp:jep,isp:iep))
+        allocate(gatm(i)%tr(nlev,jsp:jep,isp:iep,ntrac))
+        allocate(gatm(i)%prs(1,jsp:jep,isp:iep))
     enddo
     
-    allocate(dphi%u(nlev,jsc:jec,isc:iec))
-    allocate(dphi%v(nlev,jsc:jec,isc:iec))
-    allocate(dphi%tem(nlev,jsc:jec,isc:iec))
-    allocate(dphi%tr(nlev,jsc:jec,isc:iec,ntrac))
-    allocate(dphi%prs(1,jsc:jec,isc:iec))
+    allocate(dphi%u(nlev,jsp:jep,isp:iep))
+    allocate(dphi%v(nlev,jsp:jep,isp:iep))
+    allocate(dphi%tem(nlev,jsp:jep,isp:iep))
+    allocate(dphi%tr(nlev,jsp:jep,isp:iep,ntrac))
+    allocate(dphi%prs(1,jsp:jep,isp:iep))
     
-    allocate(dlam%u(nlev,jsc:jec,isc:iec))
-    allocate(dlam%v(nlev,jsc:jec,isc:iec))
-    allocate(dlam%tem(nlev,jsc:jec,isc:iec))
-    allocate(dlam%tr(nlev,jsc:jec,isc:iec,ntrac))
-    allocate(dlam%prs(1,jsc:jec,isc:iec))
+    allocate(dlam%u(nlev,jsp:jep,isp:iep))
+    allocate(dlam%v(nlev,jsp:jep,isp:iep))
+    allocate(dlam%tem(nlev,jsp:jep,isp:iep))
+    allocate(dlam%tr(nlev,jsp:jep,isp:iep,ntrac))
+    allocate(dlam%prs(1,jsp:jep,isp:iep))
     
-    allocate(dt%u(nlev,jsc:jec,isc:iec))
-    allocate(dt%v(nlev,jsc:jec,isc:iec))
-    allocate(dt%tem(nlev,jsc:jec,isc:iec))
-    allocate(dt%tr(nlev,jsc:jec,isc:iec,ntrac))
-    allocate(dt%prs(1,jsc:jec,isc:iec))
+    allocate(dt%u(nlev,jsp:jep,isp:iep))
+    allocate(dt%v(nlev,jsp:jep,isp:iep))
+    allocate(dt%tem(nlev,jsp:jep,isp:iep))
+    allocate(dt%tr(nlev,jsp:jep,isp:iep,ntrac))
+    allocate(dt%prs(1,jsp:jep,isp:iep))
     
-    allocate(div(nlev,jsc:jec,isc:iec))
-    allocate(vor(nlev,jsc:jec,isc:iec))
+    allocate(div(nlev,jsp:jep,isp:iep))
+    allocate(vor(nlev,jsp:jep,isp:iep))
     allocate(spdmax(nlev))
 
     spdmax = 0.
@@ -366,12 +396,12 @@ end subroutine init_diag_out
 subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 !--------------------------------------------------------------------------------
     type(time_type), intent(in) :: Time
-    real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u, v, tem
-    real, intent(out), dimension(nlev,jsc:jec,isc:iec)       :: u1, v1, tem1, vvel1
-    real, intent(out), dimension(nlev,jsc:jec,isc:iec,ntrac) :: tr, tr1
-    real, intent(out), dimension(jsc:jec,isc:iec)            :: p, p1
+    real, intent(out), dimension(nlev,jsp:jep,isp:iep)       :: u, v, tem
+    real, intent(out), dimension(nlev,jsp:jep,isp:iep)       :: u1, v1, tem1, vvel1
+    real, intent(out), dimension(nlev,jsp:jep,isp:iep,ntrac) :: tr, tr1
+    real, intent(out), dimension(jsp:jep,isp:iep)            :: p, p1
 
-    real, dimension(nlev,jsc:jec,isc:iec) :: gtmp1
+    real, dimension(nlev,jsp:jep,isp:iep) :: gtmp1
     complex, dimension(nlev,nwaves_oe,2) :: stmp1
     complex, dimension(nlev,nwaves_oe,2,ntrac) :: stmp2
 
@@ -383,6 +413,19 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 
     call compute_ucos_vcos(satm(2)%vor,satm(2)%div,sucos,svcos,do_trunc=.false.)
     
+    call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
+
+    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
+
+    call write_data('test_oc','ps',gatm(1)%prs,domain=domain_g)
+
+    call write_data('test_oc','tem',gatm(1)%tem,domain=domain_g)   
+    
+    call mpp_sync()
+    call fms_io_exit()
+    call mpp_sync()
+    call mpp_error(FATAL,'testing...')
+ 
     call spherical_to_grid(satm(2)%div,grid=div)
     
     call spherical_to_grid(satm(2)%vor,grid=vor)
@@ -391,30 +434,29 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     
     call spherical_to_grid(svcos,grid=gatm(1)%v,lon_deriv=dlam%v)
     
-    call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
-    
-    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
-    
     do ntr = 1, ntrac
         call spherical_to_grid(satm(2)%tr(:,:,:,ntr),grid=gatm(1)%tr(:,:,:,ntr), &
             lat_deriv=dphi%tr(:,:,:,ntr),lon_deriv=dlam%tr(:,:,:,ntr))
     enddo
     
-    do j = jsc, jec
-        dphi%tem(:,j,:) = dphi%tem(:,j,:) * cosm2_lat(j)
-        dphi%tr(:,j,:,:) = dphi%tr(:,j,:,:) * cosm2_lat(j)
-    
-        dlam%tem(:,j,:) = dlam%tem(:,j,:) * cosm2_lat(j)
-        dlam%tr(:,j,:,:) = dlam%tr(:,j,:,:) * cosm2_lat(j)
-    
-        dlam%u(:,j,:) = dlam%u(:,j,:) * cosm2_lat(j)
-        dlam%v(:,j,:) = dlam%v(:,j,:) * cosm2_lat(j)
+    do k = 1, nlev
+        dphi%tem(k, jsp:jep, isp:iep) = dphi%tem(k, jsp:jep, isp:iep) * cosm2_latP(jsp:jep, isp:iep)
+        dlam%tem(k, jsp:jep, isp:iep) = dlam%tem(k, jsp:jep, isp:iep) * cosm2_latP(jsp:jep, isp:iep)
+        dlam%u(k, jsp:jep, isp:iep) = dlam%u(k, jsp:jep, isp:iep) * cosm2_latP(jsp:jep, isp:iep)
+        dlam%v(k, jsp:jep, isp:iep) = dlam%v(k, jsp:jep, isp:iep) * cosm2_latP(jsp:jep, isp:iep)
     enddo
+
+    do ntr = 1, ntrac
+        do k = 1, nlev
+            dphi%tr(k, jsp:jep, isp:iep, ntr) = dphi%tr(k, jsp:jep, isp:iep, ntr) * cosm2_latP(jsp:jep, isp:iep)
+            dlam%tr(k, jsp:jep, isp:iep, ntr) = dlam%tr(k, jsp:jep, isp:iep, ntr) * cosm2_latP(jsp:jep, isp:iep)
+        end do
+    end do
     
     dphi%u = dlam%v - vor
     dphi%v = div - dlam%u
     spdmax = 0. 
-    call gfidi_drv(nlev, ntrac, ilen, jlen, deltim, sin_lat(jsc:jec), cosm2_lat(jsc:jec), &
+    call gfidi_drv(nlev, ntrac, ilenp, jlenp, deltim, sin_latP(jsp:jep,isp:iep), cosm2_latP(jsp:jep,isp:iep), &
             div, gatm(1)%tem, gatm(1)%u, gatm(1)%v, gatm(1)%tr, dphi%prs, dlam%prs, gatm(1)%prs, &
             dphi%tem, dlam%tem, dphi%tr, dlam%tr, dlam%u, dlam%v, dphi%u, dphi%v, &
             dt%prs, dt%tem, dt%tr, dt%u, dt%v, spdmax)
@@ -485,32 +527,35 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
         call spherical_to_grid(satm(3)%tr(:,:,:,ntr),grid=gatm(2)%tr(:,:,:,ntr))
     enddo
 
-    p(jsc:jec,isc:iec) = exp(gatm(1)%prs(1,jsc:jec,isc:iec))
-    do j = jsc, jec
-        u(1:nlev,j,isc:iec) = gatm(1)%u(1:nlev,j,isc:iec) * cosm_lat(j)
-        v(1:nlev,j,isc:iec) = gatm(1)%v(1:nlev,j,isc:iec) * cosm_lat(j)
+    p(jsp:jep,isp:iep) = exp(gatm(1)%prs(1,jsp:jep,isp:iep))
+
+    do k = 1, nlev 
+        u(k,jsp:jep,isp:iep) = gatm(1)%u(k,jsp:jep,isp:iep) * cosm_latP(jsp:jep,isp:iep)
+        v(k,jsp:jep,isp:iep) = gatm(1)%v(k,jsp:jep,isp:iep) * cosm_latP(jsp:jep,isp:iep)
     enddo
 
-    tr(1:nlev,jsc:jec,isc:iec,1:ntrac) = gatm(1)%tr(1:nlev,jsc:jec,isc:iec,1:ntrac)
+    tr(1:nlev,jsp:jep,isp:iep,1:ntrac) = gatm(1)%tr(1:nlev,jsp:jep,isp:iep,1:ntrac)
     where(tr<0.) tr=0.
 
-    tem(1:nlev,jsc:jec,isc:iec) = gatm(1)%tem(1:nlev,jsc:jec,isc:iec)/(1.0+fv*tr(:,:,:,1))
+    tem(1:nlev,jsp:jep,isp:iep) = gatm(1)%tem(1:nlev,jsp:jep,isp:iep) &
+                                / (1.0+fv*tr(1:nlev,jsp:jep,isp:iep,1))
     
-    p1(jsc:jec,isc:iec) = exp(gatm(2)%prs(1,jsc:jec,isc:iec))
+    p1(jsp:jep,isp:iep) = exp(gatm(2)%prs(1,jsp:jep,isp:iep))
 
-    do j = jsc, jec
-        u1(1:nlev,j,isc:iec) = gatm(2)%u(1:nlev,j,isc:iec) * cosm_lat(j)
-        v1(1:nlev,j,isc:iec) = gatm(2)%v(1:nlev,j,isc:iec) * cosm_lat(j)
+    do k = 1, nlev 
+        u1(k,jsp:jep,isp:iep) = gatm(2)%u(k,jsp:jep,isp:iep) * cosm_latP(jsp:jep,isp:iep)
+        v1(k,jsp:jep,isp:iep) = gatm(2)%v(k,jsp:jep,isp:iep) * cosm_latP(jsp:jep,isp:iep)
     enddo
 
     call spherical_to_grid(satm(3)%div,grid=div)
 
     call get_vertical_vel(p1,dphi%prs(1,:,:),dlam%prs(1,:,:),div,u1,v1,vvel1)
 
-    tr1(1:nlev,jsc:jec,isc:iec,1:ntrac) = gatm(2)%tr(1:nlev,jsc:jec,isc:iec,1:ntrac)
+    tr1(1:nlev,jsp:jep,isp:iep,1:ntrac) = gatm(2)%tr(1:nlev,jsp:jep,isp:iep,1:ntrac)
     where(tr1<0.) tr1=0.
     
-    tem1(1:nlev,jsc:jec,isc:iec) = gatm(2)%tem(1:nlev,jsc:jec,isc:iec)/(1.0+fv*tr1(:,:,:,1))
+    tem1(1:nlev,jsp:jep,isp:iep) = gatm(2)%tem(1:nlev,jsp:jep,isp:iep) &
+                                 / (1.0+fv*tr1(1:nlev,jsp:jep,isp:iep,1))
     
 end subroutine spectral_dynamics
 
@@ -519,11 +564,11 @@ end subroutine spectral_dynamics
 subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
-    real, intent(in), dimension(nlev,jsc:jec,isc:iec)       :: u, v, tem
-    real, intent(in), dimension(nlev,jsc:jec,isc:iec,ntrac) :: tr
+    real, intent(in), dimension(nlev,jsp:jep,isp:iep)       :: u, v, tem
+    real, intent(in), dimension(nlev,jsp:jep,isp:iep,ntrac) :: tr
 
     complex, dimension(nlev,nwaves_oe,2) :: rqt
-    real, dimension(nlev,jsc:jec,isc:iec) :: gtmp1
+    real, dimension(nlev,jsp:jep,isp:iep) :: gtmp1
 
     real :: pcorr, plvl1(nlev+1)
     integer :: k, j, ntr
@@ -531,19 +576,20 @@ subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
 
     call calc_mass_corr(exp(gatm(2)%prs(1,:,:)), tr, moist_ind, pcorr)
 
-    do j = jsc, jec
-        gatm(2)%u(1:nlev,j,isc:iec) = u(1:nlev,j,isc:iec) * cos_lat(j) !-> to ucos
-        gatm(2)%v(1:nlev,j,isc:iec) = v(1:nlev,j,isc:iec) * cos_lat(j) !-> to vcos
+    do j = jsp, jep
+        gatm(2)%u(k,jsp:jep,isp:iep) = u(k,jsp:jep,isp:iep) * cos_latP(jsp:jep,isp:iep) !-> to ucos
+        gatm(2)%v(k,jsp:jep,isp:iep) = v(k,jsp:jep,isp:iep) * cos_latP(jsp:jep,isp:iep) !-> to vcos
     enddo
 
-    gatm(2)%tem(1:nlev,jsc:jec,isc:iec) = tem(1:nlev,jsc:jec,isc:iec)*(1.0+fv*tr(:,:,:,1)) !-> virtual temp
+    gatm(2)%tem(1:nlev,jsp:jep,isp:iep) = tem(1:nlev,jsp:jep,isp:iep) &
+                                        * (1.0+fv*tr(1:nlev,jsp:jep,isp:iep,1)) !-> virtual temp
 
     call grid_to_spherical(gatm(2)%tem, satm(2)%tem, do_trunc=.true.)
     call grid_to_spherical(gatm(2)%u, sucos, do_trunc=.false.)
     call grid_to_spherical(gatm(2)%v, svcos, do_trunc=.false.)
 
     do ntr = 1, ntrac
-        call grid_to_spherical(tr(:,:,:,ntr),satm(2)%tr(:,:,:,ntr),do_trunc=.true.)
+        call grid_to_spherical(tr(1:nlev,jsp:jep,isp:iep,ntr), satm(2)%tr(:,:,:,ntr), do_trunc=.true.)
     enddo
  
     call compute_vor_div(sucos,svcos,satm(2)%vor,satm(2)%div)
@@ -600,16 +646,17 @@ end subroutine finish_spectral_dynamics
 !--------------------------------------------------------------------------------   
 subroutine calc_mass_corr(ps, trc, mi, pcorr)
 !--------------------------------------------------------------------------------
-    real, intent(in), dimension(:,:) :: ps
-    real, intent(in), dimension(:,:,:,:) :: trc
+    real, intent(in), dimension(jsp:jep,isp:iep) :: ps
+    real, intent(in), dimension(nlev,jsp:jep,isp:iep,ntrac) :: trc
     integer, intent(in), dimension(:) :: mi
     real, intent(out) :: pcorr
 
-    real, dimension(size(ps,1),size(ps,2)) :: pwat
-    real, dimension(size(trc,1),size(trc,2),size(trc,3)) :: delp
-    real, dimension(size(trc,1)+1,size(trc,2),size(trc,3)) :: plvl
-    real, dimension(nlat,nlon) :: pwatg, psg
-    real, dimension(nlat) :: pwatl, psl
+    real, dimension(jsp:jep,isp:iep) :: pwat
+    real, dimension(jsp:jep,isp:iep) :: pstmp
+    real, dimension(nlev,jsp:jep,isp:iep) :: delp
+    real, dimension(nlev+1,jsp:jep,isp:iep) :: plvl
+    !real, dimension(ocny,ocnx) :: pwatg, psg
+    !real, dimension(ocny) :: pwatl, psl
     real :: pwattot, pstot, pdryg
 
     integer :: levs
@@ -617,19 +664,23 @@ subroutine calc_mass_corr(ps, trc, mi, pcorr)
     levs = size(trc,1)
 
     call get_pressure_at_levels(ps,plvl)
+
     delp = plvl(1:levs,:,:) - plvl(2:levs+1,:,:)
 
     call calc_integral_moisture(delp, trc, pwat, mi)
 
-    call mpp_global_field(domain_g, pwat, pwatg)
+    pwat = pwat * GRAV * 0.5 * 1.e-3 * wtsbynlon
+    pwattot = sum(pwat)
+    pstot = sum(ps * 0.5 * wtsbynlon)
+    call mpp_sum(pwattot)
+    call mpp_sum(pstot)
 
-    call mpp_global_field(domain_g, ps, psg)
-
-    pwatl = sum(pwatg,2) * GRAV * 0.5 * 1.e-3 / nlon
-    psl = sum(psg,2)        * 0.5         / nlon
-
-    pwattot = sum(pwatl*wts_lat)
-    pstot = sum(psl*wts_lat)
+    !call mpp_global_field(domain_g, pwat, pwatg)
+    !call mpp_global_field(domain_g, ps, psg)
+    !pwatl = sum(pwatg,2) * GRAV * 0.5 * 1.e-3 / nlon
+    !psl = sum(psg,2)        * 0.5         / nlon
+    !pwattot = sum(pwatl*wts_lat)
+    !pstot = sum(psl*wts_lat)
 
     pdryg = pstot - pwattot
 
@@ -637,6 +688,7 @@ subroutine calc_mass_corr(ps, trc, mi, pcorr)
 
     pcorr = (pdryini - pdryg)/pstot*sqrt(2.)
 
+    return
 end subroutine calc_mass_corr
 
 
