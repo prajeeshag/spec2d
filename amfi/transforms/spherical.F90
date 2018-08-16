@@ -17,6 +17,8 @@ use constants_mod, only : RADIUS, PI
 
 use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian 
 
+use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackP, oc_nx, oc_ny, &
+                oc_nlat, npack=>oc_npack
 
 !-------------------------------------------------------------------------
 !   provides operations on spectral spherical harmonics fields that do not 
@@ -34,7 +36,7 @@ use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian
 implicit none
 private
 
-public :: init_spherical, get_wdecomp, get_lats, get_wdecompa
+public :: init_spherical, get_wdecomp, get_latsF, get_latsP, get_wdecompa
 public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: compute_ucos_vcos, compute_vor_div, compute_vor
 public :: compute_div, do_truncation, get_spherical_wave
@@ -58,12 +60,20 @@ integer, dimension(:,:), allocatable :: fourier_wave
 integer, dimension(:,:), allocatable :: spherical_wave
 integer, dimension(:,:), allocatable :: nnp1
 
-real, allocatable, dimension(:) :: sin_lat
-real, allocatable, dimension(:) :: cos_lat
-real, allocatable, dimension(:) :: cosm_lat
-real, allocatable, dimension(:) :: cosm2_lat
-real, allocatable, dimension(:) :: deg_lat
-real, allocatable, dimension(:) :: wts_lat
+real, allocatable, dimension(:) :: sin_latF
+real, allocatable, dimension(:) :: cos_latF
+real, allocatable, dimension(:) :: cosm_latF
+real, allocatable, dimension(:) :: cosm2_latF
+real, allocatable, dimension(:) :: deg_latF
+real, allocatable, dimension(:) :: wts_latF
+
+real, allocatable, dimension(:,:) :: sin_latP
+real, allocatable, dimension(:,:) :: cos_latP
+real, allocatable, dimension(:,:) :: cosm_latP
+real, allocatable, dimension(:,:) :: cosm2_latP
+real, allocatable, dimension(:,:) :: deg_latP
+real, allocatable, dimension(:,:) :: wts_latP
+
 real, allocatable, dimension(:) :: sin_hem
 real, allocatable, dimension(:) :: wts_hem
 
@@ -74,10 +84,9 @@ integer :: num_fourier = 0
 integer :: num_spherical = 0
 integer :: trunc = 0
 integer :: truncadj = 0
-integer :: nlat = 0
 integer :: ms, me, mlen
-integer :: js_hem, je_hem, jlen_hem, js, je, jlen
-integer :: jsn, jen, jkn, jss, jes, jks
+integer :: js_hem, je_hem, jlen_hem
+integer :: jsf, jef, jlenf, nlat
 
 integer, allocatable :: ns4m(:)   ! Starting of spherical for a particular fourier
 integer, allocatable :: ne4m(:)   ! Ending of spherical for a particulat fourier 
@@ -102,7 +111,14 @@ integer, allocatable :: wdecompa(:,:)
 
 integer, allocatable :: tshuffle(:)
 
-integer :: ishuff = 1
+type(ocpack_typeP), allocatable :: ocP(:,:)
+type(ocpack_typeF), allocatable :: ocF(:)
+
+type hem_type
+    integer :: s, n
+end type hem_type
+
+type(hem_type), allocatable :: jh(:)
 
 logical :: debug
 
@@ -120,11 +136,11 @@ end interface init_spherical
 contains
 
 !------------------------------------------------------------------------------
-subroutine init_spherical1(trunc_in, ishuff_in, nwaves_oe_out, &
+subroutine init_spherical1(trunc_in, nwaves_oe_out, &
                            domain_fourier_in, tshuffle_in)
 !------------------------------------------------------------------------------
     implicit none
-    integer, intent(in) :: trunc_in, ishuff_in
+    integer, intent(in) :: trunc_in
     type(domain2d) :: domain_fourier_in
     integer, optional :: tshuffle_in(0:)
     integer, intent(out) :: nwaves_oe_out
@@ -134,7 +150,7 @@ subroutine init_spherical1(trunc_in, ishuff_in, nwaves_oe_out, &
     integer :: nsf4ma(0:trunc_in), nef4ma(0:trunc_in), nlenf4ma(0:trunc_in)
     integer, allocatable :: wsf4m(:,:), wef4m(:,:), wlenf4m(:,:)
     integer, allocatable :: wsf4ma(:,:), wef4ma(:,:), wlenf4ma(:,:)
-    integer :: we, wo, jeg, jsg
+    integer :: we, wo, j
     character (len=8) :: suffix
 
     namelist/spherical_nml/debug
@@ -146,42 +162,40 @@ subroutine init_spherical1(trunc_in, ishuff_in, nwaves_oe_out, &
     read(unit,nml=spherical_nml,iostat=iostat)
     call close_file(unit)
 
-    call mpp_get_compute_domain(domain_fourier_in,jsg,jeg)
-    nlat = jeg -jsg +1
+    nlat = oc_nlat()
 
     if (mod(nlat,2)/=0) &
         call mpp_error('init_spherical', 'NLAT should be a even number', FATAL)
+
+    allocate(ocP(npack(),oc_ny()))
+    allocate(ocF(nlat))
+
+    call get_ocpackP(ocP)
+    call get_ocpackF(ocF)
    
-    ishuff = ishuff_in 
     num_fourier = trunc_in
     num_spherical = trunc_in + 1
     trunc = trunc_in
 
     if (mod(num_spherical,2)==0) num_spherical = num_spherical + 1
 
-    call mpp_get_compute_domain(domain_fourier_in,js,je,ms,me)
-    jlen = je - js + 1
-
-    if (mod(js,2)==0) call mpp_error('init_spherical', 'js should be a odd number!!!', FATAL)
-    if (mod(jlen,2)/=0) call mpp_error('init_spherical', 'jlen should be a even number!!!', FATAL)
-    if (mod(je,2)/=0) call mpp_error('init_spherical', 'je should be a even number!!!', FATAL)
-
-    js_hem = js/2 + 1
-    je_hem = (je-1)/2 + 1
-    jlen_hem = jlen/2
-
-    if (ishuff==1) then
-        jss = js; jes = je; jks = 2
-        jsn = js+1; jen = je; jkn = 2
-    elseif(ishuff==2) then
-        jss = js; jes = js+jlen/2-1; jks = 1
-        jsn = jes+1; jen = je; jkn = 1
-    elseif(ishuff==0) then
-        jss = js; jes = js+jlen/2-1; jks = 1
-        jsn = je; jen = js+jlen/2; jkn = -1
-    endif
-
+    call mpp_get_compute_domain(domain_fourier_in,jsf,jef,ms,me)
+    jlenf = jef - jsf + 1
     mlen = me-ms+1
+
+    if (mod(jsf,2)==0) call mpp_error('init_spherical', 'jsf should be a odd number!!!', FATAL)
+    if (mod(jlenf,2)/=0) call mpp_error('init_spherical', 'jlenf should be a even number!!!', FATAL)
+    if (mod(jef,2)/=0) call mpp_error('init_spherical', 'jef should be a even number!!!', FATAL)
+
+    js_hem = jsf/2 + 1
+    je_hem = (jef-1)/2 + 1
+    jlen_hem = jlenf/2
+
+    allocate(jh(nlat/2))
+    do j = 1, nlat/2
+        jh(j)%s = get_js(j)
+        jh(j)%n = jh(j)%s + 2 
+    end do
 
     allocate(tshuffle(ms:me))
 
@@ -409,48 +423,94 @@ subroutine init_spherical1(trunc_in, ishuff_in, nwaves_oe_out, &
 end subroutine init_spherical1
 
 
-subroutine init_spherical2(domaing,ishuff)
+subroutine init_spherical2(domaing)
     type(domain2D) :: domaing
-    integer, intent(in) :: ishuff
-    integer :: jsg, jeg
 
     notfpe = .true.
 
-    call mpp_get_compute_domain(domaing,js,je)
-    call mpp_get_global_domain(domaing,jsg,jeg)
-    nlat = jeg - jsg + 1
+    call mpp_get_compute_domain(domaing,jsf,jef)
+    nlat = oc_nlat()
 
     ms = 0; me = 0
 
-    jlen = je - js + 1
+    jlenf = jef - jsf + 1
 
-    if (mod(js,2)==0) call mpp_error('init_spherical', 'js should be a odd number!!!', FATAL)
-    if (mod(jlen,2)/=0) call mpp_error('init_spherical', 'jlen should be a even number!!!', FATAL)
-    if (mod(je,2)/=0) call mpp_error('init_spherical', 'je should be a even number!!!', FATAL)
+    if (mod(jsf,2)==0) call mpp_error('init_spherical', 'jsf should be a odd number!!!', FATAL)
+    if (mod(jlenf,2)/=0) call mpp_error('init_spherical', 'jlenf should be a even number!!!', FATAL)
+    if (mod(jef,2)/=0) call mpp_error('init_spherical', 'jef should be a even number!!!', FATAL)
 
-    js_hem = js/2 + 1
-    je_hem = (je-1)/2 + 1
-    jlen_hem = jlen/2
-
-    if (ishuff==1) then
-        jss = js; jes = je; jks = 2
-        jsn = js+1; jen = je; jkn = 2
-    elseif(ishuff==2) then
-        jss = js; jes = js+jlen/2-1; jks = 1
-        jsn = jes+1; jen = je; jkn = 1
-    elseif(ishuff==0) then
-        jss = js; jes = js+jlen/2-1; jks = 1
-        jsn = je; jen = js+jlen/2; jkn = -1
-    endif
+    js_hem = jsf/2 + 1
+    je_hem = (jef-1)/2 + 1
+    jlen_hem = jlenf/2
 
     call define_gaussian()
 
     initialized = .true.
 end subroutine init_spherical2
 
+!--------------------------------------------------------------------------------   
+subroutine get_latsP(sinlat,coslat,cosmlat,cosm2lat,deglat,wtslat)
+!--------------------------------------------------------------------------------
+    real, intent(out), optional, dimension(:,:) :: sinlat, coslat, cosmlat, &
+                                                 cosm2lat, deglat, wtslat
+
+    if(.not.initialized) &
+        call mpp_error('spherical_mod', 'module not initialized', FATAL)
+
+    if(present(sinlat)) then
+        if (sum(shape(sinlat)-[oc_ny(),oc_nx()])==0) then
+            sinlat = sin_latP
+        else
+            call mpp_error(FATAL,'get_latsP: array size mismatch!')
+        endif
+    endif
+
+    if(present(coslat)) then
+        if (sum(shape(coslat)-[oc_ny(),oc_nx()])==0) then
+            coslat = cos_latP
+        else
+            call mpp_error(FATAL,'get_latsP: array size mismatch!')
+        endif
+    endif
+
+    if(present(cosmlat)) then
+        if (sum(shape(cosmlat)-[oc_ny(),oc_nx()])==0) then
+            cosmlat = cosm_latP
+        else
+            call mpp_error(FATAL,'get_latsP: array size mismatch!')
+        endif
+    endif
+
+    if(present(cosm2lat)) then
+        if (sum(shape(cosm2lat)-[oc_ny(),oc_nx()])==0) then
+            cosm2lat = cosm2_latP
+        else
+            call mpp_error(FATAL,'get_latsP: array size mismatch!')
+        endif
+    endif
+
+    if(present(deglat)) then
+        if (sum(shape(deglat)-[oc_ny(),oc_nx()])==0) then
+            deglat = deg_latP
+        else
+            call mpp_error(FATAL,'get_latsP: array size mismatch!')
+        endif
+    endif
+
+    if(present(wtslat)) then
+        if (sum(shape(wtslat)-[oc_ny(),oc_nx()])==0) then
+            wtslat = wts_latP
+        else
+            call mpp_error(FATAL,'get_latsP: array size mismatch!')
+        endif
+    endif
+
+    return
+end subroutine get_latsP
+
 
 !--------------------------------------------------------------------------------   
-subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat,wtslat)
+subroutine get_latsF(sinlat,coslat,cosmlat,cosm2lat,deglat,wtslat)
 !--------------------------------------------------------------------------------
     real, intent(out), optional, dimension(:) :: sinlat, coslat, cosmlat, &
                                                  cosm2lat, deglat, wtslat
@@ -460,66 +520,54 @@ subroutine get_lats(sinlat,coslat,cosmlat,cosm2lat,deglat,wtslat)
 
     if(present(sinlat)) then
         if (size(sinlat,1)==nlat) then
-            sinlat = sin_lat
-        elseif (size(sinlat,1)==jlen) then
-            sinlat = sin_lat(js:je)
+            sinlat = sin_latF
         else
-            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+            call mpp_error(FATAL,'get_latsF: array size mismatch!')
         endif
     endif
 
     if(present(coslat)) then
         if (size(coslat,1)==nlat) then
-            coslat = cos_lat
-        elseif (size(coslat,1)==jlen) then
-            coslat = cos_lat(js:je)
+            coslat = cos_latF
         else
-            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+            call mpp_error(FATAL,'get_latsF: array size mismatch!')
         endif
     endif
 
     if(present(cosmlat)) then
         if (size(cosmlat,1)==nlat) then
-            cosmlat = cosm_lat
-        elseif (size(cosmlat,1)==jlen) then
-            cosmlat = cosm_lat(js:je)
+            cosmlat = cosm_latF
         else
-            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+            call mpp_error(FATAL,'get_latsF: array size mismatch!')
         endif
     endif
 
     if(present(cosm2lat)) then
         if (size(cosm2lat,1)==nlat) then
-            cosm2lat = cosm2_lat
-        elseif (size(cosm2lat,1)==jlen) then
-            cosm2lat = cosm2_lat(js:je)
+            cosm2lat = cosm2_latF
         else
-            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+            call mpp_error(FATAL,'get_latsF: array size mismatch!')
         endif
     endif
 
     if(present(deglat)) then
         if (size(deglat,1)==nlat) then
-            deglat = deg_lat
-        elseif (size(deglat,1)==jlen) then
-            deglat = deg_lat(js:je)
+            deglat = deg_latF
         else
-            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+            call mpp_error(FATAL,'get_latsF: array size mismatch!')
         endif
     endif
 
     if(present(wtslat)) then
         if (size(wtslat,1)==nlat) then
-            wtslat = wts_lat
-        elseif (size(wtslat,1)==jlen) then
-            wtslat = wts_lat(js:je)
+            wtslat = wts_latF
         else
-            call mpp_error(FATAL,'get_lats: should be either compute domain or global')
+            call mpp_error(FATAL,'get_latsF: array size mismatch!')
         endif
     endif
 
     return
-end subroutine get_lats
+end subroutine get_latsF
 
 
 !--------------------------------------------------------------------------------   
@@ -742,29 +790,57 @@ end subroutine spherical_init
 subroutine define_gaussian
 !------------------------------------------------------------------------------
 
-    integer :: j
+    integer :: j, is, ie, i
+    real :: sin_hem1(nlat), wts_hem1(nlat)
 
-    allocate (sin_lat(js:je))
-    allocate (cos_lat(js:je))
-    allocate (cosm_lat(js:je))
-    allocate (cosm2_lat(js:je))
-    allocate (wts_lat(js:je))
-    allocate (deg_lat(js:je))
+    allocate (sin_latF(nlat))
+    allocate (cos_latF(nlat))
+    allocate (cosm_latF(nlat))
+    allocate (cosm2_latF(nlat))
+    allocate (wts_latF(nlat))
+    allocate (deg_latF(nlat))
+
+    allocate (sin_latP(oc_ny(),oc_nx()))
+    allocate (cos_latP(oc_ny(),oc_nx()))
+    allocate (cosm_latP(oc_ny(),oc_nx()))
+    allocate (cosm2_latP(oc_ny(),oc_nx()))
+    allocate (wts_latP(oc_ny(),oc_nx()))
+    allocate (deg_latP(oc_ny(),oc_nx()))
+
     allocate (sin_hem(nlat/2))
     allocate (wts_hem(nlat/2))
 
     call compute_gaussian(sin_hem, wts_hem, nlat/2)
 
-    sin_lat(jss:jes:jks) = -sin_hem(js_hem:je_hem) !Southern hemisphere
-    sin_lat(jsn:jen:jkn) = sin_hem(js_hem:je_hem) !Northern hemisphere
+    sin_hem1(1:nlat/2)         = -sin_hem !Southern hemisphere
+    sin_hem1(nlat:nlat/2+1:-1) = sin_hem !Northern hemisphere
 
-    wts_lat(jss:jes:jks) = wts_hem(js_hem:je_hem)
-    wts_lat(jsn:jen:jkn) = wts_hem(js_hem:je_hem)
+    wts_hem1(1:nlat/2)         = wts_hem
+    wts_hem1(nlat:nlat/2+1:-1) = wts_hem
+    
+    do j = 1, nlat
+        sin_latF(j) = sin_hem(ocF(j)%g) 
+        wts_latF(j) = wts_hem(ocF(j)%g)
+    end do
 
-    cos_lat = sqrt(1-sin_lat*sin_lat)
-    cosm_lat = 1./cos_lat
-    cosm2_lat = 1./(cos_lat*cos_lat)
-    deg_lat = asin(sin_lat)*180.0/pi
+    cos_latF = sqrt(1-sin_latF*sin_latF)
+    cosm_latF = 1./cos_latF
+    cosm2_latF = 1./(cos_latF*cos_latF)
+    deg_latF = asin(sin_latF)*180.0/pi
+
+    do i = 1, npack()
+        do j = 1, oc_ny()
+            is = ocP(i,j)%is
+            ie = ocP(i,j)%ie
+            sin_latP(j,is:ie) = sin_hem(ocP(i,j)%g) 
+            wts_latP(j,is:ie) = wts_hem(ocP(i,j)%g)
+        end do
+    end do
+
+    cos_latP = sqrt(1-sin_latP*sin_latP)
+    cosm_latP = 1./cos_latP
+    cosm2_latP = 1./(cos_latP*cos_latP)
+    deg_latP = asin(sin_latP)*180.0/pi
 
     return
 end subroutine define_gaussian
@@ -774,7 +850,7 @@ end subroutine define_gaussian
 subroutine define_legendre(lepsilon,lspherical_wave)
 !--------------------------------------------------------------------------------   
     real, dimension(0:num_fourier,0:num_spherical), intent(in) :: lepsilon, lspherical_wave
-    integer :: j, m, w, wo, we, mshuff, n
+    integer :: j, m, w, wo, we, mshuff, n, jg
     real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Pnm_global
     real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Hnm_global
     real :: wgt
@@ -812,26 +888,33 @@ subroutine define_legendre(lepsilon,lspherical_wave)
             w = w + 1
             if (iseven(w)) then
                 we = we + 1
-                Pnm(:,we,1) = Pnm_global(mshuff,n,js_hem:je_hem) 
-                Hnm(:,we,1) = Hnm_global(mshuff,n,js_hem:je_hem) 
+                do j = js_hem, je_hem
+                    jg = ocF(jh(j)%s)%g
+                    Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,jg) 
+                    Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,jg) 
+                end do
             else
                 wo = wo + 1
-                Pnm(:,wo,2) = Pnm_global(mshuff,n,js_hem:je_hem) 
-                Hnm(:,wo,2) = Hnm_global(mshuff,n,js_hem:je_hem) 
+                do j = js_hem, je_hem
+                    jg = ocF(jh(j)%s)%g
+                    Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,jg) 
+                    Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,jg) 
+                end do
             endif
         enddo
     enddo
 
     do j = js_hem, je_hem
-        Pnm_wts(j-js_hem+1,:,:) = Pnm(j-js_hem+1,:,:)*wts_hem(j)
-        Hnm_wts(j-js_hem+1,:,:) = Hnm(j-js_hem+1,:,:)*wts_hem(j)
+        jg = ocF(jh(j)%s)%g
+        Pnm_wts(j-js_hem+1,:,:) = Pnm(j-js_hem+1,:,:)*wts_hem(jg)
+        Hnm_wts(j-js_hem+1,:,:) = Hnm(j-js_hem+1,:,:)*wts_hem(jg)
 
-        where(triangle_mask==0) Hnm(j,:,:) = 0.
+        where(triangle_mask==0) Hnm(j-js_hem+1,:,:) = 0.
         
          where(triangle_mask1==0) 
-             Hnm_wts(j,:,:) = 0.
-             Pnm_wts(j,:,:) = 0.
-             Pnm(j,:,:) = 0.
+             Hnm_wts(j-js_hem+1,:,:) = 0.
+             Pnm_wts(j-js_hem+1,:,:) = 0.
+             Pnm(j-js_hem+1,:,:) = 0.
          end where
     enddo
 
@@ -1110,14 +1193,14 @@ end subroutine compute_div
 !--------------------------------------------------------------------------------   
 subroutine spherical_to_fourier(waves,fourier,useHnm)
 !--------------------------------------------------------------------------------   
-    complex, intent(out) :: fourier(:,js:,ms:) ! lat, lev, fourier
+    complex, intent(out) :: fourier(:,jsf:,ms:) ! lat, lev, fourier
     complex,dimension(:,:,:), intent(in) :: waves
     logical, intent(in), optional :: useHnm
 
     complex :: odd(size(fourier,1),js_hem:je_hem,ms:me)
     complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
-    integer :: ks, ke, ews, ewe, ows, owe, m, nj
+    integer :: ks, ke, ews, ewe, ows, owe, m, nj, j, js, jn
     logical :: deriv
 
     if (notfpe) return
@@ -1148,9 +1231,13 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
                            Hnm(1:jlen_hem,ows:owe,od), &
                            odd(ks:ke,js_hem:je_hem,m),'T')
         enddo 
-
-        fourier(ks:ke,jsn:jen:jkn,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) + odd(ks:ke,js_hem:je_hem,ms:me)
-        fourier(ks:ke,jss:jes:jks,ms:me) = odd(ks:ke,js_hem:je_hem,ms:me)  - even(ks:ke,js_hem:je_hem,ms:me)
+ 
+        do j = js_hem, je_hem 
+            js = jh(j)%s
+            jn = jh(j)%n
+            fourier(ks:ke,jn,ms:me) = even(ks:ke,j,ms:me) + odd(ks:ke,j,ms:me)
+            fourier(ks:ke,js,ms:me) = odd(ks:ke,j,ms:me)  - even(ks:ke,j,ms:me)
+        end do
 
     else
         do m = ms, me
@@ -1169,8 +1256,12 @@ subroutine spherical_to_fourier(waves,fourier,useHnm)
                            odd(ks:ke,js_hem:je_hem,m),'T')
         enddo 
 
-        fourier(ks:ke,jsn:jen:jkn,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) + odd(ks:ke,js_hem:je_hem,ms:me)
-        fourier(ks:ke,jss:jes:jks,ms:me) = even(ks:ke,js_hem:je_hem,ms:me) - odd(ks:ke,js_hem:je_hem,ms:me)
+        do j = js_hem, je_hem 
+            js = jh(j)%s
+            jn = jh(j)%n
+            fourier(ks:ke,jn,ms:me) = even(ks:ke,j,ms:me) + odd(ks:ke,j,ms:me)
+            fourier(ks:ke,js,ms:me) = even(ks:ke,j,ms:me) - odd(ks:ke,j,ms:me)
+        end do
 
     endif
    
@@ -1183,7 +1274,7 @@ end subroutine spherical_to_fourier
 !--------------------------------------------------------------------------------   
 subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 !--------------------------------------------------------------------------------   
-    complex, intent(in) :: fourier(:,js:,ms:) ! lat, lev, fourier
+    complex, intent(in) :: fourier(:,jsf:,ms:) ! lat, lev, fourier
     complex,dimension(:,:,:), intent(out) :: waves
     logical, optional :: useHnm, do_trunc
 
@@ -1191,7 +1282,7 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
     complex :: even(size(fourier,1),js_hem:je_hem,ms:me)
 
     logical :: useHnm1, do_trunc1
-    integer :: ks, ke, ews, ewe, ows, owe, m, k, nj
+    integer :: ks, ke, ews, ewe, ows, owe, m, k, nj, j, js, jn
 
     if (notfpe) return
 
@@ -1208,8 +1299,12 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
     ks = 1; ke = size(fourier,1)
 
     if (useHnm1) then
-        odd(ks:ke,js_hem:je_hem,ms:me)  = fourier(ks:ke,jsn:jen:jkn,ms:me) + fourier(ks:ke,jss:jes:jks,ms:me) ! 
-        even(ks:ke,js_hem:je_hem,ms:me) = fourier(ks:ke,jsn:jen:jkn,ms:me) - fourier(ks:ke,jss:jes:jks,ms:me) !
+        do j = js_hem, je_hem 
+            js = jh(j)%s
+            jn = jh(j)%n
+            odd(ks:ke,j,ms:me)  = fourier(ks:ke,jn,ms:me) + fourier(ks:ke,js,ms:me) ! 
+            even(ks:ke,j,ms:me) = fourier(ks:ke,jn,ms:me) - fourier(ks:ke,js,ms:me) !
+        end do
         do m = ms, me
             if(wlen4m(m,ev)<1) cycle
             ews = ws4m(m,ev); ewe = we4m(m,ev)
@@ -1227,8 +1322,12 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
         enddo 
 
     else
-        odd(ks:ke,js_hem:je_hem,ms:me)  = fourier(ks:ke,jsn:jen:jkn,ms:me) - fourier(ks:ke,jss:jes:jks,ms:me) ! 
-        even(ks:ke,js_hem:je_hem,ms:me) = fourier(ks:ke,jsn:jen:jkn,ms:me) + fourier(ks:ke,jss:jes:jks,ms:me) ! 
+        do j = js_hem, je_hem 
+            js = jh(j)%s
+            jn = jh(j)%n
+            odd(ks:ke,j,ms:me)  = fourier(ks:ke,jn,ms:me) - fourier(ks:ke,js,ms:me) ! 
+            even(ks:ke,j,ms:me) = fourier(ks:ke,jn,ms:me) + fourier(ks:ke,js,ms:me) ! 
+        end do
 
         do m = ms, me
             if(wlen4m(m,ev)<1) cycle
@@ -1293,27 +1392,13 @@ subroutine do_matmul(A,B,C,TRANSB)
     return
 end subroutine do_matmul
 
-!--------------------------------------------------------------------------------
-subroutine get_lonsperlat(nlat_in,lonslat_lcl)
-!--------------------------------------------------------------------------------
-    integer, intent(in) :: nlat_in
-    integer, intent(out) :: lonslat_lcl(js_hem:je_hem)
-    integer :: lonslat(nlat_in/2)
+integer function get_js(jj)
+    integer, intent(in) :: jj
+   
+    get_js = (jj-1)*2 + mod(jj,2)
 
-    select case(nlat)
-    case (94)
-        lonslat = [30,  30,  30,  40,  48,  56,  60,  72,  72,  80,  90, 90,    &
-                   96, 110, 110, 120, 120, 128, 144, 144, 144, 144, 154, 160,   &
-                   160, 168, 168, 180, 180, 180, 180, 180, 180, 192, 192, 192,  &
-                   192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192]
-    case default
-        call mpp_error(FATAL,'NLAT not defined for lonsperlat')
-    end select
-
-    lonslat_lcl(:) = lonslat(js_hem:je_hem)
-
-end subroutine get_lonsperlat
+    return
+end function get_js
 
 end module spherical_mod
-
 
