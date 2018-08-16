@@ -150,11 +150,11 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     forall(i=0:num_fourier) Tshuff(i) = i
     
     if (present(Tshuffle).and.(.not.Tshuffle)) then
-        call init_grid_fourier (jsp, jep, ilenp, num_fourier, isf, ilenf, comm)
-        !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm)
+        !call init_grid_fourier (jsp, jep, ilenp, num_fourier, isf, ilenf, comm)
+        call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm)
     else
-        call init_grid_fourier (jsp, jep, ilenp, num_fourier, isf, ilenf, comm, Tshuff)
-        !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm, Tshuff)
+        !call init_grid_fourier (jsp, jep, ilenp, num_fourier, isf, ilenf, comm, Tshuff)
+        call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm, Tshuff)
     endif
 
     call mpp_gather([ilenf], extent)

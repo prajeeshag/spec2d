@@ -194,7 +194,7 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     allocate(jh(nlat/2))
     do j = 1, nlat/2
         jh(j)%s = get_js(j)
-        jh(j)%n = jh(j)%s + 2 
+        jh(j)%n = min(jh(j)%s + 2,nlat)
     end do
 
     allocate(tshuffle(ms:me))
@@ -819,8 +819,8 @@ subroutine define_gaussian
     wts_hem1(nlat:nlat/2+1:-1) = wts_hem
     
     do j = 1, nlat
-        sin_latF(j) = sin_hem(ocF(j)%g) 
-        wts_latF(j) = wts_hem(ocF(j)%g)
+        sin_latF(j) = sin_hem1(ocF(j)%g) 
+        wts_latF(j) = wts_hem1(ocF(j)%g)
     end do
 
     cos_latF = sqrt(1-sin_latF*sin_latF)
@@ -832,8 +832,8 @@ subroutine define_gaussian
         do j = 1, oc_ny()
             is = ocP(i,j)%is
             ie = ocP(i,j)%ie
-            sin_latP(j,is:ie) = sin_hem(ocP(i,j)%g) 
-            wts_latP(j,is:ie) = wts_hem(ocP(i,j)%g)
+            sin_latP(j,is:ie) = sin_hem1(ocP(i,j)%g) 
+            wts_latP(j,is:ie) = wts_hem1(ocP(i,j)%g)
         end do
     end do
 
