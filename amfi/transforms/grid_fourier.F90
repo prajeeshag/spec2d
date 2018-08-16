@@ -1,11 +1,19 @@
 module grid_fourier_mod
-    
+
+!--------------------------------------------------------------------------------   
+! Module for grid to fourier and fourier to grid transformation. 
+!
+! sF --c2r--> rsF --trnsps--> rsFT --c2r--> sFT --shffl--> FT --fft--> GT --trnsps--> G
+!
 use, intrinsic :: iso_c_binding
 
 use mpp_mod, only : mpp_pe, mpp_npes, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
                     mpp_sync, mpp_root_pe, CLOCK_MODULE, CLOCK_ROUTINE
 use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, NOTE, &
                     open_file, close_file, file_exist
+use ocpack_mod, only : ocpack_typeP, ocpack_typeF, oc_nx, oc_ny, oc_nlat, oc_maxlon, &
+                       npack=>oc_npack, oc_isreduced, oc_nfour, get_ocpackP
+use strman_mod, only : int2str
 
 implicit none
 
@@ -18,17 +26,27 @@ integer, parameter :: max_plans=10
 integer, parameter :: rank=2
 integer(C_INTPTR_T), parameter :: TWO=2, ONE=1
 
+type ocplan_type
+    type(C_PTR) :: plan
+    real :: rscale
+    type(C_PTR) :: iptr, optr
+    real(C_DOUBLE), pointer :: oG(:,:)
+    complex(C_DOUBLE_COMPLEX), pointer :: oF(:,:)
+end type ocplan_type
+
 type plan_type
     integer(C_INTPTR_T) :: howmany
-    type(C_PTR) :: plan, tplan, splan, tcdat, cdat, r2c
-    real(C_DOUBLE), pointer :: rin(:,:), trin(:,:), srin(:,:)
-    complex(C_DOUBLE_COMPLEX), pointer :: scout(:,:), scouttr(:,:)
-    real(C_DOUBLE), pointer :: srout(:,:,:), tsrout(:,:,:)
-    complex(C_DOUBLE_COMPLEX), pointer :: cout(:,:)
+    type(C_PTR) :: tplan1, tplan2, fplan
+    type(C_PTR) :: t1dat, t2dat, r2c
+    real(C_DOUBLE), pointer :: G(:,:), GT(:,:)
+    complex(C_DOUBLE_COMPLEX), pointer :: FT(:,:), sFT(:,:)
+    real(C_DOUBLE), pointer :: rsFT(:,:,:), rsF(:,:,:)
+    complex(C_DOUBLE_COMPLEX), pointer :: sF(:,:)
+    type(ocplan_type), allocatable :: fp(:,:)
 endtype plan_type
 
-integer(C_INTPTR_T) :: NLON, FTOTAL, FTRUNC, NLON_LOCAL, FLOCAL=-1
-integer(C_INTPTR_T) :: NLEV, NLAT, NVAR
+integer(C_INTPTR_T) :: MXLON, MXLON2, NFOUR, NFOUR2, MXFOUR, MXFOUR2
+integer(C_INTPTR_T) :: NX_LOCAL, FLOCAL, FLOCAL2, NX, FBLOCK, FBLOCK2
 integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
 integer :: COMM_FFT
 integer, allocatable :: Tshuffle(:)
@@ -38,43 +56,41 @@ logical :: debug=.false.
 integer :: clck_grid_to_fourier, clck_fourier_to_grid, clck_g2f_tran, clck_g2f_dft, &
            clck_f2g_tran, clck_f2g_dft, clck_plan_g2f, clck_plan_f2g
 
-real :: RSCALE
 integer :: plan_level = 3, plan_flags, id_grid2four, id_four2grid
 logical :: initialized=.false.
 
-
-character (len=16), parameter :: modul = 'grid_fourier_mod'
 character (len=256) :: wsdmfnm='fftw.wisdom'
 character (len=256) :: null_plan_msg
 
+type(plan_type) :: g2fp(max_plans), f2gp(max_plans)
 
-type(plan_type) :: g2fplans(max_plans)
-type(plan_type) :: f2gplans(max_plans)
+integer :: jsp, jep, jlenp  !, jsg, jeg, jleng
+type(ocpack_typeP), allocatable :: ocP(:,:)
 
-public :: init_grid_fourier, end_grid_fourier
-public :: grid_to_fourier, fourier_to_grid
-!public :: fft_1dr2c_serial, fft_1dc2c_serial
+public :: init_grid_fourier, end_grid_fourier, grid_to_fourier, fourier_to_grid
 
 namelist/grid_fourier_nml/plan_level, debug
 
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
+subroutine init_grid_fourier (jsp_in, jep_in, ilen, trunc, isf, flen, comm_in, Tshuff)
 !--------------------------------------------------------------------------------   
     implicit none
-    integer, intent(in) :: nlons ! Total no: of longitudes
+    integer, intent(in) :: jsp_in, jep_in ! start and end of local ny
+    integer, intent(in) :: ilen ! local nx 
+    integer, intent(in) :: trunc ! fourier truncation
+    integer, intent(out) :: flen ! No: fouriers in this proc
+    integer, intent(out) :: isf ! Starting of the fourier in this proc
     integer, intent(in) :: comm_in !MPI Communicator
-    integer, intent(in) :: ilen ! No: of longitudes in this proc
-    integer, intent(in) :: nfourier ! fourier truncation
-    integer, intent(inout) :: flen ! No: fouriers in this proc
-    integer, intent(inout) :: isf ! Starting of the fourier in this proc
-    integer, intent(out), optional :: Tshuff(nfourier+1) !if present shuffle the fourier for 
+    integer, intent(out), optional :: Tshuff(trunc+1) !if present shuffle the fourier for 
                                                          !load balance for triangular truncation
                                                          !and give the order of shuffled fouriers
                                                          !in Tshuff
-    character (len=32) :: routine = 'init_grid_fourier'
-    integer :: unit, i, k, stat
+    integer :: unit, i, k, stat, n, flags, t
+    integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1, local_n1_prev
+    integer(C_INTPTR_T) :: alloc_local, n0(2)
+    integer(C_INTPTR_T) :: howmany
 
     unit = open_namelist_file()
 
@@ -82,12 +98,32 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
 
     call close_file(unit)
 
-    NLON = nlons
+    jsp = jsp_in
+    jep = jep_in
+    jlenp = jep - jsp + 1
+
+    !jsg = 2*jsp-1
+    !jeg = 2*jep 
+    !jleng = jlenp * 2
+    
+    allocate(ocP(npack(),oc_ny()))
+    call get_ocpackP(ocP)
+
+    MXLON    = oc_maxlon()
+    NX       = oc_nx()
+    NFOUR    = trunc + 1
+    MXFOUR   = MXLON/2+1
+    NX_LOCAL = ilen
     COMM_FFT = comm_in
-    NLON_LOCAL = ilen
-    FTOTAL = nlons/2
-    FTRUNC = nfourier + 1 !because here everything starts from 1 not from Zero
-    RSCALE = 1./nlons
+    FBLOCK = ceiling(real(NFOUR)/mpp_npes())
+
+    NFOUR2  = NFOUR  * npack()
+    MXLON2  = MXLON  * npack()
+    MXFOUR2 = MXFOUR * npack() 
+    FBLOCK2 = FBLOCK * npack()    
+
+    flen = 0
+    isf = 0
 
     select case (plan_level)
     case(0)
@@ -99,12 +135,12 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
     case(3)
         plan_flags = FFTW_EXHAUSTIVE
     case default
-        call mpp_error(routine,'Wrong option for plan_level, &
+        call mpp_error('init_grid_fourier','Wrong option for plan_level, &
         & set plan_level (accepted values are 0-3) in grid_fourier_nml', FATAL)
     end select
 
-    if(mod(NLON,mpp_npes())/=0) &
-        call mpp_error(modul,'No: of Pes in x-direction should be a factor of NLONS', FATAL)
+    if(mod(NX,mpp_npes())/=0) &
+        call mpp_error('grid_fourier_mod','No: of Pes in x-direction should be a factor of NX', FATAL)
 
     call fftw_mpi_init()
 
@@ -117,27 +153,25 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
     clck_f2g_tran = mpp_clock_id('f2g_tran')
     clck_f2g_dft = mpp_clock_id('f2g_dft')
 
-    if (import_wisdom(nlons)==1) then
+    if (import_wisdom(int(NX))==1) then
         plan_flags = ior(plan_flags,FFTW_WISDOM_ONLY)
     endif
 
     null_plan_msg = 'NULL PLAN: try rerunning after removing the wisdom file '//trim(wsdmfnm)
 
-    flen = 0
-
     if (present(Tshuff)) then
-        allocate(Tshuffle(FTRUNC))
-        if (mod(FTRUNC,2)==0) then
-            k = FTRUNC + 1
-            do i = 1, FTRUNC/2
+        allocate(Tshuffle(NFOUR))
+        if (mod(NFOUR,2)==0) then
+            k = NFOUR + 1
+            do i = 1, NFOUR/2
                 k = k - 1 
                 Tshuffle(2*(i-1)+1) = i
                 Tshuffle(2*i) = k
             enddo
         else
-            Tshuffle(FTRUNC) = 1
-            k = FTRUNC + 1
-            do i = 1, (FTRUNC-1)/2
+            Tshuffle(NFOUR) = 1
+            k = NFOUR + 1
+            do i = 1, (NFOUR-1)/2
                 k = k - 1 
                 Tshuffle(2*(i-1)+1) = i + 1
                 Tshuffle(2*i) = k
@@ -152,118 +186,122 @@ subroutine init_grid_fourier (nlons, ilen, nfourier, isf, flen, comm_in, Tshuff)
         endif
     endif
 
-    !grid_to_fourier
-    id_grid2four = plan_grid_to_fourier(1,NLON_LOCAL,comm_in, isf, flen)
+    howmany = 1
+    n0=[NX,howmany]
 
-    !fourier_to_grid -> should be called after plan_grid_to_fourier
-    id_four2grid = plan_fourier_to_grid(1,NLON_LOCAL,comm_in)
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+                   block0, block0, COMM_FFT, local_n0, &
+                   local_0_start, local_n1, local_1_start)
+
+    local_n1_prev = local_n1
+
+    if (ilen/=local_n0) & 
+        call mpp_error('init_grid_fourier', 'ilen/=local_n0', FATAL)
+
+    n0=[howmany,NFOUR]
+
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+                   block0, block0, COMM_FFT, local_n0, &
+                   local_0_start, local_n1, local_1_start)
+
+    if (local_n1_prev/=local_n0) &
+        call mpp_error('init_grid_fourier', 'local_n1_prev/=local_n0', FATAL)
+
+    isf     = local_1_start
+    flen    = local_n1
+    FLOCAL  = local_n1 
+    FLOCAL2 = FLOCAL * npack()
 
     initialized = .true.
-    call mpp_error(routine, 'grid_to_fourier initialized !!!', NOTE)
+    call mpp_error('init_grid_fourier', '----Initialized----', NOTE)
 
+    return
 end subroutine init_grid_fourier
 
+
 !--------------------------------------------------------------------------------   
-function plan_grid_to_fourier(howmany, ilen, comm_in, isf, flen)
+function plan_grid_to_fourier(howmany)
 !--------------------------------------------------------------------------------   
     implicit none
-    integer(C_INTPTR_T), intent(in) :: howmany, ilen
-    integer, intent(inout), optional :: isf, flen
-    integer, intent(in) :: comm_in
+    integer(C_INTPTR_T), intent(in) :: howmany
     integer :: plan_grid_to_fourier, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1, local_n1_prev
     integer(C_INTPTR_T) :: alloc_local, n0(2)
     integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
+
+    if (.not.initialized) call mpp_error(FATAL,'grid_fourier_mod: not initialized')
 
     call mpp_clock_begin(clck_plan_g2f)
     if (howmany<1) call mpp_error('plan_grid_to_fourier', 'howmany cannot be Zero', FATAL)
 
     nplang2f = nplang2f + 1
     
-    if(nplang2f>max_plans) call mpp_error(modul,'No: g2f plans > Max_plans', FATAL)
+    if(nplang2f>max_plans) call mpp_error('grid_fourier_mod','No: g2f plans > Max_plans', FATAL)
 
     n = nplang2f
     plan_grid_to_fourier = n
 
-    g2fplans(n)%howmany = howmany
+    g2fp(n)%howmany = howmany
    
     !Transpose
-    n0=[NLON,howmany]
+    n0=[NX,howmany]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
-    if (ilen/=local_n0) & 
+    if (NX_LOCAL/=local_n0) & 
         call mpp_error('plan_grid_to_fourier', 'ilen/=local_n0', FATAL)
 
     flags = plan_flags
 
-    g2fplans(n)%tcdat = fftw_alloc_complex(alloc_local)
+    g2fp(n)%t1dat = fftw_alloc_complex(alloc_local)
 
-    call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%rin, [howmany, local_n0])
-    call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%trin, [NLON, local_n1])
+    call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%G, [howmany, local_n0])
+    call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%GT, [NX, local_n1])
 
-    g2fplans(n)%plan = fftw_mpi_plan_many_transpose(NLON, howmany, 1, &
-                            block0, block0, g2fplans(n)%rin, g2fplans(n)%trin, &
-                            comm_in, flags)
+    g2fp(n)%tplan1 = fftw_mpi_plan_many_transpose(NX, howmany, 1, &
+                            block0, block0, g2fp(n)%G, g2fp(n)%GT, &
+                            COMM_FFT, flags)
     
-    if (.not.c_associated(g2fplans(n)%plan)) &
+    if (.not.c_associated(g2fp(n)%tplan1)) &
         call mpp_error('plan_grid_to_fourier: transpose1:',trim(null_plan_msg),FATAL)
 
     !multi-threaded shared memory fft
-    call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%srin, [TWO*(NLON/2+1),local_n1])
-    call c_f_pointer(g2fplans(n)%tcdat, g2fplans(n)%scout, [(NLON/2+1),local_n1])
-  
-    nn(1) = NLON 
-    idist = NLON; odist= NLON/2+1
-    istride = 1; ostride = 1
-    inembed = [NLON]; onembed = [NLON/2+1]
-    flags = plan_flags
+    call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%FT, [(MXFOUR)*npack(),local_n1])
+ 
+    call set_ocplan_g2f(local_n1, local_1_start, howmany, n)
 
-    g2fplans(n)%splan = fftw_plan_many_dft_r2c(ONE, nn, int(local_n1), &
-                            g2fplans(n)%srin, inembed, istride, idist, &
-                            g2fplans(n)%scout, onembed, ostride, odist, flags) 
-    if (.not.c_associated(g2fplans(n)%splan)) &
-        call mpp_error('plan_grid_to_fourier: dft_r2c:',trim(null_plan_msg),FATAL)
-   
     local_n1_prev = local_n1
     !Transpose back
 
-    n0=[howmany,FTRUNC]
+    n0=[howmany*npack(),NFOUR]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     if (local_n1_prev/=local_n0) &
         call mpp_error('plan_grid_to_fourier', 'local_n1_prev/=local_n0', FATAL)
 
-    if(present(flen)) then
-        flen = local_n1
-        FLOCAL = local_n1
-    else
-        !FLOCAL should already have assinged and should be equal to local_n1
-        if (FLOCAL/=local_n1) call mpp_error('plan_grid_to_fourier', 'FLOCAL/=local_n1', FATAL)
-    endif 
+    if (FLOCAL/=local_n1) call mpp_error('plan_grid_to_fourier', 'FLOCAL/=local_n1', FATAL)
 
-    if(present(isf))isf = local_1_start
+    g2fp(n)%t2dat = fftw_alloc_complex(alloc_local)
 
-    g2fplans(n)%cdat = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(g2fp(n)%t2dat, g2fp(n)%sFT, [NFOUR,local_n0])
+    call c_f_pointer(g2fp(n)%t2dat, g2fp(n)%sFT, [NFOUR,local_n0])
+    call c_f_pointer(g2fp(n)%t2dat, g2fp(n)%rsFT, [TWO,NFOUR,local_n0])
+    call c_f_pointer(g2fp(n)%t2dat, g2fp(n)%rsF, [TWO,howmany,local_n1])
 
-    call c_f_pointer(g2fplans(n)%cdat, g2fplans(n)%scouttr, [FTRUNC,local_n0])
-    call c_f_pointer(g2fplans(n)%cdat, g2fplans(n)%srout, [TWO,FTRUNC,local_n0])
-    call c_f_pointer(g2fplans(n)%cdat, g2fplans(n)%tsrout, [TWO,howmany,local_n1])
+    g2fp(n)%tplan2 = fftw_mpi_plan_many_transpose(howmany, NFOUR, 2, &
+                            block0, block0, g2fp(n)%rsFT, g2fp(n)%rsF, &
+                            COMM_FFT, flags) 
 
-    g2fplans(n)%tplan = fftw_mpi_plan_many_transpose(howmany, FTRUNC, 2, &
-                            block0, block0, g2fplans(n)%srout, g2fplans(n)%tsrout, &
-                            comm_in, flags) 
-
-    if (.not.c_associated(g2fplans(n)%tplan)) &
+    if (.not.c_associated(g2fp(n)%tplan2)) &
         call mpp_error('plan_grid_to_fourier: transpose2:',trim(null_plan_msg),FATAL)
 
-    g2fplans(n)%r2c = c_loc(g2fplans(n)%tsrout)
-    call c_f_pointer(g2fplans(n)%r2c, g2fplans(n)%cout, [howmany, local_n1])
+    g2fp(n)%r2c = c_loc(g2fp(n)%rsF)
+    call c_f_pointer(g2fp(n)%r2c, g2fp(n)%sF, [howmany, local_n1])
 
     call save_wisdom()
     call mpp_clock_end(clck_plan_g2f)
@@ -325,24 +363,171 @@ subroutine save_wisdom()
     return
 end subroutine save_wisdom 
 
+function num_plans_for(hmlen, shm, howmany)
+    integer(kind=C_INTPTR_T), intent(in) :: hmlen, shm, howmany
+    integer :: num_plans_for
+    integer :: hms, hme, numj, h, rem
+
+    hms = shm + 1 ! shmn is start of homany from fftw, which starts from 0.
+    hme = hms + hmlen - 1
+    numj = howmany/jlenp
+
+    num_plans_for = 0
+    h = hms
+    do while(h <= hme)
+        rem = numj - mod(h,numj)
+        h = h + rem
+        num_plans_for = num_plans_for+1
+    end do
+
+    return
+end function num_plans_for
+
+!--------------------------------------------------------------------------------   
+subroutine set_ocplan_f2g(hlen, sh, howmany, np)
+!--------------------------------------------------------------------------------   
+    integer(kind=C_INTPTR_T), intent(in) :: hlen, sh, howmany
+    integer, intent(in) :: np
+    integer(kind=C_INTPTR_T) :: nk
+    integer :: hs, he, j, h, n, rem, i, flen, hh
+    integer :: nn(1), idist, odist, istride, ostride, inembed(1), onembed(1)
+    integer :: flags, is, numocpln, nlon, is_g, is_f, hmny
+
+    hs = sh + 1 
+    he = hs + hlen - 1
+    nk = howmany/jlenp 
+
+    numocpln = num_plans_for(hlen, sh, howmany)
+
+    allocate(f2gp(np)%fp(npack(),numocpln))
+
+    n = 0
+    h = hs
+    do while(h<=he)
+        rem = nk - mod(h,nk)
+        hmny = rem
+        n = n + 1
+        j = jsp + (h-1)/nk
+        hh = h - hs + 1
+        do i = 1, npack()
+
+            if(mpp_pe()==mpp_root_pe()) print '(9(I5,1x))', jsp, j, h, hs, hh, hmny, nk 
+            nlon = ocP(i,j)%ilen
+            flen = ocP(i,j)%flen
+            
+            nn(1) = nlon
+            idist = NX; odist = MXFOUR2
+            istride = 1; ostride = 1
+            inembed = nlon; onembed = flen
+            flags = plan_flags
+
+            f2gp(np)%fp(i,n)%rscale = 1./nlon
+
+            is_g = ocP(i,j)%is
+            f2gp(np)%fp(i,n)%iptr = c_loc(f2gp(np)%GT(is_g,hh))
+            call c_f_pointer(f2gp(np)%fp(i,n)%iptr, &
+                    f2gp(np)%fp(i,n)%oG, [int(NX),hmny])
+
+            is_f = 1 + (i-1)*(MXFOUR)
+            f2gp(np)%fp(i,n)%optr = c_loc(f2gp(np)%FT(is_f,hh))
+            call c_f_pointer(f2gp(np)%fp(i,n)%optr, &
+                    f2gp(np)%fp(i,n)%oF, [int(MXFOUR2),hmny])
+
+            f2gp(np)%fp(i,n)%plan = fftw_plan_many_dft_c2r(ONE, nn, hmny, &
+                            f2gp(np)%fp(i,n)%oF, onembed, ostride, odist, & 
+                            f2gp(np)%fp(i,n)%oG, inembed, istride, idist, flags)
+
+            if (.not.c_associated(f2gp(np)%fp(i,n)%plan)) &
+                call mpp_error('set_ocplan_f2g: '//trim(int2str(i))//' '//trim(int2str(n))//' :', &
+                                trim(null_plan_msg), FATAL)
+
+        end do
+        h = h + rem
+    end do
+             
+    return
+end subroutine set_ocplan_f2g
+
+
+!--------------------------------------------------------------------------------   
+subroutine set_ocplan_g2f(hlen, sh, howmany, np)
+!--------------------------------------------------------------------------------   
+    integer(kind=C_INTPTR_T), intent(in) :: hlen, sh, howmany
+    integer, intent(in) :: np
+    integer(kind=C_INTPTR_T) :: nk
+    integer :: hs, he, j, h, n, rem, i
+    integer :: nn(1), idist, odist, istride, ostride, inembed(1), onembed(1)
+    integer :: flags, is, numocpln, hmny, nlon, flen, is_g, is_f
+
+    hs = sh + 1 
+    he = hs + hlen - 1
+    nk = howmany/jlenp 
+
+    numocpln = num_plans_for(hlen, sh, howmany)
+
+    allocate(g2fp(np)%fp(npack(),numocpln))
+
+    n = 0
+    h = hs
+    do while(h<=he)
+        rem = nk - mod(h,nk)
+        hmny = rem + 1
+        n = n + 1
+        j = jsp + (h-1)/nk
+        do i = 1, npack()
+            nlon = ocP(i,j)%ilen
+            flen = ocP(i,j)%flen
+            
+            nn(1) = nlon
+            idist = NX; odist = npack()*(MXFOUR)
+            istride = 1; ostride = 1
+            inembed = nlon; onembed = flen
+            flags = plan_flags
+
+            g2fp(np)%fp(i,n)%rscale = 1./nlon
+
+            is_g = ocP(i,j)%is
+            g2fp(np)%fp(i,n)%iptr = c_loc(g2fp(np)%GT(is_g,h))
+            call c_f_pointer(g2fp(np)%fp(i,n)%iptr, &
+                    g2fp(np)%fp(i,n)%oG, [int(NX),hmny])
+
+            is_f = 1 + (i-1)*(MXFOUR)
+            g2fp(np)%fp(i,n)%optr = c_loc(g2fp(np)%FT(is_f,h))
+            call c_f_pointer(g2fp(np)%fp(i,n)%optr, &
+                    g2fp(np)%fp(i,n)%oF, [int(MXFOUR2),hmny])
+
+            g2fp(np)%fp(i,n)%plan = fftw_plan_many_dft_r2c(ONE, nn, hmny, &
+                            g2fp(np)%fp(i,n)%oG, inembed, istride, idist, &
+                            g2fp(np)%fp(i,n)%oF, onembed, ostride, odist, flags)
+
+            if (.not.c_associated(g2fp(np)%fp(i,n)%plan)) &
+                call mpp_error('set_ocplan_g2f: dft_r2c:', trim(null_plan_msg), FATAL)
+
+        end do
+        h = h + rem + 1
+    end do
+             
+    return
+end subroutine set_ocplan_g2f
+
 !--------------------------------------------------------------------------------     
-subroutine grid_to_fourier(rinp, coutp, id_in)
+subroutine grid_to_fourier(Gp, sFp, id_in)
 !--------------------------------------------------------------------------------   
     implicit none
-    real, intent(in) :: rinp(:,:) ! lev, lat, lon
-    complex, intent(out) :: coutp(:,:) ! fourier, lat, lev
+    real, intent(in) :: Gp(:,:) ! lev, lat, lon
+    complex, intent(out) :: sFp(:,:) ! fourier, lat, lev
     integer, intent(inout), optional :: id_in
-    integer :: id, i, j, ci=1, cj=2, ct
+    integer :: id, i, j, ct
     integer(C_INTPTR_T) :: howmany
 
 
-    howmany = size(rinp,1)
+    howmany = size(Gp,1)
     id = 0
     if (present(id_in)) id = id_in
 
     if (id<1) then
         do i = 1, nplang2f
-            if (howmany==g2fplans(i)%howmany) then
+            if (howmany==g2fp(i)%howmany) then
                 id = i
                 exit
             endif
@@ -350,43 +535,43 @@ subroutine grid_to_fourier(rinp, coutp, id_in)
     endif
     
     if (id<1) then
-        id = plan_grid_to_fourier(howmany,NLON_LOCAL,COMM_FFT)
-    endif
+        id = plan_grid_to_fourier(howmany)
+    end if
                  
     call mpp_clock_begin(clck_grid_to_fourier)
 
     if (present(id_in)) id_in = id
     
-    howmany = g2fplans(id)%howmany
+    howmany = g2fp(id)%howmany
 
-    g2fplans(id)%rin(1:howmany,:) = rinp(:,:)*RSCALE
+    g2fp(id)%G(1:howmany,:) = Gp(:,:)*g2fp(id)%fp(100,100)%RSCALE
 
     !Transpose
     call mpp_clock_begin(clck_g2f_tran)
-    call fftw_mpi_execute_r2r(g2fplans(id)%plan, g2fplans(id)%rin, g2fplans(id)%trin)
+    call fftw_mpi_execute_r2r(g2fp(id)%tplan1, g2fp(id)%G, g2fp(id)%GT)
     call mpp_clock_end(clck_g2f_tran)
 
     !Serial FFT
     call mpp_clock_begin(clck_g2f_dft)
-    call fftw_execute_dft_r2c(g2fplans(id)%splan, g2fplans(id)%srin, g2fplans(id)%scout) 
+    !call fftw_execute_dft_r2c(g2fp(id)%fplan, g2fp(id)%GT, g2fp(id)%FT) 
     call mpp_clock_end(clck_g2f_dft)
 
     !Truncation
     if (shuffle) then
-        do i = 1, FTRUNC
+        do i = 1, NFOUR
             j = Tshuffle(i)
-            g2fplans(id)%scouttr(i,:) = g2fplans(id)%scout(j,:)
+            g2fp(id)%sFT(i,:) = g2fp(id)%FT(j,:)
         enddo 
     else 
-        g2fplans(id)%scouttr(1:FTRUNC,:) = g2fplans(id)%scout(1:FTRUNC,:)
+        g2fp(id)%sFT(1:NFOUR,:) = g2fp(id)%FT(1:NFOUR,:)
     endif
 
     !Transpose Back
     call mpp_clock_begin(clck_g2f_tran)
-    call fftw_mpi_execute_r2r(g2fplans(id)%tplan, g2fplans(id)%srout, g2fplans(id)%tsrout)
+    call fftw_mpi_execute_r2r(g2fp(id)%tplan2, g2fp(id)%rsFT, g2fp(id)%rsF)
     call mpp_clock_end(clck_g2f_tran)
 
-    coutp = g2fplans(id)%cout(1:howmany,1:FLOCAL)
+    sFp = g2fp(id)%sF(1:howmany,1:FLOCAL)
 
     call mpp_clock_end(clck_grid_to_fourier)
             
@@ -394,100 +579,103 @@ end subroutine grid_to_fourier
 
 
 !--------------------------------------------------------------------------------   
-function plan_fourier_to_grid(howmany, ilen, comm_in)
+function plan_fourier_to_grid(howmany)
 !--------------------------------------------------------------------------------   
     implicit none
-    integer(C_INTPTR_T), intent(in) :: howmany, ilen
-    integer, intent(in) :: comm_in
+    integer(C_INTPTR_T), intent(in) :: howmany ! howmany=jlenp*whatever
     integer :: plan_fourier_to_grid, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
     integer(C_INTPTR_T) :: local_n0_prev
     integer(C_INTPTR_T) :: alloc_local, n0(2)
     integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
+    integer(C_INTPTR_T) :: howmany2
+
+    if (.not.initialized) call mpp_error(FATAL,'grid_fourier_mod: not initialized')
 
     call mpp_clock_begin(clck_plan_f2g)
 
-    if (howmany<1) call mpp_error('plan_fourier_to_grid', 'howmany cannot be Zero', FATAL)
+    howmany2 = howmany*npack()
 
-    if (FLOCAL<0) &
-        call mpp_error('plan_fourier_to_grid', 'plan_grid_to_fourier should be called first', FATAL)
+    if (howmany<1) call mpp_error('plan_fourier_to_grid', 'howmany cannot be Zero', FATAL)
 
     nplanf2g = nplanf2g + 1
     
-    if(nplanf2g>max_plans) call mpp_error(modul,'No: f2g plans > Max_plans', FATAL)
+    if(nplanf2g>max_plans) call mpp_error('grid_fourier_mod','No: f2g plans > Max_plans', FATAL)
 
     n = nplanf2g
     plan_fourier_to_grid = n
 
-    f2gplans(n)%howmany = howmany
+    f2gp(n)%howmany = howmany
    
     !Transpose
-    n0=[howmany,NLON]
+    n0=[howmany,NX]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
-                   block0, block0, comm_in, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
-    if (ilen/=local_n1) & 
+    if (NX_LOCAL/=local_n1) & 
         call mpp_error('plan_fourier_to_grid', 'ilen/=local_n1', FATAL)
 
-    f2gplans(n)%tcdat = fftw_alloc_complex(alloc_local)
+    f2gp(n)%t1dat = fftw_alloc_complex(alloc_local)
+    f2gp(n)%t2dat = fftw_alloc_complex(alloc_local)
 
-    call c_f_pointer(f2gplans(n)%tcdat, f2gplans(n)%trin, [NLON, local_n0])
-    call c_f_pointer(f2gplans(n)%tcdat, f2gplans(n)%rin, [howmany, local_n1])
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%GT, [NX, local_n0])
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%G, [howmany, NX_LOCAL])
 
     flags = plan_flags
 
-    f2gplans(n)%plan = fftw_mpi_plan_many_transpose(howmany, NLON, 1, &
-                            block0, block0, f2gplans(n)%trin, f2gplans(n)%rin, &
-                            comm_in, flags)
-    if (.not.c_associated(f2gplans(n)%plan)) &
+    f2gp(n)%tplan1 = fftw_mpi_plan_many_transpose(howmany, NX, 1, &
+                            block0, block0, f2gp(n)%GT, f2gp(n)%G, &
+                            COMM_FFT, flags)
+    if (.not.c_associated(f2gp(n)%tplan1)) &
         call mpp_error('plan_fourier_to_grid: transpose1:',trim(null_plan_msg),FATAL)
 
     !multi-threaded shared memory fft
-    call c_f_pointer(f2gplans(n)%tcdat, f2gplans(n)%srin, [TWO*(NLON/2+1),local_n0])
-    call c_f_pointer(f2gplans(n)%tcdat, f2gplans(n)%scout, [(NLON/2+1),local_n0])
-  
-    nn(1) = NLON 
-    idist = NLON; odist= NLON/2+1
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%FT, [MXFOUR2,local_n0])
+
+    nn(1) = NX
+    idist = NX; odist= MXFOUR2
     istride = 1; ostride = 1
-    inembed = [NLON]; onembed = [NLON/2+1]
+    inembed = [NX]; onembed = MXFOUR2
     flags = plan_flags
 
-    f2gplans(n)%splan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
-                            f2gplans(n)%scout, onembed, ostride, odist, & 
-                            f2gplans(n)%srin, inembed, istride, idist, flags)
-    if (.not.c_associated(f2gplans(n)%splan)) &
+    f2gp(n)%fplan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
+                            f2gp(n)%FT, onembed, ostride, odist, &
+                            f2gp(n)%GT, inembed, istride, idist, flags)
+
+    if (.not.c_associated(f2gp(n)%fplan)) & 
         call mpp_error('plan_fourier_to_grid: dft_c2r:',trim(null_plan_msg),FATAL)
+
+    !call set_ocplan_f2g(local_n0, local_0_start, howmany, n)
    
     local_n0_prev = local_n0 
 
     !Transpose back
-    n0=[FTRUNC,howmany]
+    n0=[NFOUR2,howmany]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
-                   block0, block0, comm_in, local_n0, &
+                   FBLOCK2, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
+
+    if (local_n0/=FLOCAL2) call mpp_error(FATAL,'plan_fourier_to_grid: local_n0/=FLOCAL2')
 
     if (local_n0_prev /= local_n1) &
         call mpp_error('plan_fourier_to_grid', 'local_n0_prev /= local_n1', FATAL)
 
-    if(FLOCAL/=local_n0) call mpp_error('plan_fourier_to_grid', 'FLOCAL/=local_n0', FATAL)
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%sFT, [NFOUR2,local_n1])
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsFT, [TWO,NFOUR2,local_n1])
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsF, [TWO,howmany,FLOCAL2])
+    print *, FLOCAL2, NFOUR2, howmany
+    f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
+                            FBLOCK2, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
+                            COMM_FFT, flags) 
 
-    f2gplans(n)%cdat = fftw_alloc_complex(alloc_local)
-
-    call c_f_pointer(f2gplans(n)%cdat, f2gplans(n)%scouttr, [FTRUNC,local_n1])
-    call c_f_pointer(f2gplans(n)%cdat, f2gplans(n)%srout, [TWO,FTRUNC,local_n1])
-    call c_f_pointer(f2gplans(n)%cdat, f2gplans(n)%tsrout, [TWO,howmany,local_n0])
-
-    f2gplans(n)%tplan = fftw_mpi_plan_many_transpose(FTRUNC, howmany, 2, &
-                            block0, block0, f2gplans(n)%tsrout, f2gplans(n)%srout, &
-                            comm_in, flags) 
-    if (.not.c_associated(f2gplans(n)%tplan)) &
+    if (.not.c_associated(f2gp(n)%tplan2)) &
         call mpp_error('plan_fourier_to_grid: transpose2:',trim(null_plan_msg),FATAL)
 
-    f2gplans(n)%r2c = c_loc(f2gplans(n)%tsrout)
-    call c_f_pointer(f2gplans(n)%r2c, f2gplans(n)%cout, [howmany, local_n0])
+    f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
+    call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, FLOCAL])
 
     call save_wisdom()
 
@@ -498,24 +686,25 @@ function plan_fourier_to_grid(howmany, ilen, comm_in)
 end function plan_fourier_to_grid
 
 !--------------------------------------------------------------------------------   
-subroutine fourier_to_grid(coutp, rinp, id_in)
+subroutine fourier_to_grid(sFp, Gp, id_in)
 !--------------------------------------------------------------------------------   
     implicit none
-    real, intent(out) :: rinp(:,:) ! howmany, lon
-    complex, intent(in) :: coutp(:,:) ! howmany, fourier
+    real, intent(out) :: Gp(:,:) ! howmany, NX
+    complex, intent(in) :: sFp(:,:) ! howmany2, FLOCAL
     integer, intent(inout), optional :: id_in
-    integer :: id, i, j, ci=1, cj=2, ct
-    integer(C_INTPTR_T) :: howmany
+    integer :: id, i, j, ii, jj
+    integer(C_INTPTR_T) :: howmany2, howmany 
 
 
-    howmany = size(coutp,1)
+    howmany2 = size(sFp,1)
+    howmany = howmany2/npack()
 
     id = 0
     if (present(id_in)) id = id_in
 
     if (id<1) then
         do i = 1, nplanf2g
-            if (howmany==f2gplans(i)%howmany) then
+            if (howmany==f2gp(i)%howmany) then
                 id = i
                 exit
             endif
@@ -523,46 +712,64 @@ subroutine fourier_to_grid(coutp, rinp, id_in)
     endif
     
     if (id<1) then
-        id = plan_fourier_to_grid(howmany,NLON_LOCAL,COMM_FFT)
+        id = plan_fourier_to_grid(howmany)
     endif
                  
     call mpp_clock_begin(clck_fourier_to_grid)
 
     if (present(id_in)) id_in = id
     
-    howmany = f2gplans(id)%howmany
-    
-    f2gplans(id)%cout = coutp
+    f2gp(id)%sF(1:howmany2,1:FLOCAL) = sFp(1:howmany2,1:FLOCAL)
 
     !Transpose Back
     call mpp_clock_begin(clck_f2g_tran)
-    call fftw_mpi_execute_r2r(f2gplans(id)%tplan, f2gplans(id)%tsrout, f2gplans(id)%srout)
+    call fftw_mpi_execute_r2r(f2gp(id)%tplan2, f2gp(id)%rsF, f2gp(id)%rsFT)
     call mpp_clock_end(clck_f2g_tran)
 
     !Serial FFT
-    f2gplans(id)%scout(:,:) = 0.
+    f2gp(id)%FT(:,:) = 0.
     if (shuffle) then
-        do i = 1, FTRUNC
-            j = Tshuffle(i)
-            f2gplans(id)%scout(j,:) = f2gplans(id)%scouttr(i,:) !Truncation & Shuffle
+        do i = 1, NFOUR2, 2
+            ii = (i-1)/2 + 1
+            j = Tshuffle(ii)
+            jj = j + mod(i+1,2)*MXFOUR   
+            f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
         enddo
     else
-        f2gplans(id)%scout(1:FTRUNC,:) = f2gplans(id)%scouttr(1:FTRUNC,:) !Truncation
+        do i = 1, NFOUR2, 2
+            jj = i + mod(i+1,2)*MXFOUR   
+            f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
+        enddo
     endif
 
     call mpp_clock_begin(clck_f2g_dft)
-    call fftw_execute_dft_c2r(f2gplans(id)%splan, f2gplans(id)%scout, f2gplans(id)%srin) 
+    !call execute_ocfft_c2r(id)
+    call fftw_execute_dft_c2r(f2gp(id)%fplan, f2gp(id)%FT, f2gp(id)%GT) 
     call mpp_clock_end(clck_f2g_dft)
 
     !Transpose
     call mpp_clock_begin(clck_f2g_tran)
-    call fftw_mpi_execute_r2r(f2gplans(id)%plan, f2gplans(id)%trin, f2gplans(id)%rin)
+    call fftw_mpi_execute_r2r(f2gp(id)%tplan1, f2gp(id)%GT, f2gp(id)%G)
     call mpp_clock_end(clck_f2g_tran)
     
-    rinp = f2gplans(id)%rin(1:howmany,:)
+    Gp = f2gp(id)%G(1:howmany,1:NX_LOCAL)
             
     call mpp_clock_end(clck_fourier_to_grid)
 end subroutine fourier_to_grid
+
+
+subroutine execute_ocfft_c2r(id)
+    integer, intent(in) :: id
+    integer :: i, n
+
+    do i = 1, size(f2gp(id)%fp,1)
+        do n = 1, size(f2gp(id)%fp,2)
+            call fftw_execute_dft_c2r(f2gp(id)%fp(i,n)%plan, f2gp(id)%fp(i,n)%oF, f2gp(id)%fp(i,n)%oG)
+        end do
+    end do
+
+    return
+end subroutine execute_ocfft_c2r
 
 !--------------------------------------------------------------------------------   
 subroutine end_grid_fourier()
@@ -575,28 +782,28 @@ end subroutine end_grid_fourier
 
 
 !--------------------------------------------------------------------------------   
-subroutine fft_1dr2c_serial(rinp, coutp)
+subroutine fft_1dr2c_serial(Gp, sFp)
 !--------------------------------------------------------------------------------   
-    real :: rinp(:)
-    complex :: coutp(:)
-    real(C_DOUBLE), pointer :: rinpl(:)
-    complex(C_DOUBLE_COMPLEX), pointer :: coutpl(:)
+    real :: Gp(:)
+    complex :: sFp(:)
+    real(C_DOUBLE), pointer :: Gpl(:)
+    complex(C_DOUBLE_COMPLEX), pointer :: sFpl(:)
     type(C_PTR) :: plan1d, data1d
     integer :: L
-    L = size(rinp)
+    L = size(Gp)
 
     data1d = fftw_alloc_complex(int(L/2+1, C_SIZE_T))
-    call c_f_pointer(data1d, rinpl, [2*(L/2+1)])
-    call c_f_pointer(data1d, coutpl, [L/2+1])
+    call c_f_pointer(data1d, Gpl, [2*(L/2+1)])
+    call c_f_pointer(data1d, sFpl, [L/2+1])
 
-    plan1d = fftw_plan_dft_r2c_1d(L, rinpl, coutpl, FFTW_ESTIMATE) 
+    plan1d = fftw_plan_dft_r2c_1d(L, Gpl, sFpl, FFTW_ESTIMATE) 
 
     if (.not.c_associated(plan1d)) &
         call mpp_error('fft_1dr2c_serial:','NULL PLAN',FATAL)
 
-    rinpl = rinp
-    call fftw_execute_dft_r2c(plan1d, rinpl, coutpl)
-    coutp = coutpl
+    Gpl = Gp
+    call fftw_execute_dft_r2c(plan1d, Gpl, sFpl)
+    sFp = sFpl
     
     call fftw_destroy_plan(plan1d)
     call fftw_free(data1d)
@@ -606,25 +813,25 @@ end subroutine fft_1dr2c_serial
 
 
 !--------------------------------------------------------------------------------   
-subroutine fft_1dc2c_serial(coutp)
+subroutine fft_1dc2c_serial(sFp)
 !--------------------------------------------------------------------------------   
 
-    complex :: coutp(:)
-    complex(C_DOUBLE_COMPLEX), pointer :: coutpl(:)
+    complex :: sFp(:)
+    complex(C_DOUBLE_COMPLEX), pointer :: sFpl(:)
     type(C_PTR) :: plan1d, data1d
     integer :: L
-    L = size(coutp)
+    L = size(sFp)
 
     data1d = fftw_alloc_complex(int(L, C_SIZE_T))
-    call c_f_pointer(data1d, coutpl, [L])
+    call c_f_pointer(data1d, sFpl, [L])
 
-    plan1d = fftw_plan_dft_1d(L, coutpl, coutpl, FFTW_FORWARD, FFTW_ESTIMATE) 
+    plan1d = fftw_plan_dft_1d(L, sFpl, sFpl, FFTW_FORWARD, FFTW_ESTIMATE) 
     if (.not.c_associated(plan1d)) &
         call mpp_error('fft_1dc2c_serial:','NULL PLAN',FATAL)
 
-    coutpl = coutp
-    call fftw_execute_dft(plan1d, coutpl, coutpl)
-    coutp = coutpl
+    sFpl = sFp
+    call fftw_execute_dft(plan1d, sFpl, sFpl)
+    sFp = sFpl
     
     call fftw_destroy_plan(plan1d)
     call fftw_free(data1d)
