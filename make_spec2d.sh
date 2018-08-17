@@ -109,8 +109,8 @@ make -j $numproc
 
 cd $thisdir/work
 
-mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 2 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
-rm -f atm_out.nc
+#rm -f atm_out.nc
 
-./mppncc -r atm_out.nc
+#./mppncc -r atm_out.nc

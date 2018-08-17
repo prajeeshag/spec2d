@@ -2,6 +2,9 @@
 
 usage() { echo "Usage: $0 -x nlon -y nlat [-n] [-r] [-v varlist] [-p optionlist] inputfiles" 1>&2; exit 1;}
 
+npack=2
+reduce=1
+
 while getopts 'x:y:p:v:nr' flag; do
     case "${flag}" in
 	p) oplist="$OPTARG" ;;
@@ -77,6 +80,8 @@ LONSPERLAT=new((/NLAT/),integer)
 
 NPLON = NLON - (NLAT/2-1)*4
 
+print("NPLON="+NPLON)
+
 LONSPERLAT = NLON
 
 if (reduce) then
@@ -93,6 +98,7 @@ NLON@double = True
 LONF = lonGlobeF(NLON, "lon", "longitude", "degrees_E")
 LATF = latGau(NLAT, "lat", "latitude", "degrees_N")
 
+OCNX = (NPACK-1)*NPLON+max(LONSPERLAT)
 OCNY = NLAT/NPACK
 
 IS=new((/NPACK,OCNY/),integer)

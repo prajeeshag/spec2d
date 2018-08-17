@@ -776,6 +776,7 @@ subroutine execute_ocfft_c2r(id)
 
     do i = 1, size(f2gp(id)%fp,1)
         do n = 1, size(f2gp(id)%fp,2)
+            print *, i, n
             call fftw_execute_dft_c2r(f2gp(id)%fp(i,n)%plan, f2gp(id)%fp(i,n)%oF, f2gp(id)%fp(i,n)%oG)
         end do
     end do
