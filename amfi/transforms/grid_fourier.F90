@@ -610,6 +610,8 @@ function plan_fourier_to_grid(howmany)
     !Transpose
     n0=[howmany,NX]
 
+    print *, 'n0=', n0
+
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
@@ -618,10 +620,9 @@ function plan_fourier_to_grid(howmany)
         call mpp_error('plan_fourier_to_grid', 'ilen/=local_n1', FATAL)
 
     f2gp(n)%t1dat = fftw_alloc_complex(alloc_local)
-    f2gp(n)%t2dat = fftw_alloc_complex(alloc_local)
 
-    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%GT, [NX, local_n0])
-    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%G, [howmany, NX_LOCAL])
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%GT, [NX, local_n0])
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%G, [howmany, local_n1])
 
     flags = plan_flags
 
@@ -632,12 +633,13 @@ function plan_fourier_to_grid(howmany)
         call mpp_error('plan_fourier_to_grid: transpose1:',trim(null_plan_msg),FATAL)
 
     !multi-threaded shared memory fft
+    print *, 'MXFOUR2=', MXFOUR2
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%FT, [MXFOUR2,local_n0])
 
     nn(1) = NX
     idist = NX; odist= MXFOUR2
     istride = 1; ostride = 1
-    inembed = [NX]; onembed = MXFOUR2
+    inembed = [NX]; onembed = [MXFOUR2]
     flags = plan_flags
 
     f2gp(n)%fplan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
@@ -653,9 +655,9 @@ function plan_fourier_to_grid(howmany)
 
     !Transpose back
     n0=[NFOUR2,howmany]
-
+    print *, 'NFOUR2 =', NFOUR2
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
-                   FBLOCK2, block0, COMM_FFT, local_n0, &
+                   block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     if (local_n0/=FLOCAL2) call mpp_error(FATAL,'plan_fourier_to_grid: local_n0/=FLOCAL2')
@@ -663,19 +665,22 @@ function plan_fourier_to_grid(howmany)
     if (local_n0_prev /= local_n1) &
         call mpp_error('plan_fourier_to_grid', 'local_n0_prev /= local_n1', FATAL)
 
+    f2gp(n)%t2dat = fftw_alloc_complex(alloc_local)
+
     call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%sFT, [NFOUR2,local_n1])
     call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsFT, [TWO,NFOUR2,local_n1])
-    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsF, [TWO,howmany,FLOCAL2])
-    print *, FLOCAL2, NFOUR2, howmany
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsF, [TWO,howmany,local_n0])
+    
     f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
-                            FBLOCK2, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
+                            block0, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
                             COMM_FFT, flags) 
 
     if (.not.c_associated(f2gp(n)%tplan2)) &
         call mpp_error('plan_fourier_to_grid: transpose2:',trim(null_plan_msg),FATAL)
 
     f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
-    call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, FLOCAL])
+    print *, 'howmany2, howmany=', howmany2, howmany
+    call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, local_n0])
 
     call save_wisdom()
 
@@ -698,7 +703,7 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
 
     howmany2 = size(sFp,1)
     howmany = howmany2/npack()
-
+    print *, 'howmany=', howmany
     id = 0
     if (present(id_in)) id = id_in
 
@@ -719,7 +724,7 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
 
     if (present(id_in)) id_in = id
     
-    f2gp(id)%sF(1:howmany2,1:FLOCAL) = sFp(1:howmany2,1:FLOCAL)
+    f2gp(id)%sF = sFp
 
     !Transpose Back
     call mpp_clock_begin(clck_f2g_tran)
@@ -729,17 +734,22 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
     !Serial FFT
     f2gp(id)%FT(:,:) = 0.
     if (shuffle) then
-        do i = 1, NFOUR2, 2
-            ii = (i-1)/2 + 1
-            j = Tshuffle(ii)
-            jj = j + mod(i+1,2)*MXFOUR   
-            f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
+        do i = 1, NFOUR2
+            j = Tshuffle(i)
+            f2gp(id)%FT(j,:) = f2gp(id)%sFT(i,:)
         enddo
+        !do i = 1, NFOUR2, 2
+        !    ii = (i-1)/2 + 1
+        !    j = Tshuffle(ii)
+        !    jj = j + mod(i+1,2)*MXFOUR   
+        !    f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
+        !enddo
     else
-        do i = 1, NFOUR2, 2
-            jj = i + mod(i+1,2)*MXFOUR   
-            f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
-        enddo
+        !do i = 1, NFOUR2, 2
+        !    jj = i + mod(i+1,2)*MXFOUR   
+        !    f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
+        !enddo
+            f2gp(id)%FT(1:NFOUR2,:) = f2gp(id)%sFT(1:NFOUR2,:) !Truncation & Shuffle
     endif
 
     call mpp_clock_begin(clck_f2g_dft)
