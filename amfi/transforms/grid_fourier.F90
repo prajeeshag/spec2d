@@ -620,6 +620,7 @@ function plan_fourier_to_grid(howmany)
         call mpp_error('plan_fourier_to_grid', 'ilen/=local_n1', FATAL)
 
     f2gp(n)%t1dat = fftw_alloc_complex(alloc_local)
+    f2gp(n)%t2dat = fftw_alloc_complex(alloc_local)
 
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%GT, [NX, local_n0])
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%G, [howmany, local_n1])
@@ -634,7 +635,7 @@ function plan_fourier_to_grid(howmany)
 
     !multi-threaded shared memory fft
     print *, 'MXFOUR2=', MXFOUR2
-    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%FT, [MXFOUR2,local_n0])
+    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%FT, [MXFOUR2,local_n0])
 
     nn(1) = NX
     idist = NX; odist= MXFOUR2
@@ -665,11 +666,9 @@ function plan_fourier_to_grid(howmany)
     if (local_n0_prev /= local_n1) &
         call mpp_error('plan_fourier_to_grid', 'local_n0_prev /= local_n1', FATAL)
 
-    f2gp(n)%t2dat = fftw_alloc_complex(alloc_local)
-
-    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%sFT, [NFOUR2,local_n1])
-    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsFT, [TWO,NFOUR2,local_n1])
-    call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%rsF, [TWO,howmany,local_n0])
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%sFT, [NFOUR2,local_n1])
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsFT, [TWO,NFOUR2,local_n1])
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsF, [TWO,howmany,local_n0])
     
     f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
                             block0, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
