@@ -381,7 +381,7 @@ function num_plans_for(hmlen, shm, howmany)
     num_plans_for = 0
     h = hms
     do while(h <= hme)
-        rem = numj - mod(h,numj)
+        rem = numj - mod(h,numj) + 1
         h = h + rem
         num_plans_for = num_plans_for+1
     end do
@@ -410,14 +410,12 @@ subroutine set_ocplan_f2g(hlen, sh, howmany, np)
     n = 0
     h = hs
     do while(h<=he)
-        rem = nk - mod(h,nk)
+        rem = nk - mod(h,nk) + 1
         hmny = rem
         n = n + 1
         j = jsp + (h-1)/nk
         hh = h - hs + 1
         do i = 1, npack()
-
-            !if(mpp_pe()==mpp_root_pe()) print '(9(I5,1x))', j, h, hs, hh, hmny, nk 
             nlon = ocP(i,j)%ilen
             flen = ocP(i,j)%flen
             
@@ -752,7 +750,7 @@ subroutine execute_ocfft_c2r(id)
     integer, intent(in) :: id
     integer :: i, n
 
-    do i = 1, size(f2gp(id)%fp,1)
+    do i = 1,  size(f2gp(id)%fp,1)
         do n = 1, size(f2gp(id)%fp,2)
             call fftw_execute_dft_c2r(f2gp(id)%fp(i,n)%plan, f2gp(id)%fp(i,n)%oF, f2gp(id)%fp(i,n)%oG)
         end do
