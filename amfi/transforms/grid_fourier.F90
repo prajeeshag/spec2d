@@ -637,20 +637,20 @@ function plan_fourier_to_grid(howmany)
     print *, 'MXFOUR2=', MXFOUR2
     call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%FT, [MXFOUR2,local_n0])
 
-    nn(1) = NX
-    idist = NX; odist= MXFOUR2
-    istride = 1; ostride = 1
-    inembed = [NX]; onembed = [MXFOUR2]
-    flags = plan_flags
+    !nn(1) = NX
+    !idist = NX; odist= MXFOUR2
+    !istride = 1; ostride = 1
+    !inembed = [NX]; onembed = [MXFOUR2]
+    !flags = plan_flags
 
-    f2gp(n)%fplan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
-                            f2gp(n)%FT, onembed, ostride, odist, &
-                            f2gp(n)%GT, inembed, istride, idist, flags)
+    !f2gp(n)%fplan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
+    !                        f2gp(n)%FT, onembed, ostride, odist, &
+    !                        f2gp(n)%GT, inembed, istride, idist, flags)
 
-    if (.not.c_associated(f2gp(n)%fplan)) & 
-        call mpp_error('plan_fourier_to_grid: dft_c2r:',trim(null_plan_msg),FATAL)
+    !if (.not.c_associated(f2gp(n)%fplan)) & 
+    !    call mpp_error('plan_fourier_to_grid: dft_c2r:',trim(null_plan_msg),FATAL)
 
-    !call set_ocplan_f2g(local_n0, local_0_start, howmany, n)
+    call set_ocplan_f2g(local_n0, local_0_start, howmany, n)
    
     local_n0_prev = local_n0 
 
@@ -658,7 +658,7 @@ function plan_fourier_to_grid(howmany)
     n0=[NFOUR2,howmany]
     print *, 'NFOUR2 =', NFOUR2
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
-                   block0, block0, COMM_FFT, local_n0, &
+                   FBLOCK2, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     if (local_n0/=FLOCAL2) call mpp_error(FATAL,'plan_fourier_to_grid: local_n0/=FLOCAL2')
@@ -671,7 +671,7 @@ function plan_fourier_to_grid(howmany)
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsF, [TWO,howmany,local_n0])
     
     f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
-                            block0, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
+                            FBLOCK2, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
                             COMM_FFT, flags) 
 
     if (.not.c_associated(f2gp(n)%tplan2)) &
@@ -752,8 +752,8 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
     endif
 
     call mpp_clock_begin(clck_f2g_dft)
-    !call execute_ocfft_c2r(id)
-    call fftw_execute_dft_c2r(f2gp(id)%fplan, f2gp(id)%FT, f2gp(id)%GT) 
+    call execute_ocfft_c2r(id)
+    !call fftw_execute_dft_c2r(f2gp(id)%fplan, f2gp(id)%FT, f2gp(id)%GT) 
     call mpp_clock_end(clck_f2g_dft)
 
     !Transpose
