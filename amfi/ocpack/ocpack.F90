@@ -12,7 +12,7 @@ implicit none
 private
 
 public :: ocpack_typeP, ocpack_typeF, init_ocpack, get_ocpackP, get_ocpackF, oc_npack, &
-          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour
+          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour, get_hem, hem_type
 
 type ocpack_typeP
     integer :: is, ie, ilen ! longitude start, end and length
@@ -25,7 +25,15 @@ type ocpack_typeF
     integer :: flen ! 
     integer :: i, p !-> connection to P-grid (ocpkP)
     integer :: g !-> index g is latitude index in a regular globe
+    integer :: hs
 end type 
+
+type hem_type
+    integer :: g
+    integer :: s, n
+end type
+
+type(hem_type), allocatable :: jhem(:)
 
 type(ocpack_typeF), dimension(:), allocatable :: ocpkF
 type(ocpack_typeP), dimension(:,:), allocatable :: ocpkP
@@ -39,6 +47,20 @@ logical :: reduced=.true.
 logical :: initialized=.false.
 
 contains
+
+subroutine get_hem(hem) 
+    type(hem_type), intent(out) :: hem(:)
+
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+
+    if(size(hem,1)==size(jhem,1)) then
+        hem = jhem
+    else
+        call mpp_error(fatal, 'get_jhem: invalid size for argument "hem"!!!!') 
+    end if
+
+    return
+end subroutine get_hem
 
 subroutine get_ocpackF(ocpack) 
     type(ocpack_typeF), intent(out) :: ocpack(:)
@@ -122,7 +144,7 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
     integer :: i, j, nplon_new
     integer, dimension(nlat_in) :: lonsperlat
     integer, dimension(npes_y) :: ny_lcl, nlat_lcl
-    integer :: maxpes, ny1, sumny, js, je, n, jj, jlen2
+    integer :: maxpes, ny1, sumny, js, je, n, jj, jlen2, hs
 
     if(initialized) return
 
@@ -281,10 +303,37 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
                 ocpkP(i,j)%f = jj
                 ocpkF(jj)%i = i
                 ocpkF(jj)%p = j
+                hs = ocpkP(i,j)%g
+                if (hs>nlat/2) hs = nlat - hs + 1
+                ocpkF(jj)%hs = hs
             end do
         end do
     end do
 
+    allocate(jhem(nlat/2))
+
+    je = 0
+    jj = 0
+    do n = 1, npes_y
+        js = je + 1
+        je = js + nlat_lcl(n) -1
+        jlen2 = nlat_lcl(n)/2
+        j = js
+        do while (j<je)
+            jj = jj + 1
+            jhem(jj)%g = ocpkF(j)%g
+            jhem(jj)%s = j
+            jhem(jj)%n = j + 1
+            if (mod(nlat,4)/=0.and.je==nlat) then
+                if (j == js + jlen2 -1) then
+                    j = j - 1
+                    jhem(jj)%n = j + jlen2 + 1
+                end if
+            end if
+            j = j + 2
+        end do
+    end do
+    
     initialized = .true.
 
     return
@@ -327,6 +376,7 @@ implicit none
 integer, parameter :: nlat=94, nfour=62
 type(ocpack_typeP), allocatable :: ocpkP(:,:)
 type(ocpack_typeF), allocatable :: ocpkF(:)
+type(hem_type), allocatable :: jh(:)
 integer :: i, j, npes
 
 !call init_ocpack(nlat,nfour,maxlon=192,ispacked=.false.,isreduced=.true.)
@@ -337,9 +387,11 @@ call init_ocpack(nlat,nfour,npes,ispacked=.true.,isreduced=.true.)
 
 allocate(ocpkF(oc_nlat()))
 allocate(ocpkP(oc_npack(),oc_ny()))
+allocate(jh(oc_nlat()/2))
 
 call get_ocpackF(ocpkF)
 call get_ocpackP(ocpkP)
+call get_hem(jh)
 
 do i = 1, oc_ny()
     do j = 1, oc_npack()
@@ -350,7 +402,11 @@ end do
 
     print *, 'ocpkF+++++++++'
 do i = 1, oc_nlat()
-    print '(5(i4,2x))', ocpkF(i)%p, ocpkF(i)%i, ocpkF(i)%flen, ocpkF(i)%g
+    print '(5(i4,2x))', ocpkF(i)%p, ocpkF(i)%i, ocpkF(i)%hs, ocpkF(i)%g
+end do
+    print *, 'Hemi+++++++++'
+do i = 1, oc_nlat()/2
+    print '(5(i4,2x))', jh(i)%g, jh(i)%s, jh(i)%n
 end do
 
 end program test
