@@ -415,17 +415,17 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     
     call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
 
-    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
-
     call write_data('test_oc','ps',gatm(1)%prs,domain=domain_g)
 
-    call write_data('test_oc','tem',gatm(1)%tem,domain=domain_g)   
-    
     call mpp_sync()
     call fms_io_exit()
     call mpp_sync()
     call mpp_error(FATAL,'testing...')
  
+    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
+
+    call write_data('test_oc','tem',gatm(1)%tem,domain=domain_g)   
+    
     call spherical_to_grid(satm(2)%div,grid=div)
     
     call spherical_to_grid(satm(2)%vor,grid=vor)

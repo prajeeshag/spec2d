@@ -417,7 +417,7 @@ subroutine set_ocplan_f2g(hlen, sh, howmany, np)
         hh = h - hs + 1
         do i = 1, npack()
 
-            if(mpp_pe()==mpp_root_pe()) print '(9(I5,1x))', jsp, j, h, hs, hh, hmny, nk 
+            !if(mpp_pe()==mpp_root_pe()) print '(9(I5,1x))', j, h, hs, hh, hmny, nk 
             nlon = ocP(i,j)%ilen
             flen = ocP(i,j)%flen
             
@@ -592,7 +592,7 @@ function plan_fourier_to_grid(howmany)
     integer :: plan_fourier_to_grid, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
     integer(C_INTPTR_T) :: local_n0_prev
-    integer(C_INTPTR_T) :: alloc_local, n0(2)
+    integer(C_INTPTR_T) :: alloc_local, n0(2), alloc_local1
     integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
     integer(C_INTPTR_T) :: howmany2
 
@@ -614,11 +614,17 @@ function plan_fourier_to_grid(howmany)
     f2gp(n)%howmany = howmany
    
     !Transpose
-    n0=[howmany,NX]
+    n0=[NFOUR2,howmany]
+    alloc_local1 = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+                   FBLOCK2, block0, COMM_FFT, local_n0, &
+                   local_0_start, local_n1, local_1_start)
 
+    n0=[howmany,NX]
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
+
+    alloc_local = max(alloc_local,alloc_local1)
 
     if (NX_LOCAL/=local_n1) & 
         call mpp_error('plan_fourier_to_grid', 'ilen/=local_n1', FATAL)
@@ -640,19 +646,6 @@ function plan_fourier_to_grid(howmany)
     !multi-threaded shared memory fft
     call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%FT, [MXFOUR2,local_n0])
 
-    !nn(1) = NX
-    !idist = NX; odist= MXFOUR2
-    !istride = 1; ostride = 1
-    !inembed = [NX]; onembed = [MXFOUR2]
-    !flags = plan_flags
-
-    !f2gp(n)%fplan = fftw_plan_many_dft_c2r(ONE, nn, int(local_n0), &
-    !                        f2gp(n)%FT, onembed, ostride, odist, &
-    !                        f2gp(n)%GT, inembed, istride, idist, flags)
-
-    !if (.not.c_associated(f2gp(n)%fplan)) & 
-    !    call mpp_error('plan_fourier_to_grid: dft_c2r:',trim(null_plan_msg),FATAL)
-
     call set_ocplan_f2g(local_n0, local_0_start, howmany, n)
    
     local_n0_prev = local_n0 
@@ -672,6 +665,7 @@ function plan_fourier_to_grid(howmany)
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsFT, [TWO,NFOUR2,local_n1])
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsF, [TWO,howmany,local_n0])
     
+    
     f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
                             FBLOCK2, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
                             COMM_FFT, flags) 
@@ -685,7 +679,7 @@ function plan_fourier_to_grid(howmany)
     call save_wisdom()
 
     call mpp_clock_end(clck_plan_f2g)
-
+    
     return
 
 end function plan_fourier_to_grid
@@ -726,6 +720,7 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
     f2gp(id)%sF = sFp
 
     !Transpose Back
+
     call mpp_clock_begin(clck_f2g_tran)
     call fftw_mpi_execute_r2r(f2gp(id)%tplan2, f2gp(id)%rsF, f2gp(id)%rsFT)
     call mpp_clock_end(clck_f2g_tran)
@@ -736,23 +731,6 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
         j = Tshuffle2(i)
         f2gp(id)%FT(j,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
     enddo
-    if (mpp_pe()==mpp_root_pe()) then
-        if (npack()==2) then
-            print *, 'npack=', npack(), 1
-            print *, f2gp(id)%FT(1:8,1)
-        else
-            print *, 'npack=', npack(), 1
-            print *, f2gp(id)%FT(1:8,1)
-        end if    
-
-        if (npack()==2) then
-            print *, 'npack=', npack(), 2
-            print *, f2gp(id)%FT(1+MXFOUR:8+MXFOUR,1)
-        else
-            print *, 'npack=', npack(), 2
-            print *, f2gp(id)%FT(1:8,2)
-        end if    
-    end if
 
     call mpp_clock_begin(clck_f2g_dft)
     call execute_ocfft_c2r(id)
@@ -776,7 +754,6 @@ subroutine execute_ocfft_c2r(id)
 
     do i = 1, size(f2gp(id)%fp,1)
         do n = 1, size(f2gp(id)%fp,2)
-            print *, i, n
             call fftw_execute_dft_c2r(f2gp(id)%fp(i,n)%plan, f2gp(id)%fp(i,n)%oF, f2gp(id)%fp(i,n)%oG)
         end do
     end do
