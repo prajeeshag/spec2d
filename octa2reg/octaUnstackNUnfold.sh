@@ -320,69 +320,6 @@ begin
 	return (axnm)
 end
 
-;-------------------------------------------------------------------------------
-function stack_and_fold_unstrct(datf:numeric,xi:numeric,yi:numeric,ongrid:string)
-local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, ongrid, ongrd
-begin
-;--------------------------------------------------------------------------------	
-
-	siz = dimsizes(datf)
-	ndim = dimsizes(siz)
-
-	nx=siz(ndim-1)
-	ny=siz(ndim-2)
-	howmany = 1
-	
-	do i = 0, ndim-3
-		howmany=siz(i)*howmany
-	end do
-	
-	osiz=new(ndim,integer)
-
-	do i = 0, ndim-3
-		osiz(i) = siz(i)
-	end do
-	osiz(ndim-2) = OCNY
-	osiz(ndim-1) = OCNX
-	
-	xxi = xi
-	yyi = yi
-
-	ongrd=stringtochar(ongrid)
-	if (ongrd(0).eq."T") then
-		delete(yyi)
-		yyi = LATF
-	end if
-
-	if (ongrd(1).eq."T") then
-		delete(xxi)
-		xxi = LONF
-	end if
-
-	dati = linint2_points_Wrap(xxi, yyi, datf, True, OCLON1d, OCLAT1d, 0) 
-
-	if (any(ismissing(dati))) then
-		print("WARNING: packed field contains missing values!!!!")
-	end if
-
-	dato = reshape(dati,osiz)
-
-	copy_VarCoords_2(dati,dato)
-	copy_VarAtts(dati,dato)
-
-	nnd = ndim - 1
-	dato!nnd = "x"
-	nnd = ndim - 2
-	dato!nnd = "y"
-	dato&x = ispan(1,OCNX,1)
-	dato&y = ispan(1,OCNY,1)
-	dato&x@axis = "X"
-	dato&y@axis = "Y"
-
-	return(dato)
-
-end
-
 ;--------------------------------------------------------------------------------	
 function regrid_discrete_Wrap(xi:numeric, yi:numeric, fi:numeric, xo:numeric, yo:numeric, opt:logical)
 local i, j, k, n, xi, yi, fi, xo, yo, fo, mo, ntype, \
@@ -489,104 +426,6 @@ begin
 	return(fo)
 end
 
-;-------------------------------------------------------------------------------
-function stack_and_fold_dtype(fi:numeric,xi:numeric,yi:numeric,ongrid:string,conv2int:logical)
-local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, j, k, ongrid, ongrd, conv2int, fi, dati
-begin
-;--------------------------------------------------------------------------------
-
-	if (.not.isinteger(fi)) then
-		if (.not.conv2int) then
-			print("FATAL: input array to stack_and_fold_dtype should be of integer type")
-			exit
-		end if
-		datf = tointeger(fi)
-		copy_VarMeta(fi,datf)
-	else
-		datf = fi
-	end if
-	
-	ongrd = stringtochar(ongrid)
-
-	xxi = xi
-	yyi = yi
-
-	if (ongrd(0).eq."T") then
-		delete(yyi)
-		yyi = LATF
-	end if
-
-	if (ongrd(1).eq."T") then
-		delete(xxi)
-		xxi = LONF
-	end if
-
-	if (ongrd(0).eq."T".and.ongrd(1).eq."T") then
-		dati = datf
-	else
-    	dati = regrid_discrete_Wrap(xxi, yyi, datf, LONF, LATF, False)
-	end if
-
-	siz = dimsizes(dati)
-	ndim = dimsizes(siz)
-
-	nx = siz(ndim-1)	
-	ny = siz(ndim-2)	
-	howmany = 1 
-	do i = 0, ndim-3
-		howmany=siz(i)*howmany
-	end do
-	
-	osiz=new(ndim,integer)
-
-	do i = 0, ndim-3
-		osiz(i) = siz(i)
-	end do
-
-	osiz(ndim-2) = OCNY
-	osiz(ndim-1) = OCNX
-
-	datii = reshape(dati,(/howmany,ny,nx/))
-	datoi = new((/howmany,OCNY,OCNX/),typeof(dati)) 
-
-	ncopy = 4
-	rfi = new((/howmany,ncopy,nx/),typeof(datii))
-	latfi = latGau(ncopy, "lat", "latitude", "degrees_N")
-
-    do j = 0, NPACK-1
-        do i = 0, OCNY-1
-            lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
-			ip = PACK(j,i)
-			do k = 0, ncopy-1
-				rfi(:,k,:) = datii(:,ip,:)
-			end do
-            rfo = regrid_discrete_Wrap(LONF,latfi,rfi,lonc,latfi,False)
-			do k = 0, 1
-            	datoi(:,i,IS(j,i):IE(j,i)) = (/rfo(:,(ncopy+1)/2-1,:)/)
-			end do
-			delete(lonc)
-			delete(rfo)
-        end do
-    end do
-
-	dato = reshape(datoi,osiz)
-
-	copy_VarCoords_2(dati,dato)
-
-	copy_VarCoords_2(dati,dato)
-	copy_VarAtts(dati,dato)
-
-	nnd = ndim - 1
-	dato!nnd = "x"
-	nnd = ndim - 2
-	dato!nnd = "y"
-	dato&x = ispan(1,OCNX,1)
-	dato&y = ispan(1,OCNY,1)
-	dato&x@axis = "X"
-	dato&y@axis ="Y"
-
-	return(dato)
-end
 
 ;-------------------------------------------------------------------------------
 function unstack_and_unfold_conserve(dati:numeric,xi:numeric,yi:numeric)
@@ -685,14 +524,15 @@ begin
 	end if
 
 	datoi = new((/howmany,NLAT,NLON/),typeof(datii)) 
-	
-    do j = 0, NPACK-1
-        do i = 0, OCNY-1
-            lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
-            datoi(:,PACK(j,i),:) = linint1(lonc,datii(:,i,IS(j,i):IE(j,i)),True,LONF,0)
-			delete(lonc)
-        end do
-    end do
+
+   	do j = 0, NPACK-1
+   	    do i = 0, OCNY-1
+   	        lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
+   	        datoi(:,PACK(j,i),:) = linint1(lonc,datii(:,i,IS(j,i):IE(j,i)),True,LONF,0)
+   	        ;datoi(:,PACK(j,i),0:ILEN(j,i)-1) = datii(:,i,IS(j,i):IE(j,i))
+   			delete(lonc)
+   	    end do
+   	end do
 
 	dato = reshape(datoi,osiz)
 

@@ -109,9 +109,9 @@ make -j $numproc
 
 cd $thisdir/work
 
-rm fftw.*
+rm -f fftw.*
 
-mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 4 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 #rm -f atm_out.nc
 
