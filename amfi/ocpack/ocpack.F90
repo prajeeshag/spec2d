@@ -109,16 +109,20 @@ logical function oc_isreduced()
     return
 end function oc_isreduced
 
-subroutine init_ocpack(nlat_in, trunc, max_lon, isreduced, ispacked)
+subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispacked)
 
     integer, intent(in) :: nlat_in
     integer, intent(in) :: trunc
+    integer, intent(in) :: npes_y
+    integer, intent(out), optional :: yextent(npes_y)
     integer, intent(in), optional :: max_lon
     logical, intent(in), optional :: isreduced
     logical, intent(in), optional :: ispacked
 
     integer :: i, j, nplon_new
     integer, dimension(nlat_in) :: lonsperlat
+    integer, dimension(npes_y) :: ny_lcl, nlat_lcl
+    integer :: maxpes, ny1, sumny, js, je, n, jj
 
     if(initialized) return
 
@@ -135,11 +139,55 @@ subroutine init_ocpack(nlat_in, trunc, max_lon, isreduced, ispacked)
 
     if(present(isreduced)) reduced = isreduced
 
-    if(num_pack==2) reduced = .true.
-
     if (mod(nlat,2).ne.0) then
         call mpp_error(fatal, 'ocpack_mod: nlat should be a multiple of 2')
     end if
+
+    ocny = nlat/num_pack
+
+    if (mod(ocny,2)/=0) then
+        maxpes = (ocny+1)/2
+        if (npes_y>maxpes) call mpp_error(FATAL, 'init_ocpack: maximum pes in Y-direction are: ' &
+                              //trim(int2str(maxpes)))
+ 
+        if (mod(ceiling(real(ocny+1)/npes_y),2)/=0) &
+            call mpp_error(FATAL,'ocpack: npes in y-direction not supported')
+
+        ny1 = ceiling(real(ocny+1)/npes_y)
+        
+        ny_lcl = 0
+
+        ny_lcl(1:ocny/ny1) = ny1
+        ny_lcl(ocny/ny1+1) = mod(ocny,ny1)
+
+        if (any(ny_lcl==0)) call mpp_error(FATAL, 'init_ocpack: number of npes ' // &
+                            'in Y-direction causing null pes')
+
+        if (mod(ny_lcl(ocny/ny1+1),2)==0) call mpp_error(FATAL,'init_ocpack: number of pes not supported')
+    else
+        maxpes = ocny/2
+        if (npes_y>maxpes) call mpp_error(FATAL, 'init_ocpack: maximum pes in Y-direction are: ' &
+                              //trim(int2str(maxpes)))
+ 
+        if (mod(ceiling(real(ocny)/npes_y),2)/=0) &
+            call mpp_error(FATAL,'ocpack: npes in y-direction not supported')
+
+        ny1 = ceiling(real(ocny)/npes_y)
+        
+        ny_lcl = 0
+
+        ny_lcl(1:ocny/ny1) = ny1
+        ny_lcl(ocny/ny1+1) = mod(ocny,ny1)
+
+        if (any(ny_lcl==0)) call mpp_error(FATAL, 'init_ocpack: number of npes ' // &
+                            'in Y-direction causing null pes')
+
+        if (mod(ny_lcl(ocny/ny1+1),2)/=0) call mpp_error(FATAL,'init_ocpack: number of pes not supported')
+    endif
+
+    if(present(yextent)) yextent = ny_lcl
+
+    nlat_lcl = ny_lcl*2
 
     if (reduced.and.present(max_lon)) then
         nplon_new = max_lon-(4*(nlat/2-1))
@@ -169,41 +217,9 @@ subroutine init_ocpack(nlat_in, trunc, max_lon, isreduced, ispacked)
     end if
  
     ocnx = (num_pack-1)*nplon+maxlon 
-    ocny = nlat/num_pack
     
     allocate(ocpkF(nlat))
     allocate(ocpkP(num_pack,ocny))
-
-    ocpkF(:)%flen = nfour 
-    ocpkF(:)%g = -1
-    ocpkF(:)%i = 0
-    ocpkF(:)%p = 0
-
-    do i = 1, nlat/4
-        ocpkF(4*i-3)%g = i
-        ocpkF(4*i-2)%g = nlat/2-i+1
-        ocpkF(4*i-1)%g = nlat-i+1
-        ocpkF(  4*i)%g = nlat/2+i
-
-        ocpkF(4*i-3)%i = 1
-        ocpkF(4*i-2)%i = 2
-        ocpkF(4*i-1)%i = 1
-        ocpkF(  4*i)%i = 2
-
-        ocpkF(4*i-3)%p = 2*i-1 
-        ocpkF(4*i-2)%p = 2*i-1
-        ocpkF(4*i-1)%p = 2*i
-        ocpkF(  4*i)%p = 2*i
-    end do
-
-    if (mod(nlat,4)/=0) then
-        ocpkF(nlat-1)%g = nlat/4
-        ocpkF(nlat  )%g = nlat-nlat/4-1
-        ocpkF(nlat-1)%i = 1
-        ocpkF(nlat  )%i = 2
-        ocpkF(nlat-1)%p = nlat/2
-        ocpkF(nlat  )%p = nlat/2
-    end if
 
     ocpkP(1,:)%is = 1
     ocpkP(:,:)%g = -1
@@ -262,6 +278,23 @@ subroutine init_ocpack(nlat_in, trunc, max_lon, isreduced, ispacked)
         end do
     end do
 
+    ocpkF(:)%flen = nfour 
+    ocpkF(:)%g = -1
+    ocpkF(:)%i = 0
+    ocpkF(:)%p = 0
+    je = 0
+    do n = 1, npes_y
+        js = je + 1
+        je = js + nlat_lcl(n) - 1
+        do j = js, je
+            i = (j/(je/2+1))*(num_pack-1) + 1
+            jj = j-(je/2)*(i-1)
+            ocpkF(j)%g = ocpkP(i,jj)%g
+            ocpkF(j)%i = i
+            ocpkF(j)%p = jj
+        end do
+    end do
+
     initialized = .true.
 
     return
@@ -308,7 +341,7 @@ integer :: i, j
 
 !call init_ocpack(nlat,nfour,maxlon=192,ispacked=.false.,isreduced=.true.)
 !call init_ocpack(nlat,nfour,ispacked=.false.,isreduced=.true.)
-call init_ocpack(nlat,nfour,ispacked=.true.,isreduced=.true.)
+call init_ocpack(nlat,nfour,6,ispacked=.true.,isreduced=.true.)
 
 allocate(ocpkF(oc_nlat()))
 allocate(ocpkP(oc_npack(),oc_ny()))
