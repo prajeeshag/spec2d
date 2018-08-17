@@ -122,7 +122,7 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
     integer :: i, j, nplon_new
     integer, dimension(nlat_in) :: lonsperlat
     integer, dimension(npes_y) :: ny_lcl, nlat_lcl
-    integer :: maxpes, ny1, sumny, js, je, n, jj
+    integer :: maxpes, ny1, sumny, js, je, n, jj, jlen2
 
     if(initialized) return
 
@@ -268,19 +268,20 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
     ocpkF(:)%g = -1
     ocpkF(:)%i = 0
     ocpkF(:)%p = 0
+
     je = 0
+    jj = 0
     do n = 1, npes_y
         js = je + 1
-        je = js + nlat_lcl(n) - 1
-        do j = js, je
-            i = (j/(je/2+1))*(num_pack-1) + 1
-            print *, j
-            if (mod(ocny,2)/=0.and.j==nlat) i = num_pack
-            jj = j-(je/2)*(i-1)
-            ocpkF(j)%g = ocpkP(i,jj)%g
-            ocpkP(i,jj)%f = j
-            ocpkF(j)%i = i
-            ocpkF(j)%p = jj
+        je = js + ny_lcl(n) - 1
+        do i = 1, num_pack
+            do j = js, je
+                jj = jj + 1
+                ocpkF(jj)%g = ocpkP(i,j)%g
+                ocpkP(i,j)%f = jj
+                ocpkF(jj)%i = i
+                ocpkF(jj)%p = j
+            end do
         end do
     end do
 
