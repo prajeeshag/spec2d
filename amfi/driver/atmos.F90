@@ -100,9 +100,9 @@ subroutine init_atmos(Time,deltim_in)
     call close_file(unit)
 
     if (maxlon>0) then
-        call init_ocpack(num_lat, trunc, max_lon=maxlon, isreduced=reduced, ispacked=packed)
+        call init_ocpack(num_lat, trunc, 1, max_lon=maxlon, isreduced=reduced, ispacked=packed)
     else
-        call init_ocpack(num_lat, trunc, isreduced=reduced, ispacked=packed)
+        call init_ocpack(num_lat, trunc, 1, isreduced=reduced, ispacked=packed)
     end if
 
     ocnx = oc_nx()
@@ -115,10 +115,7 @@ subroutine init_atmos(Time,deltim_in)
     call tracer_manager_init()
     call get_number_tracers(MODEL_ATMOS,ntrac,num_prog,num_diag)
 
-    ishuff = 2
-    if(layout(1)==1) ishuff=0
-    
-    call mpp_define_domains( [1,ocny,1,ocnx], layout, domain_g, kxy=1, ishuff=ishuff)
+    call mpp_define_domains( [1,ocny,1,ocnx], layout, domain_g, kxy=1)
     call mpp_get_compute_domain(domain_g, jsp, jep, isp, iep)
     ilenp = iep - isp + 1
     jlenp = jep - jsp + 1

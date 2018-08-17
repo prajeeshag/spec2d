@@ -55,7 +55,7 @@ reduce="$reduce".eq.1
 NPACK=1
 if (ifpack) then
     NPACK=2
-    reduce = True
+    ;reduce = True
 end if
 
 filelist = rm_single_dims(str_split_csv($filelist," ",0))
@@ -93,7 +93,6 @@ NLON@double = True
 LONF = lonGlobeF(NLON, "lon", "longitude", "degrees_E")
 LATF = latGau(NLAT, "lat", "latitude", "degrees_N")
 
-OCNX = (NPACK-1)*NPLON+max(LONSPERLAT)
 OCNY = NLAT/NPACK
 
 IS=new((/NPACK,OCNY/),integer)
@@ -147,6 +146,10 @@ else
     end do
 
 end if	
+
+OCNX  = (NPACK-1)*min(LONSPERLAT)+max(LONSPERLAT)
+
+print("OCNX="+OCNX+" OCNY="+OCNY)
 
 OCLON = new((/OCNY,OCNX/),typeof(LONF))
 OCLAT = new((/OCNY,OCNX/),typeof(LATF))

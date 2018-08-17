@@ -18,7 +18,7 @@ use constants_mod, only : RADIUS, PI
 use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian 
 
 use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackF, oc_nx, oc_ny, &
-                oc_nlat, npack=>oc_npack 
+                oc_nlat, npack=>oc_npack, hem_type, get_hem
 
 !-------------------------------------------------------------------------
 !   provides operations on spectral spherical harmonics fields that do not 
@@ -114,10 +114,6 @@ integer, allocatable :: tshuffle(:)
 type(ocpack_typeP), allocatable :: ocP(:,:)
 type(ocpack_typeF), allocatable :: ocF(:)
 
-type hem_type
-    integer :: s, n
-end type hem_type
-
 type(hem_type), allocatable :: jh(:)
 
 logical :: debug
@@ -172,6 +168,8 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
 
     call get_ocpackP(ocP)
     call get_ocpackF(ocF)
+    allocate(jh(nlat/2))
+    call get_hem(jh)
    
     num_fourier = trunc_in
     num_spherical = trunc_in + 1
@@ -191,11 +189,6 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     je_hem = (jef-1)/2 + 1
     jlen_hem = jlenf/2
 
-    allocate(jh(nlat/2))
-    do j = 1, nlat/2
-        jh(j)%s = get_js(j)
-        jh(j)%n = min(jh(j)%s + 2,nlat)
-    end do
 
     allocate(tshuffle(ms:me))
 
@@ -889,14 +882,14 @@ subroutine define_legendre(lepsilon,lspherical_wave)
             if (iseven(w)) then
                 we = we + 1
                 do j = js_hem, je_hem
-                    jg = ocF(jh(j)%s)%g
+                    jg = jh(j)%g
                     Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,jg) 
                     Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,jg) 
                 end do
             else
                 wo = wo + 1
                 do j = js_hem, je_hem
-                    jg = ocF(jh(j)%s)%g
+                    jg = jh(j)%g
                     Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,jg) 
                     Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,jg) 
                 end do
@@ -905,7 +898,7 @@ subroutine define_legendre(lepsilon,lspherical_wave)
     enddo
 
     do j = js_hem, je_hem
-        jg = ocF(jh(j)%s)%g
+        jg = jh(j)%g
         Pnm_wts(j-js_hem+1,:,:) = Pnm(j-js_hem+1,:,:)*wts_hem(jg)
         Hnm_wts(j-js_hem+1,:,:) = Hnm(j-js_hem+1,:,:)*wts_hem(jg)
 
@@ -1391,14 +1384,6 @@ subroutine do_matmul(A,B,C,TRANSB)
                B(:,:),LDB,BETA,CP(:,:),LDC)
     return
 end subroutine do_matmul
-
-integer function get_js(jj)
-    integer, intent(in) :: jj
-   
-    get_js = (jj-1)*2 + mod(jj,2)
-
-    return
-end function get_js
 
 end module spherical_mod
 

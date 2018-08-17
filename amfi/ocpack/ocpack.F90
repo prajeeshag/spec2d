@@ -238,7 +238,7 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
         endif
     end if
  
-    ocnx = (num_pack-1)*nplon+maxlon 
+    ocnx = (num_pack-1)*minval(lonsperlat)+maxlon 
     
     allocate(ocpkF(nlat))
     allocate(ocpkP(num_pack,ocny))

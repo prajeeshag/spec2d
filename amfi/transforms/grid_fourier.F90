@@ -49,7 +49,7 @@ integer(C_INTPTR_T) :: MXLON, MXLON2, NFOUR, NFOUR2, MXFOUR, MXFOUR2
 integer(C_INTPTR_T) :: NX_LOCAL, FLOCAL, FLOCAL2, NX, FBLOCK, FBLOCK2
 integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
 integer :: COMM_FFT
-integer, allocatable :: Tshuffle(:)
+integer, allocatable :: Tshuffle(:), Tshuffle2(:)
 logical :: shuffle=.false.
 
 logical :: debug=.false.
@@ -140,7 +140,7 @@ subroutine init_grid_fourier (jsp_in, jep_in, ilen, trunc, isf, flen, comm_in, T
     end select
 
     if(mod(NX,mpp_npes())/=0) &
-        call mpp_error('grid_fourier_mod','No: of Pes in x-direction should be a factor of NX', FATAL)
+        call mpp_error('grid_fourier_mod','npes in x-dir should be a factor of NX='//trim(int2str(NX)), FATAL)
 
     call fftw_mpi_init()
 
@@ -159,8 +159,11 @@ subroutine init_grid_fourier (jsp_in, jep_in, ilen, trunc, isf, flen, comm_in, T
 
     null_plan_msg = 'NULL PLAN: try rerunning after removing the wisdom file '//trim(wsdmfnm)
 
+    allocate(Tshuffle(NFOUR))
+    allocate(Tshuffle2(NFOUR2))
+    Tshuffle = [(i, i=1,NFOUR)]
+
     if (present(Tshuff)) then
-        allocate(Tshuffle(NFOUR))
         if (mod(NFOUR,2)==0) then
             k = NFOUR + 1
             do i = 1, NFOUR/2
@@ -185,6 +188,9 @@ subroutine init_grid_fourier (jsp_in, jep_in, ilen, trunc, isf, flen, comm_in, T
             print *, 'Tshuffle=', Tshuff
         endif
     endif
+
+    Tshuffle2(1:NFOUR2:npack()) = Tshuffle
+    if(npack()==2) Tshuffle2(2:NFOUR2:npack()) = Tshuffle+MXFOUR 
 
     howmany = 1
     n0=[NX,howmany]
@@ -610,8 +616,6 @@ function plan_fourier_to_grid(howmany)
     !Transpose
     n0=[howmany,NX]
 
-    print *, 'n0=', n0
-
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
@@ -634,7 +638,6 @@ function plan_fourier_to_grid(howmany)
         call mpp_error('plan_fourier_to_grid: transpose1:',trim(null_plan_msg),FATAL)
 
     !multi-threaded shared memory fft
-    print *, 'MXFOUR2=', MXFOUR2
     call c_f_pointer(f2gp(n)%t2dat, f2gp(n)%FT, [MXFOUR2,local_n0])
 
     !nn(1) = NX
@@ -656,7 +659,6 @@ function plan_fourier_to_grid(howmany)
 
     !Transpose back
     n0=[NFOUR2,howmany]
-    print *, 'NFOUR2 =', NFOUR2
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
                    FBLOCK2, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
@@ -678,7 +680,6 @@ function plan_fourier_to_grid(howmany)
         call mpp_error('plan_fourier_to_grid: transpose2:',trim(null_plan_msg),FATAL)
 
     f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
-    print *, 'howmany2, howmany=', howmany2, howmany
     call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, local_n0])
 
     call save_wisdom()
@@ -702,7 +703,6 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
 
     howmany2 = size(sFp,1)
     howmany = howmany2/npack()
-    print *, 'howmany=', howmany
     id = 0
     if (present(id_in)) id = id_in
 
@@ -732,24 +732,27 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
 
     !Serial FFT
     f2gp(id)%FT(:,:) = 0.
-    if (shuffle) then
-        do i = 1, NFOUR2
-            j = Tshuffle(i)
-            f2gp(id)%FT(j,:) = f2gp(id)%sFT(i,:)
-        enddo
-        !do i = 1, NFOUR2, 2
-        !    ii = (i-1)/2 + 1
-        !    j = Tshuffle(ii)
-        !    jj = j + mod(i+1,2)*MXFOUR   
-        !    f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
-        !enddo
-    else
-        !do i = 1, NFOUR2, 2
-        !    jj = i + mod(i+1,2)*MXFOUR   
-        !    f2gp(id)%FT(jj,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
-        !enddo
-            f2gp(id)%FT(1:NFOUR2,:) = f2gp(id)%sFT(1:NFOUR2,:) !Truncation & Shuffle
-    endif
+    do i = 1, NFOUR2
+        j = Tshuffle2(i)
+        f2gp(id)%FT(j,:) = f2gp(id)%sFT(i,:) !Truncation & Shuffle
+    enddo
+    if (mpp_pe()==mpp_root_pe()) then
+        if (npack()==2) then
+            print *, 'npack=', npack(), 1
+            print *, f2gp(id)%FT(1:8,1)
+        else
+            print *, 'npack=', npack(), 1
+            print *, f2gp(id)%FT(1:8,1)
+        end if    
+
+        if (npack()==2) then
+            print *, 'npack=', npack(), 2
+            print *, f2gp(id)%FT(1+MXFOUR:8+MXFOUR,1)
+        else
+            print *, 'npack=', npack(), 2
+            print *, f2gp(id)%FT(1:8,2)
+        end if    
+    end if
 
     call mpp_clock_begin(clck_f2g_dft)
     call execute_ocfft_c2r(id)
