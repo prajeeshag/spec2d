@@ -661,7 +661,7 @@ function plan_fourier_to_grid(howmany)
 
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%sFT, [NFOUR2,local_n1])
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsFT, [TWO,NFOUR2,local_n1])
-    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsF, [TWO,howmany,local_n0])
+    call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsF, [TWO,howmany,FLOCAL2])
     
     
     f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
@@ -672,7 +672,7 @@ function plan_fourier_to_grid(howmany)
         call mpp_error('plan_fourier_to_grid: transpose2:',trim(null_plan_msg),FATAL)
 
     f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
-    call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, local_n0])
+    call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, FLOCAL])
 
     call save_wisdom()
 
@@ -714,7 +714,8 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
     call mpp_clock_begin(clck_fourier_to_grid)
 
     if (present(id_in)) id_in = id
-    
+   
+    print *, shape(f2gp(id)%sF), shape(sFp) 
     f2gp(id)%sF = sFp
 
     !Transpose Back
