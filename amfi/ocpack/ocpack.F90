@@ -237,17 +237,10 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
             ocpkP(2,2*i-1)%g = nlat/2-i+1
             ocpkP(1,  2*i)%g = nlat-i+1
             ocpkP(2,  2*i)%g = nlat/2+i
-
-            ocpkP(1,2*i-1)%f = 4*i-3
-            ocpkP(2,2*i-1)%f = 4*i-2
-            ocpkP(1,  2*i)%f = 4*i-1
-            ocpkP(2,  2*i)%f = 4*i
         end do
         if (mod(nlat,4)/=0) then
-            ocpkP(1,nlat/2)%g = nlat/4
-            ocpkP(2,nlat/2)%g = nlat-nlat/4-1
-            ocpkP(1,nlat/2)%f = nlat-1
-            ocpkP(2,nlat/2)%f = nlat
+            ocpkP(1,nlat/2)%g = nlat/4 + 1
+            ocpkP(2,nlat/2)%g = nlat-nlat/4
         end if
     else
         do i = 1, nlat/4
@@ -255,17 +248,10 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
             ocpkP(1,4*i-2)%g = nlat/2-i+1
             ocpkP(1,4*i-1)%g = nlat-i+1
             ocpkP(1,  4*i)%g = nlat/2+i
-
-            ocpkP(1,4*i-3)%f = 4*i-3  
-            ocpkP(1,4*i-2)%f = 4*i-2
-            ocpkP(1,4*i-1)%f = 4*i-1
-            ocpkP(1,  4*i)%f = 4*i
         end do
         if (mod(nlat,4)/=0) then
             ocpkP(1,nlat-1)%g = nlat/4
             ocpkP(1,nlat  )%g = nlat-nlat/4-1
-            ocpkP(1,nlat-1)%f = nlat-1
-            ocpkP(1,nlat  )%f = nlat
         end if
     end if
 
@@ -288,8 +274,11 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
         je = js + nlat_lcl(n) - 1
         do j = js, je
             i = (j/(je/2+1))*(num_pack-1) + 1
+            print *, j
+            if (mod(ocny,2)/=0.and.j==nlat) i = num_pack
             jj = j-(je/2)*(i-1)
             ocpkF(j)%g = ocpkP(i,jj)%g
+            ocpkP(i,jj)%f = j
             ocpkF(j)%i = i
             ocpkF(j)%p = jj
         end do
@@ -337,11 +326,13 @@ implicit none
 integer, parameter :: nlat=94, nfour=62
 type(ocpack_typeP), allocatable :: ocpkP(:,:)
 type(ocpack_typeF), allocatable :: ocpkF(:)
-integer :: i, j
+integer :: i, j, npes
 
 !call init_ocpack(nlat,nfour,maxlon=192,ispacked=.false.,isreduced=.true.)
 !call init_ocpack(nlat,nfour,ispacked=.false.,isreduced=.true.)
-call init_ocpack(nlat,nfour,6,ispacked=.true.,isreduced=.true.)
+print *, 'enter npes in y:'
+read(*,*) npes
+call init_ocpack(nlat,nfour,npes,ispacked=.true.,isreduced=.true.)
 
 allocate(ocpkF(oc_nlat()))
 allocate(ocpkP(oc_npack(),oc_ny()))
