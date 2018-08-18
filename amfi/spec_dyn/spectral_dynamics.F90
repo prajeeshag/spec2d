@@ -404,7 +404,7 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     real, dimension(nlev,jsp:jep,isp:iep) :: gtmp1
     complex, dimension(nlev,nwaves_oe,2) :: stmp1
     complex, dimension(nlev,nwaves_oe,2,ntrac) :: stmp2
-
+    real :: val
     integer :: i, j, k, ntr
     logical :: used
 
@@ -417,15 +417,29 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 
     call write_data('test_oc','ps',gatm(1)%prs,domain=domain_g)
 
+    !do i = isp, iep
+    !    do j = jsp, jep
+    !        val = real(ocpkP(1,j)%g)
+    !        if(i>ocpkP(1,j)%ilen) val = real(ocpkP(2,j)%g)
+    !        gatm(1)%prs(1,j,i) = val
+    !    end do
+    !end do
+
     call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
 
     call write_data('test_oc','tem',gatm(1)%tem,domain=domain_g)   
+
+    call grid_to_spherical(gatm(1)%tem,satm(2)%tem,do_trunc=.true.)
+    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem)
+
+    call write_data('test_oc','tem1',gatm(1)%tem,domain=domain_g)
 
     call mpp_sync()
     call fms_io_exit()
     call mpp_sync()
     call mpp_error(FATAL,'testing...')
     
+
     call spherical_to_grid(satm(2)%div,grid=div)
     
     call spherical_to_grid(satm(2)%vor,grid=vor)
