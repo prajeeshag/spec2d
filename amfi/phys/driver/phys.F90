@@ -20,7 +20,7 @@ use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS
 use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=), &
                              print_date
 
-use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
+use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data, diag_manager_end
 
 use tracer_manager_mod, only : get_tracer_index, get_tracer_name, get_number_tracers
 
@@ -46,6 +46,8 @@ use shallow_conv_mod, only : shallow_conv
 
 use micro_phys_mod, only : init_micro_phys, micro_phys
 
+use ocpack_mod, only : ocpack_typeP, oc_ny, oc_npack, oc_nlat, get_ocpackP
+
 implicit none
 private
 
@@ -56,7 +58,6 @@ real, parameter :: rhoh2o = 1000.
 type(domain2D), pointer :: domain
 integer :: ntrac, nlev
 integer :: is, ie, ilen, js, je, jlen
-integer :: nlon, nlat
 integer :: ind_q = 0, ind_clw = 0, ind_cli = 0
 
 integer :: dt_rad
@@ -103,15 +104,15 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     type(domain2d), target :: domain_in
     real, intent(in) :: dt_phys_in, dt_atmos_in 
     integer, intent(in) :: nlev_in
-    real, intent(in) :: lat_deg_in(:), lon_deg_in(:)
+    real, intent(in) :: lat_deg_in(:,:), lon_deg_in(:,:)
     type(restart_file_type), intent(inout) :: rstrt
     integer, intent(in) :: axes(4)
     
     real, allocatable :: fland(:,:), ilevs(:), ilevsp(:)
-    integer :: unit, i, j
-    integer :: jsg,jeg,isg,ieg
+    integer :: unit, i, j, nlon
     integer :: indx, num_prog, num_diag
     real :: tem1, tem2
+    type(ocpack_typeP), allocatable :: ocpkP(:,:)
 
     unit = open_namelist_file()
 
@@ -143,10 +144,6 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     ind_cli = get_tracer_index(MODEL_ATMOS, 'cli')
  
     call mpp_get_compute_domain(domain,js,je,is,ie)
-    call mpp_get_global_domain(domain,jsg,jeg,isg,ieg)
-
-    nlat = jeg - jsg + 1
-    nlon = ieg - isg + 1
 
     jlen = je - js + 1
     ilen = ie - is + 1
@@ -157,20 +154,21 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     allocate(lon_deg(js:je,is:ie))
     allocate(gdlen(js:je,is:ie))
 
-    do i = is, ie
-        lat_deg(js:je,i) = lat_deg_in(js:je)
-        lat_rad(js:je,i) = lat_deg_in(js:je)*PI/180.
-    enddo
+    lat_deg(js:je,is:ie) = lat_deg_in(js:je,is:ie)
+    lat_rad(js:je,is:ie) = lat_deg_in(js:je,is:ie)*PI/180.
 
-    do j = js, je
-        lon_deg(j,is:ie) = lon_deg_in(is:ie)
-        lon_rad(j,is:ie) = lon_deg_in(is:ie)*PI/180.
-    enddo
+    lon_deg(js:je,is:ie) = lon_deg_in(js:je,is:ie)
+    lon_rad(js:je,is:ie) = lon_deg_in(js:je,is:ie)*PI/180.
+
+    allocate(ocpkP(oc_npack(),oc_ny()))
+    call get_ocpackP(ocpkP) 
 
     do i = is, ie
         do j = js, je
+            nlon = ocpkP(1,j)%ilen
+            if (i>nlon) nlon = ocpkP(2,j)%ilen
             tem1 = 2. * PI * RADIUS * cos(lat_rad(j,i)) / nlon 
-            tem2 = PI * RADIUS / nlat
+            tem2 = PI * RADIUS / oc_nlat()
             gdlen(j,i) = sqrt(tem1**2 + tem2**2)
         enddo
     enddo
@@ -503,6 +501,11 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     call mpp_clock_end(clck_rad)
     !End Radiation
     !--------------------------------------------------------------------------------   
+
+    !call diag_manager_end(Time)
+
+    !call mpp_sync()
+    !call mpp_error(FATAL,'phys: testing...')
 
     call get_pressure_at_levels(p1,plvl,plyr,plvlk,plyrk)
     prslki = plvlk(1:nlev,:,:)/plyrk
