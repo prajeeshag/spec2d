@@ -1,16 +1,19 @@
 #!/bin/bash 
 
-usage() { echo "Usage: $0 -x nlon -y nlat [-n] [-r] [-v varlist] [-p optionlist] inputfiles" 1>&2; exit 1;}
+outdir="Unfold"
+usage() { echo "Usage: $0 -x nlon -y nlat [-n] [-r] [-v varlist] \
+				[-d outdir] [-p optionlist] inputfiles" 1>&2; exit 1;}
 
 npack=2
 reduce=1
 
-while getopts 'x:y:p:v:nr' flag; do
+while getopts 'x:d:y:p:v:nr' flag; do
     case "${flag}" in
 	p) oplist="$OPTARG" ;;
 	x) NLON="$OPTARG" ;;
 	y) NLAT="$OPTARG" ;;
 	v) valist="$OPTARG" ;;
+	d) outdir="$OPTARG" ;;
 	n) npack=1 ;;
 	r) reduce=0 ;;
     *)
@@ -40,6 +43,8 @@ optlist="\"$oplist\""
 fi
 
 tfile=$(mktemp)
+
+mkdir -p $outdir 
 
 echo $tfile
 
@@ -243,14 +248,14 @@ begin
 	atts = getvaratts(var)
 	if (all(ismissing(atts))) then
 		print("Cannot determine cartesian axis attribute for "+ax)
-		exit
+		status_exit(1)
 	end if	
 
-	if (any(atts.eq."cartesian_axis")) then
-		cart = var@cartesian_axis
-		return(cart)
-	else if (any(atts.eq."axis")) then
+	if (any(atts.eq."axis")) then
 		cart = var@axis
+		return(cart)
+	else if (any(atts.eq."cartesian_axis")) then
+		cart = var@cartesian_axis
 		return(cart)
 	end if
 	end if
@@ -260,8 +265,20 @@ begin
 		return(cart)
 	end if
 
-	print("Cannot determine cartesian axis attribute for "+ax)
-	exit
+	if (any(atts.eq."units")) then
+		if (any(XUNITS.eq.var@units)) then
+			return("X")
+		else if (any(YUNITS.eq.var@units)) then
+			return("Y")
+		else if (any(rm_single_dims(str_split_csv(var@units," ",0)).eq."since")) then
+			return("T")
+		end if
+		end if
+		end if
+	end if
+
+	print("FATAL: Cannot determine cartesian axis attribute for "+ax)
+	status_exit(1)
 end
 
 ;--------------------------------------------------------------------------------	
@@ -601,9 +618,9 @@ end
 
 do f = 0, dimsizes(filelist)-1
     filnm=filelist(f)
+	print(" "+filnm)
 	fi = addfile(filnm,"r")
-	outfnm = "gs"+NLAT+"_"+filnm
-	system("rm -rf "+outfnm)
+	outfnm = "$outdir/"+filnm
 	fo = addfile(outfnm,"c")
 
 	fvnms = getfilevarnames(fi)
@@ -634,6 +651,7 @@ do f = 0, dimsizes(filelist)-1
 		fromOcta_and_write(fo,fi,fvnms(i),intpmthd, axnm)	
 		delete(axnm)
 	end do
+	delete(fvnms)
 end do
 end
 

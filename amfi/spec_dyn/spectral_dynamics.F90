@@ -415,30 +415,7 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     
     call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs,lat_deriv=dphi%prs,lon_deriv=dlam%prs)
 
-    call write_data('test_oc','ps',gatm(1)%prs,domain=domain_g)
-
-    !do i = isp, iep
-    !    do j = jsp, jep
-    !        val = real(ocpkP(1,j)%g)
-    !        if(i>ocpkP(1,j)%ilen) val = real(ocpkP(2,j)%g)
-    !        gatm(1)%prs(1,j,i) = val
-    !    end do
-    !end do
-
     call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem,lat_deriv=dphi%tem,lon_deriv=dlam%tem)
-
-    call write_data('test_oc','tem',gatm(1)%tem,domain=domain_g)   
-
-    call grid_to_spherical(gatm(1)%tem,satm(2)%tem,do_trunc=.true.)
-    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem)
-
-    call write_data('test_oc','tem1',gatm(1)%tem,domain=domain_g)
-
-    call mpp_sync()
-    call fms_io_exit()
-    call mpp_sync()
-    call mpp_error(FATAL,'testing...')
-    
 
     call spherical_to_grid(satm(2)%div,grid=div)
     
@@ -590,7 +567,7 @@ subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
 
     call calc_mass_corr(exp(gatm(2)%prs(1,:,:)), tr, moist_ind, pcorr)
 
-    do j = jsp, jep
+    do k = 1, size(u,1)
         gatm(2)%u(k,jsp:jep,isp:iep) = u(k,jsp:jep,isp:iep) * cos_latP(jsp:jep,isp:iep) !-> to ucos
         gatm(2)%v(k,jsp:jep,isp:iep) = v(k,jsp:jep,isp:iep) * cos_latP(jsp:jep,isp:iep) !-> to vcos
     enddo

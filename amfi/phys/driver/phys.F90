@@ -20,7 +20,7 @@ use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS
 use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=), &
                              print_date
 
-use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
+use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data, diag_manager_end
 
 use tracer_manager_mod, only : get_tracer_index, get_tracer_name, get_number_tracers
 
@@ -501,6 +501,11 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     call mpp_clock_end(clck_rad)
     !End Radiation
     !--------------------------------------------------------------------------------   
+
+    !call diag_manager_end(Time)
+
+    !call mpp_sync()
+    !call mpp_error(FATAL,'phys: testing...')
 
     call get_pressure_at_levels(p1,plvl,plyr,plvlk,plyrk)
     prslki = plvlk(1:nlev,:,:)/plyrk

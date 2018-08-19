@@ -149,11 +149,11 @@ subroutine init_atmos(Time,deltim_in)
     call get_lonsP(deglon=lon_deg)
     call get_latsP(deglat=lat_deg)
     
-    !call init_phys(Time,deltim*2,deltim,domain_g,nlev,lat_deg,lon_deg,rstrt,axis)
+    call init_phys(Time,deltim*2,deltim,domain_g,nlev,lat_deg,lon_deg,rstrt,axis)
 
-    !call restore_state(rstrt)
+    call restore_state(rstrt)
     call restore_spec_restart()
-    !call save_restart(rstrt,'Ini')
+    call save_restart(rstrt,'Ini')
     call save_spec_restart('Ini')
 
 end subroutine init_atmos
@@ -167,27 +167,35 @@ subroutine update_atmos(Time)
 
     call spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 
-    !call write_data('rgloopa','u',u,domain_g)
-    !call write_data('rgloopa','v',v,domain_g)
-    !call write_data('rgloopa','p',p,domain_g)
-    !call write_data('rgloopa','tem',tem,domain_g)
+    !call write_data('test','u',u,domain_g)
+    !call write_data('test','v',v,domain_g)
+    !call write_data('test','p',p,domain_g)
+    !call write_data('test','tem',tem,domain_g)
     !
     !do ntr = 1, ntrac
     !    write(fldnm,'(A,I1)') 'tr',ntr
-    !    call write_data('rgloopa',fldnm,tr(:,:,:,ntr),domain_g) 
+    !    call write_data('test',fldnm,tr(:,:,:,ntr),domain_g) 
     !enddo
     !
-    !call write_data('rgloopa','u1',u1,domain_g)
-    !call write_data('rgloopa','v1',v1,domain_g)
-    !call write_data('rgloopa','p1',p1,domain_g)
-    !call write_data('rgloopa','tem1',tem1,domain_g)
+    !call write_data('test','u1',u1,domain_g)
+    !call write_data('test','v1',v1,domain_g)
+    !call write_data('test','p1',p1,domain_g)
+    !call write_data('test','tem1',tem1,domain_g)
     !
     !do ntr = 1, ntrac
     !    write(fldnm,'(A,I1)') 'tr',ntr
-    !    call write_data('rgloopa',trim(fldnm)//'_1',tr1(:,:,:,ntr),domain_g) 
+    !    call write_data('test',trim(fldnm)//'_1',tr1(:,:,:,ntr),domain_g) 
     !enddo
 
-    !call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
+    !call mpp_sync()
+
+    !call fms_io_exit()
+
+    !call mpp_sync()
+
+    !call mpp_error(FATAL,'atmos: testing...')
+
+    call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
 
     call finish_spectral_dynamics(Time,tem2,tr2,u2,v2)
 

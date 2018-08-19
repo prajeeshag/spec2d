@@ -1,13 +1,14 @@
 #!/bin/bash 
 
-usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-n] [-r] [-o outfile.nc] [-v vars] [-p optionlist]" 1>&2; exit 1;}
+usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-n] [-r] \
+			[-o outfile.nc] [-m output_mask_file] [-v vars] [-p optionlist]" 1>&2; exit 1;}
 
 npack=2
 reduce=1
 
 outfile=""
 
-while getopts 'x:y:i:o:v:p:nr' flag; do
+while getopts 'x:y:i:o:v:p:m:nr' flag; do
     case "${flag}" in
     x) NLON="$OPTARG" ;;
     y) NLAT="$OPTARG" ;;
@@ -15,6 +16,7 @@ while getopts 'x:y:i:o:v:p:nr' flag; do
     o) outfile="$OPTARG" ;;
 	v) valist="$OPTARG" ;;
 	p) oplist="$OPTARG" ;;
+	m) maskfile="$OPTARG" ;;
 	n) npack=1 ;;
 	r) reduce=0 ;;
     *)
@@ -55,6 +57,13 @@ NLAT = $NLAT
 ifpack="$npack".eq.2
 reduce="$reduce".eq.1
 
+maskfile="$maskfile"
+
+ifomask = True
+if (maskfile.eq."") then
+	ifomask=False
+end if
+
 NPACK=1
 if (ifpack) then
 	NPACK=2
@@ -63,7 +72,7 @@ end if
 
 if (mod(NLAT,2).ne.0) then
 	print("FATAL: NLAT should be a multiple of 2")
-	exit
+	status_exit(1)
 end if	
 
 YUNITS=(/"degrees_north", "degree_north", "degree_N", "degrees_N", "degreeN", "degreesN", \
@@ -218,7 +227,7 @@ end if
 if (nv .gt. dimsizes(vals)-1) then
 	print("FATAL: number of option values for option "+nm+ \
 		  " is less than the number of variable given in the list")
-	exit
+	status_exit(1)
 end if
 
 return(vals(nv))
@@ -235,7 +244,7 @@ begin
 	atts = getvaratts(var)
 	if (all(ismissing(atts))) then
 		print("Cannot determine cartesian axis attribute for "+ax)
-		exit
+		status_exit(1)
 	end if	
 
 	if (any(atts.eq."axis")) then
@@ -252,8 +261,20 @@ begin
 		return(cart)
 	end if
 
-	print("Cannot determine cartesian axis attribute for "+ax)
-	exit
+	if (any(atts.eq."units")) then
+		if (any(XUNITS.eq.var@units)) then
+			return("X")
+		else if (any(YUNITS.eq.var@units)) then
+			return("Y")
+		else if (any(rm_single_dims(str_split_csv(var@units," ",0)).eq."since")) then
+			return("T")
+		end if
+		end if
+		end if
+	end if
+
+	print("FATAL: Cannot determine cartesian axis attribute for "+ax)
+	status_exit(1)
 end
 
 ;--------------------------------------------------------------------------------	
@@ -285,7 +306,7 @@ begin
 
 	if (ynm.eq."".or.xnm.eq."") then
 		print("Cannot find X or Y coordinate for variable: "+varnm)
-		exit
+		status_exit(1)
 	end if
 
 	axnm = (/ynm,xnm/)
@@ -300,12 +321,14 @@ begin
 		delete(axnm1)
 	end if
 	
+	axnm@t=False
 	if (tnm.ne."") then
 		axnm1 = axnm
 		delete(axnm)
 		axnm=new(dimsizes(axnm1)+1,typeof(axnm1))
 		axnm(0) = tnm
 		axnm(1:) = axnm1
+		axnm@t=True
 		delete(axnm1)
 	end if
 
@@ -354,7 +377,8 @@ begin
 	dati = linint2_points_Wrap(xxi, yyi, datf, True, OCLON1d, OCLAT1d, 0) 
 
 	if (any(ismissing(dati))) then
-		print("WARNING: packed field contains missing values!!!!")
+		print("FATAL: packed field contains missing values!!!!")
+		status_exit(1)
 	end if
 
 	dato = reshape(dati,osiz)
@@ -385,7 +409,7 @@ begin
 
 	if (.not.isinteger(fi)) then
 		print("FATAL: fi of regrid_discrete should be of integer type")
-		exit 
+		status_exit(1) 
 	end if
 	
 	siz = dimsizes(fi)
@@ -393,7 +417,7 @@ begin
 
 	if (ndim.lt.2) then
 		print("FATAL: regrid_discrete: fi should be atleast a 2D field")
-		exit
+		status_exit(1)
 	end if
 	
 	nx=siz(ndim-1)
@@ -416,7 +440,7 @@ begin
 	
 	if (any(fi<0)) then
 		print("FATAL: fi for regrid_discrete should be positive values")
-		exit
+		status_exit(1)
 	end if
 	
 	maxtype = max(fi)
@@ -481,6 +505,64 @@ begin
 	return(fo)
 end
 
+;--------------------------------------------------------------------------------	
+function rval(dat:numeric,i:integer,r:integer)
+local dat, i, r, n
+begin
+;--------------------------------------------------------------------------------	
+
+	n = i + r 
+	if (n.ge.dimsizes(dat)) then
+		n = n-dimsizes(dat)
+	end if
+	return(dat(n))
+end
+
+;--------------------------------------------------------------------------------	
+function lval(dat:numeric,i:integer,r:integer)
+local dat, i, r, n
+begin
+;--------------------------------------------------------------------------------	
+
+	n = i - r 
+	if (n.lt.0) then
+		n = dimsizes(dat)+n
+	end if
+	return(dat(n))
+end
+
+;--------------------------------------------------------------------------------	
+function search_and_fill(dat:numeric,mask:numeric)
+local dat, mask, k, i, r, val, miss
+begin
+;--------------------------------------------------------------------------------
+
+	siz = dimsizes(dat)
+	nk = siz(0)
+	miss = new(siz,logical)
+	
+	do k = 0, nk - 1
+		miss = (dat(k,:)-mask).lt.0.
+	end do
+	
+    do k = 0, nk - 1
+		do i = 0, siz(1) - 1
+			if (.not.miss(k,i)) then
+				continue	
+			end if
+			do r = 1, siz(1)/2
+				val=max((/lval(dat(k,:),i,r),rval(dat(k,:),i,r)/))
+				if (val.gt.0) then
+					dat(k,i) = val
+					continue
+				end if
+			end do
+		end do
+	end do
+
+	return(dat)
+end
+
 ;-------------------------------------------------------------------------------
 function stack_and_fold_dtype(fi:numeric,xi:numeric,yi:numeric,ongrid:string,conv2int:logical)
 local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, j, k, ongrid, ongrd, conv2int, fi, dati
@@ -490,7 +572,7 @@ begin
 	if (.not.isinteger(fi)) then
 		if (.not.conv2int) then
 			print("FATAL: input array to stack_and_fold_dtype should be of integer type")
-			exit
+			status_exit(1)
 		end if
 		datf = tointeger(fi)
 		copy_VarMeta(fi,datf)
@@ -538,6 +620,24 @@ begin
 	osiz(ndim-2) = OCNY
 	osiz(ndim-1) = OCNX
 
+	if (ifomask) then
+		mfil=addfile(maskfile,"r")
+		omask = mfil->mask
+		if (any(dimsizes(omask)-(/OCNY,OCNX/).ne.0)) then
+			if (all(dimsizes(omask)-(/OCNX,OCNY/).eq.0)) then
+				otmp=transpose(omask)
+				delete(omask)
+				omask=otmp
+			else
+				print("FATAL: mask should be of the size [OCNY,OCNX]")
+				status_exit(1)
+			end if
+		end if
+	else
+		omask = new((/OCNY,OCNX/),float)
+		omask = 0. 
+	end if
+
 	datii = reshape(dati,(/howmany,ny,nx/))
 	datoi = new((/howmany,OCNY,OCNX/),typeof(dati)) 
 
@@ -553,15 +653,31 @@ begin
 				rfi(:,k,:) = datii(:,ip,:)
 			end do
             rfo = regrid_discrete_Wrap(LONF,latfi,rfi,lonc,latfi,False)
-			do k = 0, 1
-            	datoi(:,i,IS(j,i):IE(j,i)) = (/rfo(:,(ncopy+1)/2-1,:)/)
-			end do
+            datoi(:,i,IS(j,i):IE(j,i)) = (/rfo(:,(ncopy+1)/2-1,:)/)
 			delete(lonc)
 			delete(rfo)
         end do
     end do
 
-	dato = reshape(datoi,osiz)
+    do j = 0, NPACK-1
+        do i = 0, OCNY-1
+            rfo=datoi(:,i,IS(j,i):IE(j,i))
+			msk=omask(i,IS(j,i):IE(j,i))
+			datoi(:,i,IS(j,i):IE(j,i))=search_and_fill(rfo,msk)
+			delete(rfo)
+			delete(msk)
+		end do
+	end do
+
+	do k = 0, howmany-1
+		if (any(datoi(k,:,:)-omask.lt.0)) then
+			nmprbl=num(datoi(k,:,:)-omask.lt.0)
+			print("FATAL: mask problem - "+nmprbl)
+			;status_exit(1) 
+	    end if
+	end do		
+
+	dato = reshape(datoi,osiz)	
 
 	copy_VarCoords_2(dati,dato)
 
@@ -579,6 +695,7 @@ begin
 
 	return(dato)
 end
+
 
 ;-------------------------------------------------------------------------------
 function stack_and_fold_conserve(datf:numeric,xi:numeric,yi:numeric,ongrid:string)
@@ -797,7 +914,7 @@ begin
 		if (xynm@z) then
 			fo->\$vnm\$ = dato(\$xnm\$|:,\$ynm\$|:,\$znm\$|:)
 		else
-			fo->\$vnm\$ = dato(\$znm(0)\$|:,\$xnm\$|:,\$ynm\$|:)
+			fo->\$vnm\$ = dato(\$xynm(0)\$|:,\$xnm\$|:,\$ynm\$|:)
 		end if
 	else
 		fo->\$vnm\$ = dato(\$xnm\$|:,\$ynm\$|:)
@@ -833,13 +950,12 @@ if (ofile.eq."") then
 	ofile=pref+infile
 end if
 
-system("rm -rf "+ofile)
-fo = addfile(ofile,"c")
-
 fvnms = getfilevarnames(fi)
-
+recdimdefined=False
+fileopened=False
 do i = 0, dimsizes(fvnms)-1
 	if (any(fvnms(i).eq.getfilevardims(fi,fvnms(i)))) then
+		print("Skiping.. "+fvnms(i))
 		continue
 	end if
 	n = -1
@@ -850,15 +966,25 @@ do i = 0, dimsizes(fvnms)-1
 			end if
 		end do
 		if (n.lt.0) then
+			print("Skiping.. "+fvnms(i))
 			continue
 		end if
 	end if
 	axnm=find_axis_nms(fvnms(i),fi)
+	if (.not.fileopened) then
+		system("rm -rf "+ofile)
+		fo = addfile(ofile,"c")
+		fileopened = True
+	end if
+	if(axnm@t.and..not.recdimdefined) then
+		filedimdef(fo,axnm(0),-1,True)
+		recdimdefined=True
+	end if
 	intpmthd=get_option_val("interpmethod","linint",n)
 	ongrid=get_option_val("ongrid","FF",n)
 	conv2int=get_option_val("conv2int","F",n).eq."T"
 	print("stacking and folding "+fvnms(i)+" with options interpmethod = "+intpmthd+", ongrid = "+ongrid)
-	toOcta_and_write(fo,fi,fvnms(i),axnm,intpmthd,ongrid,conv2int)	
+	toOcta_and_write(fo,fi,fvnms(i),axnm,intpmthd,ongrid,conv2int)
 	delete(axnm)
 end do
 
