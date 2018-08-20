@@ -43,6 +43,8 @@ use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
 
 use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, get_ocpackP
 
+use spec_comm_mod, only : spec_comm_max
+
 implicit none
 private
 
@@ -452,7 +454,7 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
             dphi%tem, dlam%tem, dphi%tr, dlam%tr, dlam%u, dlam%v, dphi%u, dphi%v, &
             dt%prs, dt%tem, dt%tr, dt%u, dt%v, spdmax)
   
-    call mpi_max_arr(spdmax,size(spdmax))
+    call spec_comm_max(spdmax, size(spdmax), commID)
     spdmax = sqrt(spdmax)
 
     call grid_to_spherical(dt%prs, satm(3)%prs, do_trunc=.true.)
@@ -823,19 +825,5 @@ subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,delt)
 
     return
 end subroutine damp_speed
-
-subroutine mpi_max_arr(arr,n)
-    include 'mpif.h'
-    integer, intent(in) :: n
-    real(kind=8), intent(inout) :: arr(n) 
-    real(kind=8) :: buff(n) 
-    integer :: ierr
- 
-    call MPI_ALLREDUCE(arr, buff, n, MPI_REAL8, MPI_MAX, commID, ierr)
-
-    arr = buff
-
-    return
-end subroutine mpi_max_arr
 
 end module spectral_dynamics_mod

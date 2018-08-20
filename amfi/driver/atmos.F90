@@ -77,8 +77,6 @@ character(len=8) :: moist_tracer_names(10)
 integer :: moist_tracer_ind(10) = 0
 integer :: nmoist_tracers = 0
 
-namelist/atmos_nml/ trunc, maxlon, num_lat, reduced, packed, nlev
-
 contains
 
 
@@ -87,10 +85,13 @@ subroutine init_atmos(Time,deltim_in)
 !--------------------------------------------------------------------------------
     type(time_type), intent(in) :: Time
     real, intent(in) :: deltim_in
-    integer :: layout(2), tmp, idx
 
+    integer :: layout(2), tmp, idx
     integer :: num_prog, num_diag, n
     integer :: axis(4)
+    integer, allocatable :: extent(:)
+
+    namelist/atmos_nml/ trunc, maxlon, num_lat, reduced, packed, nlev, layout
 
     call mpp_init()
     call fms_init()
@@ -98,27 +99,35 @@ subroutine init_atmos(Time,deltim_in)
     unit = open_namelist_file()
     read(unit,nml=atmos_nml)
     call close_file(unit)
+    
+    deltim = deltim_in
+
+    if (any(layout==0)) then
+        layout = [1,mpp_npes()]
+    elseif (layout(1)*layout(2)/=mpp_npes()) then
+        call mpp_error(FATAL,'init_atmos: product of layout should be equal to npes')
+    endif
+
+    allocate(extent(layout(1)))
 
     if (maxlon>0) then
-        call init_ocpack(num_lat, trunc, 1, max_lon=maxlon, isreduced=reduced, ispacked=packed)
+        call init_ocpack(num_lat, trunc, layout(1), yextent=extent, &
+                    max_lon=maxlon, isreduced=reduced, ispacked=packed)
     else
-        call init_ocpack(num_lat, trunc, 1, isreduced=reduced, ispacked=packed)
+        call init_ocpack(num_lat, trunc, layout(1), yextent=extent, &
+                    isreduced=reduced, ispacked=packed)
     end if
 
     ocnx = oc_nx()
     ocny = oc_ny()
 
-    layout = [1,mpp_npes()]
-
-    deltim = deltim_in
-
-    call tracer_manager_init()
-    call get_number_tracers(MODEL_ATMOS,ntrac,num_prog,num_diag)
-
-    call mpp_define_domains( [1,ocny,1,ocnx], layout, domain_g, kxy=1)
+    call mpp_define_domains([1,ocny,1,ocnx], layout, domain_g, xextent=extent, kxy=1)
     call mpp_get_compute_domain(domain_g, jsp, jep, isp, iep)
     ilenp = iep - isp + 1
     jlenp = jep - jsp + 1
+
+    call tracer_manager_init()
+    call get_number_tracers(MODEL_ATMOS,ntrac,num_prog,num_diag)
 
     call data_override_init(Atm_domain_in=domain_g)
  

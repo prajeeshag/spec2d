@@ -416,25 +416,18 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
 end subroutine init_spherical1
 
 
-subroutine init_spherical2(domaing)
-    type(domain2D) :: domaing
-
+subroutine init_spherical2()
     notfpe = .true.
 
-    call mpp_get_compute_domain(domaing,jsf,jef)
     nlat = oc_nlat()
 
-    ms = 0; me = 0
-
+    ms = 0; me = -1
+    jsf = 0; jef = -1
     jlenf = jef - jsf + 1
 
-    if (mod(jsf,2)==0) call mpp_error('init_spherical', 'jsf should be a odd number!!!', FATAL)
-    if (mod(jlenf,2)/=0) call mpp_error('init_spherical', 'jlenf should be a even number!!!', FATAL)
-    if (mod(jef,2)/=0) call mpp_error('init_spherical', 'jef should be a even number!!!', FATAL)
-
-    js_hem = jsf/2 + 1
-    je_hem = (jef-1)/2 + 1
-    jlen_hem = jlenf/2
+    js_hem = 0
+    je_hem = -1
+    jlen_hem = 0
 
     call define_gaussian()
 
