@@ -2,7 +2,7 @@
 
 outdir="Unfold"
 usage() { echo "Usage: $0 -x nlon -y nlat [-n] [-r] [-v varlist] \
-				[-d outdir] [-p optionlist] inputfiles" 1>&2; exit 1;}
+[-d outdir] [-p optionlist] inputfiles" 1>&2; exit 1;}
 
 npack=2
 reduce=1
@@ -621,6 +621,10 @@ do f = 0, dimsizes(filelist)-1
 	print(" "+filnm)
 	fi = addfile(filnm,"r")
 	outfnm = "$outdir/"+filnm
+	if (fileexists(outfnm)) then
+		print("Error: File ("+outfnm+") already exist")
+		status_exit(1)
+	end if
 	fo = addfile(outfnm,"c")
 
 	fvnms = getfilevarnames(fi)
