@@ -27,7 +27,7 @@ use field_manager_mod, only : MODEL_ATMOS
 
 use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
 use spectral_dynamics_mod, only : get_latsP, get_lonsP, finish_spectral_dynamics, &
-                                  save_spec_restart, restore_spec_restart
+    save_spec_restart, restore_spec_restart, end_spectral_dynamics
   
 use phys_mod, only : init_phys, phys
 
@@ -217,7 +217,7 @@ subroutine end_atmos(Time)
     type(time_type), intent(in) :: Time
 
     call save_restart(rstrt)
-    call save_spec_restart()
+    call end_spectral_dynamics()
 
     deallocate(u)
     deallocate(v)

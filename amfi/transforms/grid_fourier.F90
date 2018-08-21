@@ -20,7 +20,7 @@ use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, N
 use ocpack_mod, only : ocpack_typeP, ocpack_typeF, oc_nx, oc_ny, oc_nlat, oc_maxlon, &
                        npack=>oc_npack, oc_isreduced, oc_nfour, get_ocpackP
 
-use spec_comm_mod, only : split_pelist, spec_comm_allgather
+use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_pe
 
 use strman_mod, only : int2str
 
@@ -57,7 +57,7 @@ endtype plan_type
 integer(C_INTPTR_T) :: MXLON, MXLON2, NFOUR, NFOUR2, MXFOUR, MXFOUR2
 integer(C_INTPTR_T) :: NX_LOCAL, FLOCAL, FLOCAL2, NX, FBLOCK, FBLOCK2
 integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
-integer :: COMM_FFT
+integer :: COMM_FFT, COMM_PARENT
 real, allocatable :: RSCALE(:,:)
 
 integer, allocatable :: Tshuffle(:), Tshuffle2(:)
@@ -133,8 +133,9 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     allocate(allpes(mpp_npes()))
     allocate(pes(layout(2)))
 
+    call mpp_get_current_pelist(commid=COMM_PARENT)
+
     COMM_FFT = 0    
- 
     jee = 0
     do j = 1, size(extent)
         jee = jee + extent(j)
@@ -264,9 +265,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     FLOCAL2 = FLOCAL * npack()
 
     call mpp_set_current_pelist(pes,no_sync=.true.)
-    print *, flen
     call spec_comm_allgather([flen], fextent)
-    print *, mpp_root_pe()
 
     call mpp_set_current_pelist()
 
@@ -367,7 +366,6 @@ function plan_grid_to_fourier(howmany)
     g2fp(n)%r2c = c_loc(g2fp(n)%rsF)
     call c_f_pointer(g2fp(n)%r2c, g2fp(n)%sF, [howmany2, FLOCAL])
 
-    call save_wisdom()
     call mpp_clock_end(clck_plan_g2f)
 
     return
@@ -405,8 +403,6 @@ function import_wisdom(nl)
         call mpp_error(NOTE, 'grid_fourier_mod: no wisdom file found')
     endif
 
-    call mpp_sync()
-
     import_wisdom = isuccess
     return
 end function import_wisdom 
@@ -416,15 +412,13 @@ subroutine save_wisdom()
 !--------------------------------------------------------------------------------   
     integer :: unitw
 
-    call fftw_mpi_gather_wisdom(COMM_FFT)
+    call fftw_mpi_gather_wisdom(COMM_PARENT)
 
-    if (mpp_pe()==mpp_root_pe()) then
+    if (spec_comm_pe(COMM_PARENT)==0) then
         unitw = open_file(file=trim(wsdmfnm),action='write',form='ascii') 
         call export_wisdom_to_file(unitw)
         call close_file(unitw)
     endif
-
-    call mpp_sync()
 
     return
 end subroutine save_wisdom 
@@ -437,7 +431,7 @@ function num_plans_for(hmlen, shm, howmany)
     hms = shm + 1 ! shmn is start of homany from fftw, which starts from 0.
     hme = hms + hmlen - 1
     nk = howmany/jlenp
-    print *, 'howmany, jlenp=', howmany, jlenp
+    
     num_plans_for = 0
     h = hms
     remh = hmlen
@@ -765,8 +759,6 @@ function plan_fourier_to_grid(howmany)
     f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
     call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, FLOCAL])
 
-    call save_wisdom()
-
     call mpp_clock_end(clck_plan_f2g)
     
     return
@@ -876,6 +868,7 @@ subroutine end_grid_fourier()
 !--------------------------------------------------------------------------------   
     implicit none
 
+    call save_wisdom()
     call fftw_mpi_cleanup()
 
 end subroutine end_grid_fourier

@@ -83,7 +83,7 @@ integer :: id_rsds, id_rsus, id_rsns, id_dtlw, id_dtrd, id_shflx, id_lhflx, id_t
 integer :: id_dugwd, id_dvgwd, id_ducgwd, id_dvcgwd
 integer :: id_dtcu, id_ducu, id_dvcu, id_lprcu, id_kcnv, id_fprcu
 integer :: id_dtsc, id_dtmp, id_lprmp, id_fprmp, id_inmpclw, id_inmpq
-integer :: id_dtphy, id_lpr, id_fpr, id_pr, id_duphy, id_dvphy, id_ua, id_va
+integer :: id_dtphy, id_lpr, id_fpr, id_pr, id_duphy, id_dvphy, id_ua, id_va, id_ta
            
 
 integer, allocatable, dimension(:) :: id_dtrvd, id_dtrmp, id_dtrphy, id_dtrcu, id_dtrsc, id_trin
@@ -376,6 +376,8 @@ subroutine init_diag_out(Time, axes)
                'u-velocity (phys-in)', 'ms-1')
     id_va = reg_df(rou, 'va', [axes(3),axes(1),axes(2)], time,  &
                'v-velocity (phys-in)', 'ms-1')
+    id_ta = reg_df(rou, 'ta', [axes(3),axes(1),axes(2)], time,  &
+               'Temperature', 'K')
     id_dtphy = reg_df(rou, 'dtphy', [axes(3),axes(1),axes(2)], time,  &
                'temperature tendency (phys)', 'k s-1')
     id_duphy = reg_df(rou, 'duphy', [axes(3),axes(1),axes(2)], time,  &
@@ -684,6 +686,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     if (id_dvphy>0) used = send_data(id_dvphy, rdt_phys*(dvdt-v1), Time)
     if (id_ua>0) used = send_data(id_ua, u1, Time)
     if (id_va>0) used = send_data(id_va, v1, Time)
+    if (id_ta>0) used = send_data(id_ta, tlyr1, Time)
     do n = 1, ntrac
         if (id_dtrphy(n)>0) used = send_data(id_dtrphy(n), rdt_phys*(dqdt(:,:,:,n) &
                                                  - tr1(:,:,:,n)), Time)

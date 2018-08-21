@@ -30,7 +30,7 @@ use field_manager_mod, only : MODEL_ATMOS
 use transforms_mod, only : get_spherical_wave, get_lonsP, compute_ucos_vcos, compute_vor_div, &
                            spherical_to_grid, grid_to_spherical, init_transforms, get_latsF, &
                            register_spec_restart, save_spec_restart, get_latsP, &
-                           restore_spec_restart 
+                           restore_spec_restart, end_transforms
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel, &
                                get_pressure_at_levels
@@ -49,7 +49,7 @@ implicit none
 private
 
 public :: init_spectral_dynamics, spectral_dynamics, get_latsP, get_lonsP, &
-          finish_spectral_dynamics, save_spec_restart, restore_spec_restart
+          finish_spectral_dynamics, save_spec_restart, restore_spec_restart, end_spectral_dynamics
 
 type satm_type
     complex, dimension(:,:,:),   allocatable :: vor
@@ -266,6 +266,57 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
 
 end subroutine init_spectral_dynamics
 
+subroutine end_spectral_dynamics()
+    integer :: i
+
+    call save_spec_restart() 
+ 
+    deallocate(sucos)
+    deallocate(svcos)
+    deallocate(stmp3d)
+    deallocate(stmp3d1)
+    
+    do i = 1, 3
+        deallocate(satm(i)%vor)
+        deallocate(satm(i)%div)
+        deallocate(satm(i)%tem)
+        deallocate(satm(i)%tr)
+        deallocate(satm(i)%prs)
+    enddo
+    deallocate(stopo)
+    do i = 1, 2
+        deallocate(gatm(i)%u)
+        deallocate(gatm(i)%v)
+        deallocate(gatm(i)%tem)
+        deallocate(gatm(i)%tr)
+        deallocate(gatm(i)%prs)
+    enddo
+    
+    deallocate(dphi%u)
+    deallocate(dphi%v)
+    deallocate(dphi%tem)
+    deallocate(dphi%tr)
+    deallocate(dphi%prs)
+    
+    deallocate(dlam%u)
+    deallocate(dlam%v)
+    deallocate(dlam%tem)
+    deallocate(dlam%tr)
+    deallocate(dlam%prs)
+    
+    deallocate(dt%u)
+    deallocate(dt%v)
+    deallocate(dt%tem)
+    deallocate(dt%tr)
+    deallocate(dt%prs)
+    
+    deallocate(div)
+    deallocate(vor)
+    deallocate(spdmax)
+
+    call end_transforms()
+    
+end subroutine end_spectral_dynamics 
 
 !--------------------------------------------------------------------------------   
 subroutine init_data() 

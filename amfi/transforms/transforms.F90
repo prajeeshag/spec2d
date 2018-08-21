@@ -34,7 +34,7 @@ use spherical_mod, only : get_latsP, get_wdecompa, get_latsF
 use ocpack_mod, only : npack=>oc_npack, get_ocpackF, get_ocpackP, ocpack_typeP, ocpack_typeF, &
         oc_ny, oc_nx, oc_nlat, oc_maxlon, oc_nfour, oc_isreduced
 
-use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_sum
+use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_sum=>spec_comm_sumI
                         
 implicit none
 private
@@ -43,7 +43,7 @@ public :: compute_ucos_vcos, compute_vor_div, get_latsF, get_latsP, &
          get_wdecomp, get_spherical_wave, get_lonsP, get_wdecompa, &
          spherical_to_grid, grid_to_spherical, init_transforms, &
          register_spec_restart, save_spec_restart, restore_spec_restart, &
-         comm_f_y, comm_f_all, isfpe
+         comm_f_y, comm_f_all, isfpe, end_transforms
 
 !--> tranforms_mod operates both on P-grid and F-grid, so it need grid
 ! parameters in both the grids. F-grid is for fourier. 
@@ -69,7 +69,7 @@ type(ocpack_typeP), allocatable :: ocP(:,:)
 integer :: nwaves_oe=0
 integer :: nwaves_oe_total=0
 
-logical :: fpe=.false. 
+logical :: fpe=.false., fpe_write=.false.
 
 integer, allocatable :: parentpes(:), fpesy(:)
 integer, allocatable :: fpesall(:), fextent(:)
@@ -174,6 +174,7 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     call split_pelist(ilenf>0, pelist, npes, f_all_comm)
     allocate(fpesall(npes))
     fpesall = pelist(1:npes)
+
     fpe = any(fpesall==mpp_pe())
 
     allocate(fpesy(npes/layout(1)))
@@ -184,6 +185,8 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
         call split_pelist(jee==jep.and.ilenf>0, fpesy, npes, f_y_comm)
     end do
 
+    fpe_write=fpe.and.jep==0
+
     allocate(spextent(npes))
     
     isf = 0; ief = -1 
@@ -193,7 +196,6 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     if (fpe) then
         call mpp_set_current_pelist(fpesall,no_sync=.true.)
         layout(2) = mpp_npes()/layout(1)
-        print *, fextent(1:layout(2))
         call mpp_define_domains([1,oc_nlat(), 0,num_fourier], layout, domainf, &
                                 xextent=yextent*npack(), yextent=fextent(1:layout(2)))
 
@@ -242,6 +244,12 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
 
     return
 end subroutine init_transforms
+
+subroutine end_transforms()
+    
+    call end_grid_fourier()
+
+end subroutine end_transforms
 
 logical function isfpe()
     if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
@@ -352,7 +360,7 @@ subroutine save_spec_restart(tstamp)
 !--------------------------------------------------------------------------------   
     character(len=*), optional, intent(in) :: tstamp
 
-    if(.not.fpe) return
+    if(.not.fpe_write) return
 
     call mpp_set_current_pelist(fpesall,no_sync=.true.)
     call save_restart(specres,tstamp)

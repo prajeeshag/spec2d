@@ -55,13 +55,10 @@ subroutine init_horiz_diffusion(jcap,deltim,sl,sph_wave,bk5)
         endif
     enddo
 
-    print *, 'npes coef=', spec_comm_npes(comm_f_y())
-
     allocate(coefpelist(spec_comm_npes(comm_f_y())))
 
     call spec_comm_allgather([coef_from_pe],coefpelist,comm_f_y())
 
-    print *, count(coefpelist>=0)
     if (count(coefpelist>=0)/=1) &
             call mpp_error('init_horiz_diffusion','Error in finding coef_from_pe', FATAL)
 
