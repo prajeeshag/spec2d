@@ -4,12 +4,15 @@ use constants_mod, only : rerth => RADIUS,  rd => RDGAS, cp => CP_AIR
 
 use mpp_mod, only : mpp_broadcast, mpp_pe, mpp_root_pe, mpp_gather, mpp_npes
 use mpp_mod, only : mpp_error, FATAL
+
+use transforms_mod, only : comm_f_y, comm_f_all, isfpe
+
+use spec_comm_mod, only : spec_comm_pe, spec_comm_npes, spec_comm_allgather, spec_comm_bcast
     
 implicit none
 private
 
 public :: init_horiz_diffusion, horiz_diffusion
-
 
 real, parameter :: rkappa = cp / rd
 
@@ -37,29 +40,29 @@ subroutine init_horiz_diffusion(jcap,deltim,sl,sph_wave,bk5)
     integer :: n0, jdel, np, jdelh, npd, nd
     integer :: i, k, j, kd, ku
 
+    if (.not.isfpe()) return
+
     levs = size(sl,1)
+    
+    coef_from_pe = -1
 
     do i = 1, size(sph_wave,1)
         if (sph_wave(i,1) == 0) then
             coef_pe = .true.
             coef_idx = i
-            coef_from_pe = mpp_pe()
+            coef_from_pe = spec_comm_pe(comm_f_y())
             exit
         endif
     enddo
 
-    allocate(coefpelist(mpp_npes()))
+    allocate(coefpelist(spec_comm_npes(comm_f_y())))
 
-    call mpp_gather([coef_from_pe],coefpelist)
+    call spec_comm_allgather([coef_from_pe],coefpelist,comm_f_y())
 
-    if (mpp_pe()==mpp_root_pe()) then
-        if (count(coefpelist>=0)/=1) &
+    if (count(coefpelist>=0)/=1) &
             call mpp_error('init_horiz_diffusion','Error in finding coef_from_pe', FATAL)
 
-        coef_from_pe=maxval(coefpelist)
-    endif
-
-    call mpp_broadcast(coef_from_pe,mpp_root_pe())
+    coef_from_pe=maxval(coefpelist)
 
     allocate(bkly(levs),sf(levs)) 
     allocate(rfact(levs,size(sph_wave,1),2))
@@ -159,7 +162,7 @@ subroutine horiz_diffusion(rte,we,xe,ye,qme)
         coef00(:) = real(ye(:,coef_idx,1))
     endif 
 
-    call mpp_broadcast(coef00,size(coef00),coef_from_pe)
+    call spec_comm_bcast(coef00, size(coef00), coef_from_pe, comm_f_y())
     call updown(coef00)
 
     we(:,:,:) = we(:,:,:)*rfactrd(:,:,:)

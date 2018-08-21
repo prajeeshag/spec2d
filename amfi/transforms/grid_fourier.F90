@@ -8,9 +8,11 @@ module grid_fourier_mod
 use, intrinsic :: iso_c_binding
 
 use mpp_mod, only : mpp_pe, mpp_npes, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
-                    mpp_sync, mpp_root_pe, CLOCK_MODULE, CLOCK_ROUTINE
+        mpp_sync, mpp_root_pe, CLOCK_MODULE, CLOCK_ROUTINE, mpp_gather, mpp_broadcast, &
+        mpp_set_current_pelist, mpp_get_current_pelist, mpp_declare_pelist
 
-use mpp_domains_mod, only : domain2D, mpp_get_compute_domain 
+use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_layout, &
+        mpp_get_domain_extents
 
 use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, NOTE, &
                     open_file, close_file, file_exist
@@ -18,10 +20,12 @@ use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, N
 use ocpack_mod, only : ocpack_typeP, ocpack_typeF, oc_nx, oc_ny, oc_nlat, oc_maxlon, &
                        npack=>oc_npack, oc_isreduced, oc_nfour, get_ocpackP
 
+use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_pe
+
 use strman_mod, only : int2str
 
 implicit none
-
+include 'mpif.h'
 include 'fftw3-mpi.f03'
 
 private
@@ -53,7 +57,7 @@ endtype plan_type
 integer(C_INTPTR_T) :: MXLON, MXLON2, NFOUR, NFOUR2, MXFOUR, MXFOUR2
 integer(C_INTPTR_T) :: NX_LOCAL, FLOCAL, FLOCAL2, NX, FBLOCK, FBLOCK2
 integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
-integer :: COMM_FFT
+integer :: COMM_FFT, COMM_PARENT
 real, allocatable :: RSCALE(:,:)
 
 integer, allocatable :: Tshuffle(:), Tshuffle2(:)
@@ -73,6 +77,8 @@ type(plan_type) :: g2fp(max_plans), f2gp(max_plans)
 
 integer :: jsp, jep, jlenp 
 integer :: isp, iep, ilenp
+integer :: layout(2)
+integer, allocatable :: pes(:)
 
 type(ocpack_typeP), allocatable :: ocP(:,:)
 
@@ -83,14 +89,14 @@ namelist/grid_fourier_nml/plan_level, debug
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
+subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
 !--------------------------------------------------------------------------------   
     implicit none
     type(domain2D), intent(in) :: domain
     integer, intent(in) :: trunc ! fourier truncation
     integer, intent(out) :: flen ! No: fouriers in this proc
     integer, intent(out) :: isf ! Starting of the fourier in this proc
-    integer, intent(in) :: comm_in !MPI Communicator
+    integer, intent(out) :: fextent(:)
     integer, intent(out), optional :: Tshuff(trunc+1) !if present shuffle the fourier for 
                                                          !load balance for triangular truncation
                                                          !and give the order of shuffled fouriers
@@ -100,6 +106,8 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
     integer(C_INTPTR_T) :: alloc_local, n0(2)
     integer(C_INTPTR_T) :: howmany
     real :: rnlon
+    integer :: jee, pe, ierr, npes
+    integer, allocatable :: allpes(:), extent(:), xextent(:)
 
     unit = open_namelist_file()
 
@@ -107,11 +115,33 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
 
     call close_file(unit)
 
+    call mpp_get_layout(domain,layout)
+
+    allocate(extent(layout(1)))
+    allocate(xextent(layout(2)))
+
+    if (size(fextent)/=layout(2)) call mpp_error(FATAL,'init_grid_fourier: fextent '//&
+                                    'array size must be equal to layout(2)')
+
     call mpp_get_compute_domain(domain,jsp,jep,isp,iep)
+
+    call mpp_get_domain_extents(domain,extent,xextent)
 
     jlenp = jep - jsp + 1
     ilenp = iep - isp + 1
- 
+
+    allocate(allpes(mpp_npes()))
+    allocate(pes(layout(2)))
+
+    call mpp_get_current_pelist(commid=COMM_PARENT)
+
+    COMM_FFT = 0    
+    jee = 0
+    do j = 1, size(extent)
+        jee = jee + extent(j)
+        call split_pelist(jee==jep, pes, npes, COMM_FFT)
+    end do
+
     allocate(ocP(npack(),oc_ny()))
     call get_ocpackP(ocP)
 
@@ -130,8 +160,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
     NFOUR    = trunc + 1
     MXFOUR   = MXLON/2+1
     NX_LOCAL = ilenp
-    COMM_FFT = comm_in
-    FBLOCK = ceiling(real(NFOUR)/mpp_npes())
+    FBLOCK = ceiling(real(NFOUR)/layout(2))
 
     NFOUR2  = NFOUR  * npack()
     MXLON2  = MXLON  * npack()
@@ -155,7 +184,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
         & set plan_level (accepted values are 0-3) in grid_fourier_nml', FATAL)
     end select
 
-    if(mod(NX,mpp_npes())/=0) &
+    if(mod(NX,layout(2))/=0) &
         call mpp_error('grid_fourier_mod','npes in x-dir should be a factor of NX='//trim(int2str(NX)), FATAL)
 
     call fftw_mpi_init()
@@ -218,7 +247,8 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
     local_n1_prev = local_n1
 
     if (ilenp/=local_n0) & 
-        call mpp_error('init_grid_fourier', 'ilenp/=local_n0', FATAL)
+        call mpp_error('init_grid_fourier', 'ilenp/=local_n0 : '//trim(int2str(ilenp))//&
+                        ', '//trim(int2str(local_n0)), FATAL)
 
     n0=[howmany,NFOUR]
 
@@ -233,6 +263,11 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, comm_in, Tshuff)
     flen    = local_n1
     FLOCAL  = local_n1 
     FLOCAL2 = FLOCAL * npack()
+
+    call mpp_set_current_pelist(pes,no_sync=.true.)
+    call spec_comm_allgather([flen], fextent)
+
+    call mpp_set_current_pelist()
 
     initialized = .true.
     call mpp_error('init_grid_fourier', '----Initialized----', NOTE)
@@ -331,7 +366,6 @@ function plan_grid_to_fourier(howmany)
     g2fp(n)%r2c = c_loc(g2fp(n)%rsF)
     call c_f_pointer(g2fp(n)%r2c, g2fp(n)%sF, [howmany2, FLOCAL])
 
-    call save_wisdom()
     call mpp_clock_end(clck_plan_g2f)
 
     return
@@ -350,8 +384,11 @@ function import_wisdom(nl)
     write(tmpc,*) nl
     wsdmfnm = trim(wsdmfnm)//'_'//trim(adjustl(tmpc)) 
 
-    write(tmpc,*) mpp_npes()
+    write(tmpc,*) layout(1)
     wsdmfnm = trim(wsdmfnm)//'_'//trim(adjustl(tmpc)) 
+
+    write(tmpc,*) layout(2)
+    wsdmfnm = trim(wsdmfnm)//'x'//trim(adjustl(tmpc)) 
 
     if (file_exist(trim(wsdmfnm))) then
         unitw = open_file(file=trim(wsdmfnm),action='read',form='ascii') 
@@ -366,8 +403,6 @@ function import_wisdom(nl)
         call mpp_error(NOTE, 'grid_fourier_mod: no wisdom file found')
     endif
 
-    call mpp_sync()
-
     import_wisdom = isuccess
     return
 end function import_wisdom 
@@ -377,15 +412,13 @@ subroutine save_wisdom()
 !--------------------------------------------------------------------------------   
     integer :: unitw
 
-    call fftw_mpi_gather_wisdom(COMM_FFT)
+    call fftw_mpi_gather_wisdom(COMM_PARENT)
 
-    if (mpp_pe()==mpp_root_pe()) then
+    if (spec_comm_pe(COMM_PARENT)==0) then
         unitw = open_file(file=trim(wsdmfnm),action='write',form='ascii') 
         call export_wisdom_to_file(unitw)
         call close_file(unitw)
     endif
-
-    call mpp_sync()
 
     return
 end subroutine save_wisdom 
@@ -398,7 +431,7 @@ function num_plans_for(hmlen, shm, howmany)
     hms = shm + 1 ! shmn is start of homany from fftw, which starts from 0.
     hme = hms + hmlen - 1
     nk = howmany/jlenp
-
+    
     num_plans_for = 0
     h = hms
     remh = hmlen
@@ -726,8 +759,6 @@ function plan_fourier_to_grid(howmany)
     f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
     call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, FLOCAL])
 
-    call save_wisdom()
-
     call mpp_clock_end(clck_plan_f2g)
     
     return
@@ -837,6 +868,7 @@ subroutine end_grid_fourier()
 !--------------------------------------------------------------------------------   
     implicit none
 
+    call save_wisdom()
     call fftw_mpi_cleanup()
 
 end subroutine end_grid_fourier

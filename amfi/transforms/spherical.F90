@@ -7,7 +7,7 @@ use mpp_mod, only : mpp_root_pe, mpp_sync, mpp_clock_id, mpp_clock_begin
 use mpp_mod, only : mpp_clock_end
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_layout, &
-                            mpp_get_global_domain
+                            mpp_get_global_domain, mpp_get_domain_extents
 
 use fms_mod, only : fms_init, open_namelist_file, close_file
 
@@ -19,6 +19,8 @@ use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian
 
 use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackF, oc_nx, oc_ny, &
                 oc_nlat, npack=>oc_npack, hem_type, get_hem
+
+use spec_comm_mod, only : split_pelist, spec_comm_sum=>spec_comm_sumDC, spec_comm_waitall
 
 !-------------------------------------------------------------------------
 !   provides operations on spectral spherical harmonics fields that do not 
@@ -34,6 +36,9 @@ use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackF, oc_
 
 
 implicit none
+
+include 'mpif.h'
+
 private
 
 public :: init_spherical, get_wdecomp, get_latsF, get_latsP, get_wdecompa
@@ -122,6 +127,8 @@ integer :: clck_f2s, clck_s2f
 
 integer, parameter, public :: ev=1, od=2
 
+integer :: f_x_comm
+
 logical :: initialized=.false., notfpe=.false.
 
 interface init_spherical
@@ -146,7 +153,8 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     integer :: nsf4ma(0:trunc_in), nef4ma(0:trunc_in), nlenf4ma(0:trunc_in)
     integer, allocatable :: wsf4m(:,:), wef4m(:,:), wlenf4m(:,:)
     integer, allocatable :: wsf4ma(:,:), wef4ma(:,:), wlenf4ma(:,:)
-    integer :: we, wo, j
+    integer :: we, wo, j, layout(2), mee, npes
+    integer, allocatable :: xextent(:), yextent(:), pes(:)
     character (len=8) :: suffix
 
     namelist/spherical_nml/debug
@@ -197,6 +205,20 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     else
         forall(m=ms:me) tshuffle(m) = m
     endif
+
+    call mpp_get_layout(domain_fourier_in,layout)
+
+    allocate(yextent(layout(1)))
+    allocate(xextent(layout(2)))
+    allocate(pes(layout(1)))
+
+    call mpp_get_domain_extents(domain_fourier_in, yextent, xextent)
+ 
+    mee = -1
+    do m = 1, layout(2)
+        mee = mee + xextent(m)
+        call split_pelist(mee==me,pes,npes,f_x_comm)
+    end do
 
     allocate(wsf4m(0:num_fourier,2))
     allocate(wef4m(0:num_fourier,2))
@@ -416,25 +438,18 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
 end subroutine init_spherical1
 
 
-subroutine init_spherical2(domaing)
-    type(domain2D) :: domaing
-
+subroutine init_spherical2()
     notfpe = .true.
 
-    call mpp_get_compute_domain(domaing,jsf,jef)
     nlat = oc_nlat()
 
-    ms = 0; me = 0
-
+    ms = 0; me = -1
+    jsf = 0; jef = -1
     jlenf = jef - jsf + 1
 
-    if (mod(jsf,2)==0) call mpp_error('init_spherical', 'jsf should be a odd number!!!', FATAL)
-    if (mod(jlenf,2)/=0) call mpp_error('init_spherical', 'jlenf should be a even number!!!', FATAL)
-    if (mod(jef,2)/=0) call mpp_error('init_spherical', 'jef should be a even number!!!', FATAL)
-
-    js_hem = jsf/2 + 1
-    je_hem = (jef-1)/2 + 1
-    jlen_hem = jlenf/2
+    js_hem = 0
+    je_hem = -1
+    jlen_hem = 0
 
     call define_gaussian()
 
@@ -1276,6 +1291,8 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 
     logical :: useHnm1, do_trunc1
     integer :: ks, ke, ews, ewe, ows, owe, m, k, nj, j, js, jn
+    integer :: rqst(ms:me,2)
+    complex, dimension(size(waves,1),size(waves,2),size(waves,3)) :: buff
 
     if (notfpe) return
 
@@ -1298,12 +1315,16 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             odd(ks:ke,j,ms:me)  = fourier(ks:ke,jn,ms:me) + fourier(ks:ke,js,ms:me) ! 
             even(ks:ke,j,ms:me) = fourier(ks:ke,jn,ms:me) - fourier(ks:ke,js,ms:me) !
         end do
+
         do m = ms, me
             if(wlen4m(m,ev)<1) cycle
             ews = ws4m(m,ev); ewe = we4m(m,ev)
             call do_matmul(even(ks:ke,js_hem:je_hem,m), &
                            Hnm_wts(1:jlen_hem,ews:ewe,ev), &
-                           waves(ks:ke,ews:ewe,ev),'N')
+                           buff(ks:ke,ews:ewe,ev),'N')
+
+            !call spec_comm_Isum_all(size(buff(ks:ke,ews:ewe,ev)), buff(ks:ke,ews:ewe,ev), &
+            !            waves(ks:ke,ews:ewe,ev), rqst(m,ev), f_x_comm)
         enddo
 
         do m = ms, me
@@ -1311,10 +1332,13 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             ows = ws4m(m,od); owe = we4m(m,od)
             call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
                            Hnm_wts(1:jlen_hem,ows:owe,od), &
-                           waves(ks:ke,ows:owe,od),'N')
+                           buff(ks:ke,ows:owe,od),'N')
+            !call spec_comm_Isum_all(size(buff(ks:ke,ows:owe,od)), buff(ks:ke,ows:owe,od), &
+            !            waves(ks:ke,ows:owe,od), rqst(m,od), f_x_comm)
         enddo 
 
     else
+
         do j = js_hem, je_hem 
             js = jh(j)%s
             jn = jh(j)%n
@@ -1327,7 +1351,9 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             ews = ws4m(m,ev); ewe = we4m(m,ev)
             call do_matmul(even(ks:ke,js_hem:je_hem,m), &
                            Pnm_wts(1:jlen_hem,ews:ewe,ev), &
-                           waves(ks:ke,ews:ewe,ev),'N')
+                           buff(ks:ke,ews:ewe,ev),'N')
+            !call spec_comm_Isum_all(size(buff(ks:ke,ews:ewe,ev)), buff(ks:ke,ews:ewe,ev), &
+            !            waves(ks:ke,ews:ewe,ev), rqst(m,ev), f_x_comm)
         enddo
 
         do m = ms, me
@@ -1335,9 +1361,15 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             ows = ws4m(m,od); owe = we4m(m,od)
             call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
                            Pnm_wts(1:jlen_hem,ows:owe,od), &
-                           waves(ks:ke,ows:owe,od),'N')
+                           buff(ks:ke,ows:owe,od),'N')
+            !call spec_comm_Isum_all(size(buff(ks:ke,ows:owe,od)), buff(ks:ke,ows:owe,od), &
+            !            waves(ks:ke,ows:owe,od), rqst(m,od), f_x_comm)
         enddo 
     endif
+
+    call spec_comm_sum(buff, size(buff), f_x_comm)
+    waves = buff
+    !call spec_comm_waitall(size(rqst),rqst)
 
     call do_truncation(waves,do_trunc1)
 

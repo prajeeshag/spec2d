@@ -30,7 +30,7 @@ use field_manager_mod, only : MODEL_ATMOS
 use transforms_mod, only : get_spherical_wave, get_lonsP, compute_ucos_vcos, compute_vor_div, &
                            spherical_to_grid, grid_to_spherical, init_transforms, get_latsF, &
                            register_spec_restart, save_spec_restart, get_latsP, &
-                           restore_spec_restart 
+                           restore_spec_restart, end_transforms
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel, &
                                get_pressure_at_levels
@@ -43,11 +43,13 @@ use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
 
 use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, get_ocpackP
 
+use spec_comm_mod, only : spec_comm_max
+
 implicit none
 private
 
 public :: init_spectral_dynamics, spectral_dynamics, get_latsP, get_lonsP, &
-          finish_spectral_dynamics, save_spec_restart, restore_spec_restart
+          finish_spectral_dynamics, save_spec_restart, restore_spec_restart, end_spectral_dynamics
 
 type satm_type
     complex, dimension(:,:,:),   allocatable :: vor
@@ -264,6 +266,57 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
 
 end subroutine init_spectral_dynamics
 
+subroutine end_spectral_dynamics()
+    integer :: i
+
+    call save_spec_restart() 
+ 
+    deallocate(sucos)
+    deallocate(svcos)
+    deallocate(stmp3d)
+    deallocate(stmp3d1)
+    
+    do i = 1, 3
+        deallocate(satm(i)%vor)
+        deallocate(satm(i)%div)
+        deallocate(satm(i)%tem)
+        deallocate(satm(i)%tr)
+        deallocate(satm(i)%prs)
+    enddo
+    deallocate(stopo)
+    do i = 1, 2
+        deallocate(gatm(i)%u)
+        deallocate(gatm(i)%v)
+        deallocate(gatm(i)%tem)
+        deallocate(gatm(i)%tr)
+        deallocate(gatm(i)%prs)
+    enddo
+    
+    deallocate(dphi%u)
+    deallocate(dphi%v)
+    deallocate(dphi%tem)
+    deallocate(dphi%tr)
+    deallocate(dphi%prs)
+    
+    deallocate(dlam%u)
+    deallocate(dlam%v)
+    deallocate(dlam%tem)
+    deallocate(dlam%tr)
+    deallocate(dlam%prs)
+    
+    deallocate(dt%u)
+    deallocate(dt%v)
+    deallocate(dt%tem)
+    deallocate(dt%tr)
+    deallocate(dt%prs)
+    
+    deallocate(div)
+    deallocate(vor)
+    deallocate(spdmax)
+
+    call end_transforms()
+    
+end subroutine end_spectral_dynamics 
 
 !--------------------------------------------------------------------------------   
 subroutine init_data() 
@@ -452,7 +505,7 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
             dphi%tem, dlam%tem, dphi%tr, dlam%tr, dlam%u, dlam%v, dphi%u, dphi%v, &
             dt%prs, dt%tem, dt%tr, dt%u, dt%v, spdmax)
   
-    call mpi_max_arr(spdmax,size(spdmax))
+    call spec_comm_max(spdmax, size(spdmax), commID)
     spdmax = sqrt(spdmax)
 
     call grid_to_spherical(dt%prs, satm(3)%prs, do_trunc=.true.)
@@ -823,19 +876,5 @@ subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,delt)
 
     return
 end subroutine damp_speed
-
-subroutine mpi_max_arr(arr,n)
-    include 'mpif.h'
-    integer, intent(in) :: n
-    real(kind=8), intent(inout) :: arr(n) 
-    real(kind=8) :: buff(n) 
-    integer :: ierr
- 
-    call MPI_ALLREDUCE(arr, buff, n, MPI_REAL8, MPI_MAX, commID, ierr)
-
-    arr = buff
-
-    return
-end subroutine mpi_max_arr
 
 end module spectral_dynamics_mod

@@ -440,7 +440,8 @@ subroutine data_override_init(Atm_domain_in, Ocean_domain_in, Ice_domain_in, Lan
             min_glo_lon_ice, max_glo_lon_ice )
     endif
  else
-    call mpp_error(WARNING, 'data_override_mod: none of x_T, geolon_t, ocn_mosaic_file or gridfiles exist in '//trim(grid_file))
+    call mpp_error(NOTE, 'data_override_mod: none of x_T, geolon_t, ocn_mosaic_file or gridfiles exist in '// &
+                   trim(grid_file)//'. Only ongrid fields supported')
  end if
 
 end subroutine data_override_init

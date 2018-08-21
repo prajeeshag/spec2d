@@ -5,7 +5,9 @@ module ocpack_mod
 ! ocpkF is the fourier domain (always unpacked)
 !
 
-use mpp_mod, only : mpp_error, fatal, warning, note, mpp_init
+use mpp_mod, only : mpp_error, fatal, warning, note, mpp_init, mpp_npes, mpp_pe, &
+        mpp_declare_pelist, mpp_get_current_pelist, mpp_set_current_pelist, mpp_root_pe, &
+        mpp_gather, mpp_broadcast
 use strman_mod, only : int2str
 
 implicit none
@@ -131,8 +133,9 @@ logical function oc_isreduced()
     return
 end function oc_isreduced
 
+!--------------------------------------------------------------------------------   
 subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispacked)
-
+!--------------------------------------------------------------------------------   
     integer, intent(in) :: nlat_in
     integer, intent(in) :: trunc
     integer, intent(in) :: npes_y
@@ -366,6 +369,7 @@ function lpfac(ni) result(maxprime)
 
     return
 end function lpfac
+
 
 end  module ocpack_mod
 

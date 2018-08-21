@@ -2,14 +2,14 @@ module transforms_mod
 
 use, intrinsic :: iso_c_binding
 
-use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error
-use mpp_mod, only : mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_sum
-use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
-use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
-use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
+use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error, &
+        mpp_npes, mpp_get_current_pelist, mpp_pe, mpp_sum, &
+        mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
+        mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather, &
+        mpp_declare_pelist, mpp_set_current_pelist
 
-use mpp_domains_mod, only : mpp_define_domains, domain2d
-use mpp_domains_mod, only : mpp_get_compute_domain, mpp_get_global_domain
+use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_layout, &
+        mpp_get_compute_domain, mpp_get_global_domain, mpp_get_domain_extents
 
 use fms_mod, only : open_namelist_file, close_file, fms_init
 use fms_mod, only : read_data, write_data
@@ -32,15 +32,18 @@ use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave
 use spherical_mod, only : get_latsP, get_wdecompa, get_latsF
 
 use ocpack_mod, only : npack=>oc_npack, get_ocpackF, get_ocpackP, ocpack_typeP, ocpack_typeF, &
-                       oc_ny, oc_nx, oc_nlat, oc_maxlon, oc_nfour, oc_isreduced
+        oc_ny, oc_nx, oc_nlat, oc_maxlon, oc_nfour, oc_isreduced
 
+use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_sum=>spec_comm_sumI
+                        
 implicit none
 private
 
 public :: compute_ucos_vcos, compute_vor_div, get_latsF, get_latsP, &
          get_wdecomp, get_spherical_wave, get_lonsP, get_wdecompa, &
          spherical_to_grid, grid_to_spherical, init_transforms, &
-         register_spec_restart, save_spec_restart, restore_spec_restart
+         register_spec_restart, save_spec_restart, restore_spec_restart, &
+         comm_f_y, comm_f_all, isfpe, end_transforms
 
 !--> tranforms_mod operates both on P-grid and F-grid, so it need grid
 ! parameters in both the grids. F-grid is for fourier. 
@@ -66,10 +69,10 @@ type(ocpack_typeP), allocatable :: ocP(:,:)
 integer :: nwaves_oe=0
 integer :: nwaves_oe_total=0
 
-logical :: fpe=.false. 
+logical :: fpe=.false., fpe_write=.false.
 
-integer, allocatable :: pelist(:), extent(:)
-integer, allocatable :: fpelist(:), fextent(:)
+integer, allocatable :: parentpes(:), fpesy(:)
+integer, allocatable :: fpesall(:), fextent(:)
 integer, allocatable :: Tshuff(:), spextent(:)
 
 real, allocatable :: cosm_latF(:), cosm2_latF(:), cosm_latP(:,:)
@@ -77,6 +80,8 @@ real, allocatable :: cosm_latF(:), cosm2_latF(:), cosm_latP(:,:)
 real, allocatable :: deg_lonP(:,:)
 
 real, parameter :: lon_start = 0.
+
+integer :: f_y_comm, f_all_comm
 
 !-> For restart files
 integer, parameter :: max_num_dom=10
@@ -124,15 +129,22 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     integer, intent(in) :: trunc_in
     integer, intent(out) :: nwaves
     logical, optional :: Tshuffle
-    integer :: comm, i, k, j, is, ie
+    integer :: comm, i, k, j, is, ie, layout(2), npes, jee, tmp1(1)
+    integer, allocatable :: pelist(:), yextent(:), xextent(:)
 
     call mpp_init() 
     call fms_init()
 
     num_fourier = trunc_in
 
+    call mpp_get_layout(domainl,layout)
+
     allocate(pelist(mpp_npes()))
-    allocate(extent(mpp_npes()))
+    allocate(parentpes(mpp_npes()))
+    allocate(xextent(layout(2)))
+    allocate(yextent(layout(1)))
+    
+    call mpp_get_domain_extents(domainl,yextent,xextent)
 
     call mpp_get_compute_domain(domainl, jsp, jep, isp, iep)
     ilenp = iep-isp+1
@@ -144,67 +156,69 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     allocate(ocF(oc_nlat()))
     call get_ocpackF(ocF)
 
-    call mpp_get_current_pelist(pelist,commid=comm)
+    call mpp_get_current_pelist(parentpes,commid=comm)
 
     allocate(Tshuff(0:num_fourier))
     forall(i=0:num_fourier) Tshuff(i) = i
+
+    allocate(fextent(layout(2)))
     
     if (present(Tshuffle).and.(.not.Tshuffle)) then
-        call init_grid_fourier (domainl, num_fourier, isf, ilenf, comm)
+        call init_grid_fourier (domainl, num_fourier, isf, ilenf, fextent)
         !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm)
     else
-        call init_grid_fourier (domainl, num_fourier, isf, ilenf, comm, Tshuff)
+        call init_grid_fourier (domainl, num_fourier, isf, ilenf, fextent, Tshuff)
         !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm, Tshuff)
     endif
 
-    call mpp_gather([ilenf], extent)
-    call mpp_broadcast(extent,size(extent), mpp_root_pe())
+    call split_pelist(ilenf>0, pelist, npes, f_all_comm)
+    allocate(fpesall(npes))
+    fpesall = pelist(1:npes)
 
-    allocate(fextent(count(extent>0)))
-    allocate(spextent(count(extent>0)))
-    allocate(fpelist(count(extent>0)))
-   
-    k = 0 
-    do i = 1, size(extent)
-        if (extent(i)>0) then
-            k = k + 1
-            fextent(k) = extent(i)
-            fpelist(k) = pelist(i)
-        endif
-    enddo
+    fpe = any(fpesall==mpp_pe())
+
+    allocate(fpesy(npes/layout(1)))
+
+    jee = 0
+    do j = 1, size(yextent)
+        jee = jee + yextent(j)
+        call split_pelist(jee==jep.and.ilenf>0, fpesy, npes, f_y_comm)
+    end do
+
+    fpe_write=fpe.and.jep==0
+
+    allocate(spextent(npes))
     
-    fpe = any(fpelist==mpp_pe())
-
-    call mpp_declare_pelist(fpelist,'fourier_pes')
-   
     isf = 0; ief = -1 
     jsf = 0; jef = -1; 
     jlenf = 0
+
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
-        call mpp_define_domains([1,oc_nlat(), 0,num_fourier], [1,mpp_npes()], domainf, &
-                                yextent=fextent, pelist=fpelist)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
+        layout(2) = mpp_npes()/layout(1)
+        call mpp_define_domains([1,oc_nlat(), 0,num_fourier], layout, domainf, &
+                                xextent=yextent*npack(), yextent=fextent(1:layout(2)))
 
         call mpp_get_compute_domain(domainf, jsf, jef, isf, ief)
         jlenf = jef-jsf+1
-
+        if (jlenf/=npack()*jlenp) call mpp_error('transforms_mod', 'jlenf/=npack()*jlenp', FATAL)
         if(ilenf /= ief-isf+1) call mpp_error('transforms_mod', 'number of fourier in '//&
                  'differs from grid_fourier_mod.!', FATAL)
 
         call init_spherical(num_fourier, nwaves_oe, domainf, Tshuff) 
 
         nwaves_oe_total=nwaves_oe
-
-        call mpp_sum(nwaves_oe_total)
-
-        call mpp_gather([nwaves_oe], spextent)
-
-        call mpp_broadcast(spextent,size(spextent),mpp_root_pe())
+        
+        call mpp_set_current_pelist(fpesy, no_sync=.true.)
+        tmp1(1) = nwaves_oe_total
+        call spec_comm_sum(tmp1,1)
+        nwaves_oe_total = tmp1(1)
+        call spec_comm_allgather([nwaves_oe],spextent)
     else
-        call init_spherical(domainl)
+        call init_spherical()
     endif
 
-    call mpp_set_current_pelist(no_sync=.true.)
+    call mpp_set_current_pelist(parentpes, no_sync=.true.)
 
     nwaves = nwaves_oe
 
@@ -223,7 +237,6 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     call get_latsF(cosmlat=cosm_latF,cosm2lat=cosm2_latF)
     call get_latsP(cosmlat=cosm_latP)
 
-
     clck_g2s = mpp_clock_id('grid2spectral')
     clck_s2g = mpp_clock_id('spectral2grid')
 
@@ -231,6 +244,30 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
 
     return
 end subroutine init_transforms
+
+subroutine end_transforms()
+    
+    call end_grid_fourier()
+
+end subroutine end_transforms
+
+logical function isfpe()
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+    isfpe = fpe
+    return
+end function isfpe
+
+integer function comm_f_y()
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+    comm_f_y = f_y_comm
+    return
+end function comm_f_y
+
+integer function comm_f_all()
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+    comm_f_all = f_all_comm
+    return
+end function
 
 !--------------------------------------------------------------------------------   
 subroutine global_lons(num_lon, deglon)
@@ -247,7 +284,6 @@ subroutine global_lons(num_lon, deglon)
     end do
     return
 end subroutine global_lons
-
 
 !--------------------------------------------------------------------------------   
 subroutine get_lonsP(deglon)
@@ -284,7 +320,7 @@ function register_spec_restart(fieldname,data,mandatory,data_default)
 
     if (.not.fpe) return
 
-    call mpp_set_current_pelist(fpelist,no_sync=.true.)
+    call mpp_set_current_pelist(fpesy,no_sync=.true.)
 
     idx_dom = 0
 
@@ -312,7 +348,7 @@ function register_spec_restart(fieldname,data,mandatory,data_default)
                      spresdom(idx_dom), mandatory, data_default=data_default)
 
 
-    call mpp_set_current_pelist(no_sync=.true.)
+    call mpp_set_current_pelist(parentpes, no_sync=.true.)
 
     return
 
@@ -324,9 +360,9 @@ subroutine save_spec_restart(tstamp)
 !--------------------------------------------------------------------------------   
     character(len=*), optional, intent(in) :: tstamp
 
-    if(.not.fpe) return
+    if(.not.fpe_write) return
 
-    call mpp_set_current_pelist(fpelist,no_sync=.true.)
+    call mpp_set_current_pelist(fpesall,no_sync=.true.)
     call save_restart(specres,tstamp)
     call mpp_set_current_pelist(no_sync=.true.)
 
@@ -339,7 +375,7 @@ subroutine restore_spec_restart()
 
     if(.not.fpe) return
 
-    call mpp_set_current_pelist(fpelist,no_sync=.true.)
+    call mpp_set_current_pelist(fpesall,no_sync=.true.)
 
     call restore_state(specres)
 
@@ -448,7 +484,7 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     endif
     
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,usp,do_trunc=.true.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -456,7 +492,7 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     call compute_lon_deriv_cos(usp,usm)
 
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,usp,useHnm=.true.,do_trunc=.true.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -477,7 +513,7 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     endif
     
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,vsp,do_trunc=.true.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -485,7 +521,7 @@ subroutine vor_div_from_uv_grid3D(u,v,vor,div,uvcos_in)
     call compute_lon_deriv_cos(vsp,vsm)
     
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,vsp,useHnm=.true.,do_trunc=.true.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -531,7 +567,7 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
     enddo
     
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,us,do_trunc=.false.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -546,7 +582,7 @@ subroutine uv_grid_to_vor_div3D(u,v,vor,div)
     enddo
     
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,vs,do_trunc=.false.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -616,7 +652,7 @@ subroutine grid_to_spherical3D(grid,spherical,do_trunc)
     call grid_to_fourier(grd,four)
 
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call fourier_to_spherical(four3,spherical,do_trunc=do_trunc1)
         call mpp_set_current_pelist(no_sync=.true.)
     endif
@@ -654,7 +690,7 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
 
     if (present(lat_deriv)) then
         if (fpe) then
-            call mpp_set_current_pelist(fpelist,no_sync=.true.)
+            call mpp_set_current_pelist(fpesall,no_sync=.true.)
             call spherical_to_fourier(spherical, four3, .true.)
             call mpp_set_current_pelist(no_sync=.true.)
         endif
@@ -672,7 +708,7 @@ subroutine spherical_to_grid3D(spherical,grid,lat_deriv,lon_deriv)
     endif
 
     if (fpe) then
-        call mpp_set_current_pelist(fpelist,no_sync=.true.)
+        call mpp_set_current_pelist(fpesall,no_sync=.true.)
         call spherical_to_fourier(spherical, four3, .false.)
         call mpp_set_current_pelist(no_sync=.true.)
     endif

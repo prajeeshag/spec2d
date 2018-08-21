@@ -559,13 +559,15 @@ end function rarray_to_char
     !this is created for use by mpp_define_domains within a pelist
     !will be published but not publicized
   subroutine mpp_get_current_pelist( pelist, name, commID )
-    integer, intent(out) :: pelist(:)
+    integer, intent(out), optional :: pelist(:)
     character(len=*), intent(out), optional :: name
     integer, intent(out), optional :: commID
-
-    if( size(pelist(:)).NE.size(peset(current_peset_num)%list(:)) ) &
-         call mpp_error( FATAL, 'MPP_GET_CURRENT_PELIST: size(pelist) is wrong.' )
-    pelist(:) = peset(current_peset_num)%list(:)
+	
+	if (present(pelist)) then
+    	if( size(pelist(:)).NE.size(peset(current_peset_num)%list(:)) ) &
+    	     call mpp_error( FATAL, 'MPP_GET_CURRENT_PELIST: size(pelist) is wrong.' )
+    	pelist(:) = peset(current_peset_num)%list(:)
+	endif
     if( PRESENT(name) )name = peset(current_peset_num)%name
 #ifdef use_libMPI
     if( PRESENT(commID) )commID = peset(current_peset_num)%id
