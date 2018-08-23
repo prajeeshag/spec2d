@@ -621,8 +621,8 @@ subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
     call calc_mass_corr(exp(gatm(2)%prs(1,:,:)), tr, moist_ind, pcorr)
 
     do k = 1, size(u,1)
-        gatm(2)%u(k,jsp:jep,isp:iep) = u(k,jsp:jep,isp:iep) * cos_latP(jsp:jep,isp:iep) !-> to ucos
-        gatm(2)%v(k,jsp:jep,isp:iep) = v(k,jsp:jep,isp:iep) * cos_latP(jsp:jep,isp:iep) !-> to vcos
+        gatm(2)%u(k,jsp:jep,isp:iep) = u(k,jsp:jep,isp:iep) * cosm_latP(jsp:jep,isp:iep)
+        gatm(2)%v(k,jsp:jep,isp:iep) = v(k,jsp:jep,isp:iep) * cosm_latP(jsp:jep,isp:iep)
     enddo
 
     gatm(2)%tem(1:nlev,jsp:jep,isp:iep) = tem(1:nlev,jsp:jep,isp:iep) &

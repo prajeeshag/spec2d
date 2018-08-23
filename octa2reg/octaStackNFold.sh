@@ -1,7 +1,7 @@
 #!/bin/bash 
 
 usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-n] [-r] \
-			[-o outfile.nc] [-m output_mask_file] [-v vars] [-p optionlist]" 1>&2; exit 1;}
+[-o outfile.nc] [-m output_mask_file] [-v vars] [-p optionlist]" 1>&2; exit 1;}
 
 npack=2
 reduce=1
@@ -67,7 +67,6 @@ end if
 NPACK=1
 if (ifpack) then
 	NPACK=2
-	reduce = True
 end if
 
 if (mod(NLAT,2).ne.0) then
@@ -93,6 +92,9 @@ if (reduce) then
 		LONSPERLAT(i) = LONSPERLAT(i-1) + 4
 		LONSPERLAT(NLAT-1-i) = LONSPERLAT(i)
 	end do
+else
+	LONSPERLAT = NLON
+	NPLON = NLON
 end if
 
 NLAT@double = True
@@ -102,6 +104,9 @@ LATF = latGau(NLAT, "lat", "latitude", "degrees_N")
 
 OCNX = (NPACK-1)*NPLON+max(LONSPERLAT)
 OCNY = NLAT/NPACK
+
+print("OCNX="+OCNX)
+print("OCNY="+OCNY)
 
 IS=new((/NPACK,OCNY/),integer)
 IE=new((/NPACK,OCNY/),integer)

@@ -40,7 +40,6 @@ namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos, restart_inter
 
 call mpp_init()
 call fms_init()
-call diag_manager_init(DIAG_OTHER)
 
 unit = open_namelist_file()
 read(unit,nml=amfi_nml)
@@ -59,6 +58,8 @@ call set_calendar_type(calendar_type, err_msg)
 if(trim(err_msg) /= '') then
   call mpp_error(FATAL, 'ERROR in init_atmos: '//trim(err_msg))
 endif
+
+call diag_manager_init(DIAG_OTHER)
 
 call get_base_date ( date_init(1), date_init(2), date_init(3), &
      date_init(4), date_init(5), date_init(6)  )

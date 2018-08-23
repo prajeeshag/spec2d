@@ -25,7 +25,6 @@ use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_pe
 use strman_mod, only : int2str
 
 implicit none
-include 'mpif.h'
 include 'fftw3-mpi.f03'
 
 private
@@ -82,7 +81,8 @@ integer, allocatable :: pes(:)
 
 type(ocpack_typeP), allocatable :: ocP(:,:)
 
-public :: init_grid_fourier, end_grid_fourier, grid_to_fourier, fourier_to_grid
+public :: init_grid_fourier, end_grid_fourier, grid_to_fourier, fourier_to_grid, &
+          plan_grid_to_fourier, plan_fourier_to_grid
 
 namelist/grid_fourier_nml/plan_level, debug
 
@@ -277,14 +277,17 @@ end subroutine init_grid_fourier
 
 
 !--------------------------------------------------------------------------------   
-function plan_grid_to_fourier(howmany)
+function plan_grid_to_fourier(howmany,grid,four)
 !--------------------------------------------------------------------------------   
     implicit none
     integer(C_INTPTR_T), intent(in) :: howmany
+    real, pointer, optional :: grid(:,:)
+    complex, pointer, optional :: four(:,:)
     integer :: plan_grid_to_fourier, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1, local_n1_prev
     integer(C_INTPTR_T) :: alloc_local, n0(2), howmany2, alloc_local1 
     integer :: inembed(1), onembed(1), istride, ostride, idist, odist, nn(1)
+    
 
     if (.not.initialized) call mpp_error(FATAL,'grid_fourier_mod: not initialized')
 
@@ -326,6 +329,8 @@ function plan_grid_to_fourier(howmany)
     call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%G, [howmany, local_n0])
     call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%GT, [NX, local_n1])
 
+    if (present(grid)) call c_f_pointer(g2fp(n)%t1dat, grid, [howmany, local_n0])
+
     g2fp(n)%tplan1 = fftw_mpi_plan_many_transpose(NX, howmany, 1, &
                             block0, block0, g2fp(n)%G, g2fp(n)%GT, &
                             COMM_FFT, flags)
@@ -365,6 +370,8 @@ function plan_grid_to_fourier(howmany)
 
     g2fp(n)%r2c = c_loc(g2fp(n)%rsF)
     call c_f_pointer(g2fp(n)%r2c, g2fp(n)%sF, [howmany2, FLOCAL])
+
+    if (present(four)) call c_f_pointer(g2fp(n)%r2c, four, [howmany2, FLOCAL])
 
     call mpp_clock_end(clck_plan_g2f)
 
@@ -589,30 +596,35 @@ end subroutine set_ocplan_f2g
 subroutine grid_to_fourier(Gp, sFp, id_in)
 !--------------------------------------------------------------------------------   
     implicit none
-    real, intent(in) :: Gp(:,:) ! nk*jlenp, ilenp 
-    complex, intent(out) :: sFp(:,:) ! fourier, lat, lev
+    real, intent(in), optional :: Gp(:,:) ! nk*jlenp, ilenp 
+    complex, intent(out), optional :: sFp(:,:) ! fourier, lat, lev
     integer, intent(inout), optional :: id_in
     integer :: id, i, j, ct, k
     integer(C_INTPTR_T) :: howmany, howmany2
     type(C_PTR) :: cptr1, cptr2
-    real, pointer :: Gjp(:,:,:)
     real, pointer :: Gj(:,:,:)
 
-    howmany = size(Gp,1)
-    howmany2 = howmany*npack()
-
-    if (mod(howmany,jlenp)/=0) call mpp_error(FATAL,'grid_to_fourier: howmany should '// &
-                                        'be multiple of jlenp')
     id = 0
+
     if (present(id_in)) id = id_in
 
     if (id<1) then
+        if (.not.present(sFp).or..not.present(Gp)) then
+            call mpp_error(FATAL,'grid_to_fourier: if sFp or Gp is not present then id_in '//&
+                            'must be present and should be positive value')
+        endif
+        howmany2 = size(sFp,1)
+        howmany = howmany2/npack()
+
         do i = 1, nplang2f
             if (howmany==g2fp(i)%howmany) then
                 id = i
                 exit
             endif
         enddo
+    else
+        howmany = g2fp(id)%howmany
+        howmany2 = howmany*npack()
     endif
     
     if (id<1) then
@@ -625,14 +637,13 @@ subroutine grid_to_fourier(Gp, sFp, id_in)
     
     howmany = g2fp(id)%howmany
 
+    if (present(Gp)) g2fp(id)%G=Gp
+
     cptr1 = C_LOC(g2fp(id)%G)
     call c_f_pointer(cptr1,Gj,[int(howmany/jlenp),jlenp,ilenp])
 
-    cptr2 = C_LOC(Gp)
-    call c_f_pointer(cptr2,Gjp,[int(howmany/jlenp),jlenp,ilenp])
-
     do k = 1, howmany/jlenp
-        Gj(k,:,:) = Gjp(k,:,:)*RSCALE(:,:)
+        Gj(k,:,:) = Gj(k,:,:)*RSCALE(:,:)
     end do
 
     !Transpose
@@ -660,7 +671,7 @@ subroutine grid_to_fourier(Gp, sFp, id_in)
     call fftw_mpi_execute_r2r(g2fp(id)%tplan2, g2fp(id)%rsFT, g2fp(id)%rsF)
     call mpp_clock_end(clck_g2f_tran)
 
-    sFp = g2fp(id)%sF(1:howmany2,1:FLOCAL)
+    if (present(sFp)) sFp = g2fp(id)%sF(1:howmany2,1:FLOCAL)
 
     call mpp_clock_end(clck_grid_to_fourier)
             
@@ -668,10 +679,12 @@ end subroutine grid_to_fourier
 
 
 !--------------------------------------------------------------------------------   
-function plan_fourier_to_grid(howmany)
+function plan_fourier_to_grid(howmany,four,grid)
 !--------------------------------------------------------------------------------   
     implicit none
     integer(C_INTPTR_T), intent(in) :: howmany ! howmany=jlenp*whatever
+    real, pointer, optional :: grid(:,:)
+    complex, pointer, optional :: four(:,:)
     integer :: plan_fourier_to_grid, n, flags, t, clck_transpose
     integer(C_INTPTR_T) :: local_n0, local_0_start, local_1_start, local_n1
     integer(C_INTPTR_T) :: local_n0_prev
@@ -717,6 +730,7 @@ function plan_fourier_to_grid(howmany)
 
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%GT, [NX, local_n0])
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%G, [howmany, local_n1])
+    if (present(grid)) call c_f_pointer(g2fp(n)%t1dat, grid, [howmany, local_n1])
 
     flags = plan_flags
 
@@ -758,6 +772,7 @@ function plan_fourier_to_grid(howmany)
 
     f2gp(n)%r2c = c_loc(f2gp(n)%rsF)
     call c_f_pointer(f2gp(n)%r2c, f2gp(n)%sF, [howmany2, FLOCAL])
+    if (present(four)) call c_f_pointer(g2fp(n)%r2c, four, [howmany2, FLOCAL])
 
     call mpp_clock_end(clck_plan_f2g)
     
@@ -765,29 +780,39 @@ function plan_fourier_to_grid(howmany)
 
 end function plan_fourier_to_grid
 
+
+
 !--------------------------------------------------------------------------------   
 subroutine fourier_to_grid(sFp, Gp, id_in)
 !--------------------------------------------------------------------------------   
     implicit none
-    real, intent(out) :: Gp(:,:) ! howmany, NX
-    complex, intent(in) :: sFp(:,:) ! howmany2, FLOCAL
+    real, intent(out), optional :: Gp(:,:) ! howmany, NX
+    complex, intent(in), optional :: sFp(:,:) ! howmany2, FLOCAL
     integer, intent(inout), optional :: id_in
     integer :: id, i, j, ii, jj
     integer(C_INTPTR_T) :: howmany2, howmany 
 
-
-    howmany2 = size(sFp,1)
-    howmany = howmany2/npack()
     id = 0
+
     if (present(id_in)) id = id_in
 
     if (id<1) then
+        if (.not.present(sFp).or..not.present(Gp)) then
+            call mpp_error(FATAL,'fourier_to_grid: if sFp or Gp is not present then id_in '//&
+                            'must be present and should be positive value')
+        endif
+        howmany2 = size(sFp,1)
+        howmany = howmany2/npack()
+
         do i = 1, nplanf2g
             if (howmany==f2gp(i)%howmany) then
                 id = i
                 exit
             endif
         enddo
+    else
+        howmany = f2gp(id)%howmany
+        howmany2 = howmany*npack()
     endif
     
     if (id<1) then
@@ -798,7 +823,7 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
 
     if (present(id_in)) id_in = id
    
-    f2gp(id)%sF = sFp
+    if (present(sFp)) f2gp(id)%sF = sFp
 
     !Transpose Back
 
@@ -823,7 +848,7 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
     call fftw_mpi_execute_r2r(f2gp(id)%tplan1, f2gp(id)%GT, f2gp(id)%G)
     call mpp_clock_end(clck_f2g_tran)
     
-    Gp = f2gp(id)%G(1:howmany,1:NX_LOCAL)
+    if (present(Gp)) Gp = f2gp(id)%G(1:howmany,1:NX_LOCAL)
             
     call mpp_clock_end(clck_fourier_to_grid)
 end subroutine fourier_to_grid

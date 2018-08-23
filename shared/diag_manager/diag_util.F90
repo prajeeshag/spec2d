@@ -2194,7 +2194,6 @@ CONTAINS
     END DO
     ! Close up this file
     CALL mpp_close(files(file)%file_unit)
-    call mpp_error(NOTE,'Flushed output file: '//trim(files(file)%name))
     files(file)%file_unit = -1
   END SUBROUTINE write_static
   ! </SUBROUTINE>

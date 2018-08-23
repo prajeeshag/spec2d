@@ -1,19 +1,17 @@
 module phys_mod
 
 use mpp_mod, only : mpp_init, FATAL, WARNING, NOTE, mpp_error, mpp_npes, &
-                    mpp_get_current_pelist, mpp_pe, mpp_exit, mpp_clock_id, &
-                    mpp_clock_begin, mpp_clock_end, mpp_sync, mpp_root_pe, &
-                    mpp_broadcast, mpp_gather, mpp_declare_pelist, &
-                    mpp_set_current_pelist
+        mpp_get_current_pelist, mpp_pe, mpp_exit, mpp_clock_id, &
+        mpp_clock_begin, mpp_clock_end, mpp_sync, mpp_root_pe, &
+        mpp_broadcast, mpp_gather, mpp_declare_pelist, &
+        mpp_set_current_pelist
 
 use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain, &
-                            mpp_get_global_domain, mpp_global_field
+        mpp_get_global_domain, mpp_global_field
 
-use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init
-use fms_mod, only : file_exist
+use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init, file_exist
 
-use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field
-use fms_io_mod, only : restore_state, save_restart
+use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field, restore_state, save_restart
 
 use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS
 

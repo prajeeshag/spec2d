@@ -127,7 +127,7 @@ integer :: clck_f2s, clck_s2f
 
 integer, parameter, public :: ev=1, od=2
 
-integer :: f_x_comm
+integer :: f_x_comm, layout(2)
 
 logical :: initialized=.false., notfpe=.false.
 
@@ -153,7 +153,7 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     integer :: nsf4ma(0:trunc_in), nef4ma(0:trunc_in), nlenf4ma(0:trunc_in)
     integer, allocatable :: wsf4m(:,:), wef4m(:,:), wlenf4m(:,:)
     integer, allocatable :: wsf4ma(:,:), wef4ma(:,:), wlenf4ma(:,:)
-    integer :: we, wo, j, layout(2), mee, npes
+    integer :: we, wo, j, mee, npes
     integer, allocatable :: xextent(:), yextent(:), pes(:)
     character (len=8) :: suffix
 
@@ -1367,7 +1367,7 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
         enddo 
     endif
 
-    call spec_comm_sum(buff, size(buff), f_x_comm)
+    if (layout(1)>1) call spec_comm_sum(buff, size(buff), f_x_comm)
     waves = buff
     !call spec_comm_waitall(size(rqst),rqst)
 
