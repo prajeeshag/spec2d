@@ -20,7 +20,7 @@ use gauss_and_legendre_mod, only : compute_legendre, compute_gaussian
 use ocpack_mod, only : ocpack_typeP, ocpack_typeF, get_ocpackP, get_ocpackF, oc_nx, oc_ny, &
                 oc_nlat, npack=>oc_npack, hem_type, get_hem
 
-use spec_comm_mod, only : split_pelist, spec_comm_sum=>spec_comm_sumDC, spec_comm_waitall
+use spec_comm_mod, only : split_pelist
 
 !-------------------------------------------------------------------------
 !   provides operations on spectral spherical harmonics fields that do not 
@@ -1291,7 +1291,7 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 
     logical :: useHnm1, do_trunc1
     integer :: ks, ke, ews, ewe, ows, owe, m, k, nj, j, js, jn
-    integer :: rqst(ms:me,2)
+    integer :: rqst(mlen*2), nrq, nbuff, klen, stts(MPI_STATUS_SIZE,mlen*2), ierr
     complex, dimension(size(waves,1),size(waves,2),size(waves,3)) :: buff
 
     if (notfpe) return
@@ -1306,7 +1306,9 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
 
     if (.not.initialized) call mpp_error('fourier_to_spherical', 'module not initialized', FATAL)
 
-    ks = 1; ke = size(fourier,1)
+    ks = 1; ke = size(fourier,1); klen = ke-ks+1
+    
+    nrq = 0
 
     if (useHnm1) then
         do j = js_hem, je_hem 
@@ -1322,9 +1324,14 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             call do_matmul(even(ks:ke,js_hem:je_hem,m), &
                            Hnm_wts(1:jlen_hem,ews:ewe,ev), &
                            buff(ks:ke,ews:ewe,ev),'N')
-
-            !call spec_comm_Isum_all(size(buff(ks:ke,ews:ewe,ev)), buff(ks:ke,ews:ewe,ev), &
-            !            waves(ks:ke,ews:ewe,ev), rqst(m,ev), f_x_comm)
+#ifdef MPI3
+            if (layout(1)>1) then
+                nbuff = klen * wlen4m(m,ev)
+                nrq = nrq + 1
+                call MPI_Iallreduce(buff(ks,ews,ev), waves(ks,ews,ev), nbuff, &
+                            MPI_DOUBLE_COMPLEX, MPI_SUM, f_x_comm, rqst(nrq), ierr)
+            endif
+#endif
         enddo
 
         do m = ms, me
@@ -1333,8 +1340,14 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
                            Hnm_wts(1:jlen_hem,ows:owe,od), &
                            buff(ks:ke,ows:owe,od),'N')
-            !call spec_comm_Isum_all(size(buff(ks:ke,ows:owe,od)), buff(ks:ke,ows:owe,od), &
-            !            waves(ks:ke,ows:owe,od), rqst(m,od), f_x_comm)
+#ifdef MPI3
+            if (layout(1)>1) then
+                nbuff = klen * wlen4m(m,od)
+                nrq = nrq + 1
+                call MPI_Iallreduce(buff(ks,ows,od), waves(ks,ows,od), nbuff, MPI_DOUBLE_COMPLEX, &
+                                    MPI_SUM, f_x_comm, rqst(nrq), ierr)
+            end if
+#endif
         enddo 
 
     else
@@ -1352,8 +1365,14 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             call do_matmul(even(ks:ke,js_hem:je_hem,m), &
                            Pnm_wts(1:jlen_hem,ews:ewe,ev), &
                            buff(ks:ke,ews:ewe,ev),'N')
-            !call spec_comm_Isum_all(size(buff(ks:ke,ews:ewe,ev)), buff(ks:ke,ews:ewe,ev), &
-            !            waves(ks:ke,ews:ewe,ev), rqst(m,ev), f_x_comm)
+#ifdef MPI3
+            if (layout(1)>1) then
+                nbuff = klen * wlen4m(m,ev)
+                nrq = nrq + 1
+                call MPI_Iallreduce(buff(ks,ews,ev), waves(ks,ews,ev), nbuff, MPI_DOUBLE_COMPLEX, &
+                                    MPI_SUM, f_x_comm, rqst(nrq), ierr)
+            endif
+#endif
         enddo
 
         do m = ms, me
@@ -1362,14 +1381,25 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
             call do_matmul(odd(ks:ke,js_hem:je_hem,m), &
                            Pnm_wts(1:jlen_hem,ows:owe,od), &
                            buff(ks:ke,ows:owe,od),'N')
-            !call spec_comm_Isum_all(size(buff(ks:ke,ows:owe,od)), buff(ks:ke,ows:owe,od), &
-            !            waves(ks:ke,ows:owe,od), rqst(m,od), f_x_comm)
+#ifdef MPI3
+            if (layout(1)>1) then
+                nbuff = klen * wlen4m(m,od)
+                nrq = nrq + 1
+                call MPI_Iallreduce(buff(ks,ows,od), waves(ks,ows,od), nbuff, MPI_DOUBLE_COMPLEX, &
+                                    MPI_SUM, f_x_comm, rqst(nrq), ierr)
+            endif
+#endif
         enddo 
     endif
 
-    if (layout(1)>1) call spec_comm_sum(buff, size(buff), f_x_comm)
-    waves = buff
-    !call spec_comm_waitall(size(rqst),rqst)
+#ifdef MPI3
+    if (layout(1)>1) call MPI_WAITALL(nrq, rqst(1), stts(1,1), ierr)
+#else
+    if (layout(1)>1) then
+       nbuff = size(buff)
+       call MPI_allreduce(buff, waves, nbuff, MPI_DOUBLE_COMPLEX, MPI_SUM, f_x_comm, ierr)
+    endif
+#endif
 
     call do_truncation(waves,do_trunc1)
 

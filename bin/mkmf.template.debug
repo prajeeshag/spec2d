@@ -2,7 +2,7 @@ LIBPATH = $(srcdir)/lib
 
 NETCDF = /gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1
 
-DEBUG = -g -traceback -fpe0 -fp-stack-check -check all 
+DEBUG = -g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created
 
 ARCH = -xAVX
 

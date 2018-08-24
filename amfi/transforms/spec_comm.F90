@@ -13,8 +13,7 @@ include 'mpif.h'
 private
 
 public :: split_pelist, spec_comm_allgather, spec_comm_max, spec_comm_sumI, spec_comm_sumDC, &
-    spec_comm_npes, spec_comm_pe, spec_comm_bcast, spec_comm_waitall
-
+          spec_comm_npes, spec_comm_pe, spec_comm_bcast
 
 interface spec_comm_sum
     module procedure spec_comm_sumDC
@@ -22,35 +21,6 @@ interface spec_comm_sum
 end interface spec_comm_sum
 
 contains
-
-subroutine spec_comm_waitall(n,rqst)
-    integer, intent(in) :: n
-    integer, intent(inout) :: rqst(n)
-    integer :: stts(MPI_STATUS_SIZE,size(rqst)) 
-    integer :: ierr
-
-    call MPI_WAITALL(size(rqst), rqst, stts, ierr)
-
-    if (ierr/=MPI_SUCCESS) call mpp_error(FATAL,'spec_comm_waitall: error '//int2str(ierr))
-    return
-end subroutine spec_comm_waitall
-
-
-!subroutine spec_comm_Isum_all(n, buffin, buffout, rqst, commid)
-!    integer, intent(in) :: n
-!    complex, intent(in) :: buffin(n)
-!    complex, intent(inout) :: buffout(n)
-!    integer, intent(inout) :: rqst
-!    integer, intent(in) :: commid
-!    
-!    integer :: ierr
-!
-!    call MPI_Iallreduce(buffin, buffout, n, MPI_DOUBLE_COMPLEX, MPI_SUM, commid, rqst, ierr)
-!
-!    if (ierr/=MPI_SUCCESS) call mpp_error(FATAL,'spec_comm_Isum_all: error '//int2str(ierr))
-!    return
-!
-!end subroutine spec_comm_Isum_all
 
 subroutine spec_comm_allgather(buffin, buffout, commid)
     integer, intent(in) :: buffin(:)

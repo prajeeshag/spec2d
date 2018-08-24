@@ -26,7 +26,7 @@ shift $(expr $OPTIND - 1)
 
 echo $mkmftemplate
 
-cppDef="-Duse_netCDF -Duse_libMPI "  
+cppDef="-Duse_netCDF -Duse_libMPI"  
 
 EXE="spec2d"
 
@@ -91,8 +91,7 @@ $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $libfmspaths
 make -j 16
 #--------------------------------------------------------------------------------	
 
-
-
+cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
 #make AMFI
 #--------------------------------------------------------------------------------	
 mkdir -p $execdir/$EXE
@@ -107,11 +106,11 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 make -j $numproc
 #--------------------------------------------------------------------------------	
 
-cd $thisdir/work
+cd $thisdir/work_ocy
 
 rm -f fftw.*
 
-mpirun -np 6 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 #rm -f atm_out.nc
 
