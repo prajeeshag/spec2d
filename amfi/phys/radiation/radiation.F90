@@ -27,6 +27,8 @@ use module_radsw_main, only : init_swrad, swrad, NBDSW
 
 use module_radlw_main, only : init_lwrad, lwrad, NBDLW=>nbands
 
+use set_aerosols_mod, only : init_set_aerosols, set_aerosols
+
 implicit none
 private
 
@@ -67,7 +69,8 @@ integer :: id_plvl, id_plyr, id_tskin, id_albedo, id_tlyr, id_tlvl, id_coszen, &
            id_icseed(2), id_sfcemis
 integer :: id_htsw, id_rsdt, id_rsut, id_rsutc, id_rsds, id_rsdsc, id_rsus, id_rsusc, &
            id_ruvds, id_ruvdsc, id_rnirdsbm, id_rnirdsbf, id_rvisdsbm, id_rvisdsdf 
-integer :: id_htlw, id_rlut, id_rlutc, id_rlds, id_rldsc, id_rlus, id_rlusc
+integer :: id_htlw, id_rlut, id_rlutc, id_rlds, id_rldsc, id_rlus, id_rlusc, &
+           id_aod, id_asy, id_ssa
 
 integer :: clck_swrad, clck_lwrad
 
@@ -136,6 +139,8 @@ subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
 
     call rad_diag_init(Time,axes_in)
 
+    call init_set_aerosols(is,ie,js,je,nlev)
+
     clck_swrad = mpp_clock_id('SW radiation')
     clck_lwrad = mpp_clock_id('LW radiation')
 
@@ -167,6 +172,10 @@ subroutine rad_diag_init(Time,axes_in)
 
     axes = [id_lev,id_lat,id_lon] 
     axesp = [id_levp,id_lat,id_lon] 
+    
+    id_aod = reg_df(rou, 'aod', axes, Time, 'Aerosol Optical Depth at 550 nm', ' ')
+    id_ssa = reg_df(rou, 'ssa', axes, Time, 'Single scattering Albedo', ' ')
+    id_asy = reg_df(rou, 'asy', axes, Time, 'Asymmetry Parameter', ' ')
 
     id_plvl = reg_df(rou,'plvl',axesp,Time,'Pressure','mb')
     id_plyr = reg_df(rou,'plyr',axes,Time,'Pressure','mb')
@@ -246,15 +255,16 @@ subroutine rad_diag_init(Time,axes_in)
     !-----------------------------------------------------------
 end subroutine rad_diag_init
 
+
 !--------------------------------------------------------------------------------   
-subroutine radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis, solcon, htsw, &
-                     rsds, rsus, htlw, rlds, rlus)
+subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracday, &
+                     sfcalb, sfcemis, solcon, htsw, rsds, rsus, htlw, rlds, rlus)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
-    real, intent(in) :: tlyr(1:nlev,js:je,is:ie)
-    real, intent(in) :: tr(1:nlev,js:je,is:ie,1:ntrac)
-    real, intent(in), dimension(js:je,is:ie) :: p   !-> is in cb, should be converted to mb
-    real, intent(in), dimension(js:je,is:ie) :: tskin, coszen, fracday, sfcemis
+    real, intent(in), dimension(1:nlev,js:je,is:ie) :: prsl, tlyr, phil
+    real, intent(in), dimension(1:nlev+1,js:je,is:ie) :: prsi
+    real, intent(in)  :: tr(1:nlev,js:je,is:ie,1:ntrac)
+    real, intent(in), dimension(js:je,is:ie) :: tskin, coszen, fracday, sfcemis, oro
     real, intent(in), dimension(NF_ALBD,js:je,is:ie) :: sfcalb
     real, intent(in) :: solcon
 
@@ -288,10 +298,8 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis,
 
     if(.not.initialized) call mpp_error(FATAL,'radiation_mod: module not initialized')
     
-    call get_pressure_at_levels(p,plvl,plyr)
-
-    plvl = plvl * 10.0 !cb to mb
-    plyr = plyr * 10.0 !cb to mb
+    plvl = prsi * 10.0 !cb to mb
+    plyr = prsl * 10.0 !cb to mb
 
     tlvl(nlevp1,:,:) = tlyr(nlev,:,:)
 
@@ -319,6 +327,12 @@ subroutine radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis,
 
     faersw = 0.
     faerlw = 0.
+
+    call set_aerosols(Time, prsi, prsl, tlyr, phil, oro, faersw, faerlw)
+
+    if (id_aod>0) used = send_data(id_aod, faersw(:,10,1,:,:), Time)
+    if (id_ssa>0) used = send_data(id_ssa, faersw(:,10,2,:,:), Time)
+    if (id_asy>0) used = send_data(id_asy, faersw(:,10,3,:,:), Time)
 
     call get_gases(Time,gasvmr)
 

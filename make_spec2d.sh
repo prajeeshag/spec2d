@@ -54,21 +54,14 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 	   $thisdir/shared/strman"
 #--------------------------------------------------------------------------------	
 
-#-------------------------mppnccombine SRC---------------------------------------	
-mppnccpath="$thisdir/mppnccombine"
-#-------------------------------------------------------------------------------
-
-
-
+mppnccpath="$thisdir/mppncc"
 #-------------------------make mppnccombine--------------------------------------
-export LD=mpiicc
+export LD=mpiifort
 mkdir -p $execdir/mppncc
 cd $execdir/mppncc
 $mkmf -c "$cppDef" -f -p mppncc -t $mkmftemplate $mppnccpath
 make 
 #--------------------------------------------------------------------------------	
-
-
 
 export LD=mpiifort
 # make FFTW

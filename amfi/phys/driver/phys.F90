@@ -413,12 +413,12 @@ end subroutine init_diag_out
     
 
 !--------------------------------------------------------------------------------   
-subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
+subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
-    real, intent(in), dimension(1:nlev,js:je,is:ie) :: tlyr, tlyr1, u1, v1, vvel1
-    real, intent(in), dimension(1:nlev,js:je,is:ie,1:ntrac) :: tr, tr1
-    real, intent(in), dimension(js:je,is:ie) :: p, p1
+    real, intent(in), dimension(1:nlev,js:je,is:ie) :: tlyr1, u1, v1, vvel1
+    real, intent(in), dimension(1:nlev,js:je,is:ie,1:ntrac) :: tr1
+    real, intent(in), dimension(js:je,is:ie) :: p1
     real, intent(out), dimension(1:nlev,js:je,is:ie) :: dtdt, dudt, dvdt 
     real, intent(out), dimension(1:nlev,js:je,is:ie,ntrac) :: dqdt
     real, intent(in), optional, dimension(js:je,is:ie) :: topo
@@ -444,7 +444,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     call mpp_clock_begin(clck_phys)
 
-    imax = size(p,1)*size(p,2)
+    imax = size(p1,1)*size(p1,2)
 
     dtdt = 0.; dudt = 0.; dvdt = 0.; dqdt = 0.
     dtdt1 = 0.; dudt1 = 0.; dvdt1 = 0.; dqdt1 = 0.
@@ -452,6 +452,12 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     topo1 = 0.
     if(present(topo)) topo1 = topo
+
+    call get_pressure_at_levels(p1,plvl,plyr,plvlk,plyrk)
+    prslki = plvlk(1:nlev,:,:)/plyrk
+    delp = plvl(1:nlev,:,:) - plvl(2:nlev+1,:,:)
+
+    call get_phi(topo1, tlyr1, tr1(:,:,:,ind_q), plvl, plvlk, plyr, plyrk, phii, phil)
 
     !Radiation
     !--------------------------------------------------------------------------------   
@@ -464,14 +470,14 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
         call set_surface(Time,tskin,coszen,sfcalb,sfcemis)
         solcon = con_solr * rrsun
         where(coszen>0.) rcoszen = 1./coszen 
-        call radiation(Time, tlyr, tr, p, tskin, coszen, fracday, sfcalb, sfcemis, &
+        call radiation(Time, tlyr1, tr1, plyr, plvl, phil, topo1, tskin, coszen, fracday, sfcalb, sfcemis, &
                        solcon, htsw, rsdsz, rsusz, htlw, rldsz, rlus)
         do k = 1, size(htsw,1)
             htsw(k,:,:) = htsw(k,:,:) * rcoszen
         enddo
         rsdsz = rsdsz * rcoszen
         rsusz = rsusz * rcoszen
-        rldsz = rldsz / (tlyr(1,:,:)**4.)
+        rldsz = rldsz / (tlyr1(1,:,:)**4.)
         rad_time = rad_time + time_step_rad
     else
         call set_surface(Time,tskin,sfcemis=sfcemis)
@@ -480,7 +486,7 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
     call diurnal_solar(lat_rad, lon_rad, Time, coszen, fracday, rrsun, time_step)
     coszen = coszen * fracday
 
-    call adjust_rad(coszen, tskin, tlyr(1,:,:), rsdsz, rsusz, rldsz, htsw,  &
+    call adjust_rad(coszen, tskin, tlyr1(1,:,:), rsdsz, rsusz, rldsz, htsw,  &
                     htlw, sfcemis, dtdt1, rsds, rsus, rlds, rlus)
     dtdt = dtdt + dtdt1
 
@@ -506,12 +512,6 @@ subroutine phys(Time,tlyr,tr,p,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo
 
     !call mpp_sync()
     !call mpp_error(FATAL,'phys: testing...')
-
-    call get_pressure_at_levels(p1,plvl,plyr,plvlk,plyrk)
-    prslki = plvlk(1:nlev,:,:)/plyrk
-    delp = plvl(1:nlev,:,:) - plvl(2:nlev+1,:,:)
-
-    call get_phi(topo1, tlyr1, tr1(:,:,:,ind_q), plvl, plvlk, plyr, plyrk, phii, phil)
 
     !Surface Fluxes
     call mpp_clock_begin(clck_sfc)

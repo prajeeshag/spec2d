@@ -204,7 +204,7 @@ subroutine update_atmos(Time)
 
     !call mpp_error(FATAL,'atmos: testing...')
 
-    call phys(Time,tem,tr,p,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
+    call phys(Time,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
 
     call finish_spectral_dynamics(Time,tem2,tr2,u2,v2)
 
