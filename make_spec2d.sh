@@ -179,6 +179,6 @@ make -j $numproc
 
 #./mppncc -r atm_out.nc
 
-cd $thisdir
+#cd $thisdir
 
-$execdir/amfi_grid/amfi_grid  <<< 94
+#$execdir/amfi_grid/amfi_grid  <<< 94

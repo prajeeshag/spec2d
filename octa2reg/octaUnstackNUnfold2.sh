@@ -263,7 +263,11 @@ begin
 	end if
 	end if
 
-	missing = dati@missing_value		
+	if (isatt(dati,"missing_value")) then
+		missing = dati@missing_value
+	else
+		missing = default_fillvalue(typeof(dati))
+	end if
 
 	siz = dimsizes(dati) 
 

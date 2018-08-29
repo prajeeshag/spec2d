@@ -11,6 +11,6 @@ INCL = -I$(NETCDF)/include
 OPTS = -r8 -O2 -fp-model precise -convert big_endian -align array32byte -save-temps 
 
 FFLAGS  = $(OPTS) $(DEBUG) $(INCL)
-CFLAGS  = $(INCL)
+CFLAGS  = -O2 $(INCL) 
 
 LDFLAGS = -L$(NETCDF)/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm
