@@ -591,6 +591,16 @@ begin
 	xi = dati&\$xynm(ndim-1)\$
 	yi = dati&\$xynm(ndim-2)\$
 
+	if (dimsizes(xi).ne. OCNX) then
+		print("FATAL: x dimension size of data /= OCNX")
+		status_exit(1)
+	end if
+
+	if (dimsizes(yi).ne. OCNY) then
+		print("FATAL: y dimension size of data /= OCNY")
+		status_exit(1)
+	end if
+
 	if (intmethd.eq."linint") then
 		dato=unstack_and_unfold_linint2(dati,xi,yi)
 	else if (intmethd.eq."conserve") then

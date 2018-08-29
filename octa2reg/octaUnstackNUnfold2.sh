@@ -4,7 +4,7 @@ outdir="Unfold"
 usage() { echo "Usage: $0 [-x path_to_xgrd] [-v varlist] \
 [-d outdir] [-p optionlist] inputfiles" 1>&2; exit 1;}
 
-xgrd="amfi_xgrd.nc"
+xgrd="p_xgrd.nc"
 
 while getopts 'x:d:p:v:' flag; do
     case "${flag}" in
@@ -54,15 +54,20 @@ xgrd="$xgrd"
 
 if (fileexists(xgrd)) then
 	fxg = addfile(xgrd,"r")
-	xi = transpose(fxg->xi)
-	xj = transpose(fxg->xj)
-	xf = doubletofloat(transpose(fxg->xf))
+
+	pxi = fxg->pxi - 1
+	pxj = fxg->pxj - 1
+
+	rxi = fxg->rxi - 1
+	rxj = fxg->rxj - 1
+	xf = doubletofloat(fxg->xf)
+
 	NLON = fxg@maxlon
 	NLAT = fxg@nlat
 	OCNX = fxg@ocnx
 	OCNY = fxg@ocny
-	siz = dimsizes(xf)
-	nxgrd = siz(1)
+	siz = dimsizes(pxi)
+	nxgrd = siz(0)
 	delete(siz)
 else
 	print("Error: File ("+xgrd+") does not exist")
@@ -257,8 +262,21 @@ begin
 		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:)
 	end if
 	end if
-			
+
+	missing = dati@missing_value		
+
 	siz = dimsizes(dati) 
+
+	if (siz(ndim-1) .ne. OCNX) then
+        print("FATAL: x dimension size of data /= OCNX")
+        status_exit(1)
+    end if
+
+    if (siz(ndim-2) .ne. OCNY) then
+        print("FATAL: y dimension size of data /= OCNY")
+        status_exit(1)
+    end if
+
 	osiz = siz
 	osiz(ndim-1) = NLON
 	osiz(ndim-2) = NLAT
@@ -277,19 +295,29 @@ begin
 	rdato = 0.
 
 	rdati = reshape(dati,siz1)
+	area = new((/NLAT,NLON/),typeof(xf))
 
-	do n = 0, nxgrd-1
-		i0 = xi(0,n) - 1
-		i1 = xi(1,n) - 1
-		j0 = xj(0,n) - 1
-		j1 = xj(1,n) - 1
-		f0 = xf(1,n)
-		rdato(:,j1,i1) = rdato(:,j1,i1) + rdati(:,j0,i0)*f0
-		;rdato(:,j1,i1) = rdato(:,j1,i1) + 1.*f0
+	do k = 0, siz1(0)-1
+		area = 0.
+		do n = 0, nxgrd-1
+			if (rdati(k,pxj(n),pxi(n)) .ne. missing) then
+				rdato(k,rxj(n),rxi(n)) = rdato(k,rxj(n),rxi(n)) + rdati(k,pxj(n),pxi(n))*xf(n)
+				area(rxj(n),rxi(n)) =  area(rxj(n),rxi(n)) + xf(n)
+			end if
+		end do
+		do i = 0, NLON-1
+			do j = 0, NLAT-1
+				if (area(j,i).gt.0.) then
+					rdato(k,j,i) = rdato(k,j,i)/area(j,i)
+				else
+					rdato(k,j,i) = missing
+				end if
+			end do
+		end do
 	end do
 
 	dato = reshape(rdato,osiz)
-
+	dato@missing_value = missing
 	fo->\$vnm\$ = dato
 
 	delete(dati)

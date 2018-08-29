@@ -26,8 +26,6 @@ shift $(expr $OPTIND - 1)
 
 echo $mkmftemplate
 
-cppDef="-Duse_netCDF -Duse_libMPI"  
-
 EXE="spec2d"
 
 execdir="$thisdir/exec"
@@ -57,9 +55,10 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 
 
 #-------------------------make mppnccombine--------------------------------------
+cppDef="-Duse_netCDF -Duse_libMPI"  
 exe=mppncc
 tpath="$thisdir/mppnccombine"
-export LD=mpiicc
+export LD=$CC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 $mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $tpath
@@ -68,7 +67,8 @@ make
 
 # make FFTW
 #--------------------------------------------------------------------------------	
-export LD=mpiifort
+cppDef="-Duse_netCDF -Duse_libMPI"  
+export LD=$FC
 if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
 	cd $thisdir/shared/fftw-3.3.8
 	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads
@@ -81,6 +81,7 @@ fi
 
 #make FMS Library
 #--------------------------------------------------------------------------------	
+cppDef="-Duse_netCDF -Duse_libMPI"  
 mkdir -p $execdir/lib_fms
 cd $execdir/lib_fms
 $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $libfmspaths
@@ -89,10 +90,61 @@ make -j 16
 
 
 #-------------------------make amfi_grid--------------------------------------
+cppDef="-Duse_netCDF -Duse_libMPI"  
 exe=amfi_grid
 tpath="$thisdir/make_grids/amfi $thisdir/amfi/ocpack \
 		$thisdir/amfi/transforms/gauss_and_legendre.F90"
-export LD=mpiifort
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
+make 
+#--------------------------------------------------------------------------------	
+
+#-------------------------make xgrid--------------------------------------
+cppDef="-Duse_netCDF"  
+exe=xgrid
+tpath="$thisdir/make_grids/xgrid"
+export LD=$CC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate $tpath
+make 
+#--------------------------------------------------------------------------------	
+
+#-------------------------make xregrid--------------------------------------
+cppDef="-Duse_netCDF"  
+exe=xregrid
+tpath="$thisdir/make_grids/regrid"
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
+make 
+#--------------------------------------------------------------------------------	
+
+#-------------------------make xregrid--------------------------------------
+cppDef="-Duse_netCDF"  
+exe=xregrid
+tpath="$thisdir/make_grids/regrid"
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
+make 
+#--------------------------------------------------------------------------------	
+
+#-------------------------make p2r_xgrid--------------------------------------
+cppDef="-Duse_netCDF -Dlib_xgrid"  
+exe=p2r_xgrid
+tpath="$thisdir/make_grids/xgrid $thisdir/make_grids/p2r_xgrid $thisdir/amfi/ocpack"
+export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
