@@ -54,18 +54,21 @@ libfmspaths="$thisdir/shared/mpp $thisdir/shared/include \
 	   $thisdir/shared/strman"
 #--------------------------------------------------------------------------------	
 
-mppnccpath="$thisdir/mppncc"
+
+
 #-------------------------make mppnccombine--------------------------------------
-export LD=mpiifort
-mkdir -p $execdir/mppncc
-cd $execdir/mppncc
-$mkmf -c "$cppDef" -f -p mppncc -t $mkmftemplate $mppnccpath
+exe=mppncc
+tpath="$thisdir/mppnccombine"
+export LD=mpiicc
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+$mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $tpath
 make 
 #--------------------------------------------------------------------------------	
 
-export LD=mpiifort
 # make FFTW
 #--------------------------------------------------------------------------------	
+export LD=mpiifort
 if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
 	cd $thisdir/shared/fftw-3.3.8
 	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads
@@ -84,9 +87,24 @@ $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $libfmspaths
 make -j 16
 #--------------------------------------------------------------------------------	
 
-cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
+
+#-------------------------make amfi_grid--------------------------------------
+exe=amfi_grid
+tpath="$thisdir/make_grids/amfi $thisdir/amfi/ocpack \
+		$thisdir/amfi/transforms/gauss_and_legendre.F90"
+export LD=mpiifort
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
+make 
+#--------------------------------------------------------------------------------	
+
+
 #make AMFI
 #--------------------------------------------------------------------------------	
+cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
 mkdir -p $execdir/$EXE
 cd $execdir/$EXE
 
@@ -99,12 +117,16 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 make -j $numproc
 #--------------------------------------------------------------------------------	
 
-cd $thisdir/work_ocy
+#cd $thisdir/work_ocy
 
-rm -f fftw.*
+#rm -f fftw.*
 
-mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+#mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
 #rm -f atm_out.nc
 
 #./mppncc -r atm_out.nc
+
+cd $thisdir
+
+$execdir/amfi_grid/amfi_grid  <<< 94
