@@ -27,9 +27,9 @@ use field_manager_mod, only : MODEL_ATMOS
 
 use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
 use spectral_dynamics_mod, only : get_latsP, get_lonsP, finish_spectral_dynamics, &
-    save_spec_restart, restore_spec_restart, end_spectral_dynamics
+    save_spec_restart, end_spectral_dynamics
   
-use phys_mod, only : init_phys, phys
+use phys_mod, only : init_phys, phys, end_phys
 
 use ocpack_mod, only : oc_nx, oc_ny, npack=>oc_npack, init_ocpack 
 
@@ -69,13 +69,12 @@ real, allocatable :: tr2(:,:,:,:)
 
 real, allocatable :: lat_deg(:,:), lon_deg(:,:)
 
-type(restart_file_type) :: rstrt
-
 character(len=8) :: fldnm
 
 character(len=8) :: moist_tracer_names(10)
 integer :: moist_tracer_ind(10) = 0
 integer :: nmoist_tracers = 0
+logical :: do_phys=.true.
 
 contains
 
@@ -91,7 +90,7 @@ subroutine init_atmos(Time,deltim_in)
     integer :: axis(4)
     integer, allocatable :: extent(:)
 
-    namelist/atmos_nml/ trunc, maxlon, num_lat, reduced, packed, nlev, layout
+    namelist/atmos_nml/ trunc, maxlon, num_lat, reduced, packed, nlev, layout, do_phys
 
     call mpp_init()
     call fms_init()
@@ -151,19 +150,12 @@ subroutine init_atmos(Time,deltim_in)
 
     allocate(lat_deg(ocny, ocnx), lon_deg(ocny,ocnx))
 
-    idx = reg_rf(rstrt, 'amfi_res', 'tmp', tmp, domain_g, mandatory=.false.) !-> Just for registering the restart filename
-
-    call init_spectral_dynamics(Time, nlev, trunc, domain_g, deltim, rstrt, axis)
+    call init_spectral_dynamics(Time, nlev, trunc, domain_g, deltim, axis)
 
     call get_lonsP(deglon=lon_deg)
     call get_latsP(deglat=lat_deg)
     
-    call init_phys(Time,deltim*2,deltim,domain_g,nlev,lat_deg,lon_deg,rstrt,axis)
-
-    call restore_state(rstrt)
-    call restore_spec_restart()
-    call save_restart(rstrt,'Ini')
-    call save_spec_restart('Ini')
+    if (do_phys) call init_phys(Time,deltim*2,deltim,domain_g,nlev,lat_deg,lon_deg,axis)
 
 end subroutine init_atmos
 
@@ -204,7 +196,14 @@ subroutine update_atmos(Time)
 
     !call mpp_error(FATAL,'atmos: testing...')
 
-    call phys(Time,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
+    if (do_phys) then
+        call phys(Time,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
+    else
+        tem2 = tem1
+        tr2 = tr1
+        u2 = u1
+        v2 = v1
+    endif
 
     call finish_spectral_dynamics(Time,tem2,tr2,u2,v2)
 
@@ -216,7 +215,7 @@ subroutine end_atmos(Time)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
 
-    call save_restart(rstrt)
+    if (do_phys) call end_phys()
     call end_spectral_dynamics()
 
     deallocate(u)

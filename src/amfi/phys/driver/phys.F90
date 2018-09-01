@@ -26,7 +26,7 @@ use field_manager_mod, only : MODEL_ATMOS
 
 use radiation_mod, only : init_radiation, con_solr, radiation, NF_ALBD
 
-use sfc_mod, only : init_sfc, get_land_frac, set_surface, do_surface
+use sfc_mod, only : init_sfc, get_land_frac, set_surface, do_surface, end_sfc, save_restart_sfc
 
 use vertdiff_mod, only : do_vertical_diffusion
 
@@ -42,14 +42,14 @@ use cu_conv_mod, only : init_cu_conv, cu_conv
 
 use shallow_conv_mod, only : shallow_conv
 
-use micro_phys_mod, only : init_micro_phys, micro_phys
+use micro_phys_mod, only : init_micro_phys, micro_phys, end_micro_phys, save_restart_micro_phys
 
 use ocpack_mod, only : ocpack_typeP, oc_ny, oc_npack, oc_nlat, get_ocpackP
 
 implicit none
 private
 
-public :: init_phys, phys
+public :: init_phys, phys, end_phys, save_restart_phys
 
 real, parameter :: rhoh2o = 1000.
 
@@ -70,10 +70,9 @@ real, allocatable, dimension(:,:) :: rsdsz, rsusz
 real, allocatable, dimension(:,:) :: fprcp, lprcp
 real, allocatable, dimension(:,:) :: slmsk
 
-real :: pdryini = 0.
-
-character(len=16) :: resfnm = 'phys_res'
+character(len=16) :: resfnm = 'amfi_phys_res'
 character (len=8) :: rou='am_phys'
+type(restart_file_type) :: rstrt
 
 integer :: id_rsds, id_rsus, id_rsns, id_dtlw, id_dtrd, id_shflx, id_lhflx, id_taux, &
            id_tauy, id_dtvd, id_hpbl, id_duvd, id_dvvd, id_rlds, id_rlus, id_tskin, &
@@ -96,14 +95,13 @@ contains
 
 !--------------------------------------------------------------------------------   
 subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
-                     lat_deg_in, lon_deg_in, rstrt, axes)
+                     lat_deg_in, lon_deg_in, axes)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     type(domain2d), target :: domain_in
     real, intent(in) :: dt_phys_in, dt_atmos_in 
     integer, intent(in) :: nlev_in
     real, intent(in) :: lat_deg_in(:,:), lon_deg_in(:,:)
-    type(restart_file_type), intent(inout) :: rstrt
     integer, intent(in) :: axes(4)
     
     real, allocatable :: fland(:,:), ilevs(:), ilevsp(:)
@@ -186,15 +184,12 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     rldsz = 0.
 
     fprcp = 0.
-    indx = reg_rf(rstrt, '', 'fprcp', fprcp, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'fprcp', fprcp, domain, mandatory=.false.)
 
     lprcp = 0.
-    indx = reg_rf(rstrt, '', 'lprcp', lprcp, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'lprcp', lprcp, domain, mandatory=.false.)
 
-    pdryini = 0.
-    indx = reg_rf(rstrt, '', 'pdryini', pdryini, mandatory=.false.)
-
-    call init_sfc(Time,dt_atmos,domain,axes(1:2),rstrt)
+    call init_sfc(Time,dt_atmos,domain,axes(1:2))
     allocate(fland(js:je,is:ie))
     allocate(slmsk(js:je,is:ie))
     call get_land_frac(fland)
@@ -209,7 +204,7 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
 
     call init_cu_conv()
 
-    call init_micro_phys(domain, nlev, rstrt, lat_deg_in*PI/180.) 
+    call init_micro_phys(domain, nlev, lat_deg_in*PI/180.) 
 
     deallocate(fland)
 
@@ -224,6 +219,8 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     clck_mp   = mpp_clock_id(':---> Micro Physics')
 
     call init_diag_out(Time, axes)   
+
+    if (file_exist('INPUT/'//trim(resfnm))) call restore_state(rstrt)
 
     initialized = .true.
 
@@ -770,6 +767,26 @@ subroutine adjust_rad(coszen, tskin, t1, sfcdsw, sfcusw, sfcdlw, swh, hlw, emis,
 
     return
 end subroutine adjust_rad
+
+subroutine save_restart_phys(tstamp)
+    character(len=*), optional :: tstamp
+
+    call save_restart_sfc(tstamp)
+    call save_restart_micro_phys(tstamp)
+    call save_restart(rstrt,tstamp)
+    
+    return
+end subroutine save_restart_phys
+
+
+subroutine end_phys()
+
+    call end_sfc()
+    call end_micro_phys()
+    call save_restart(rstrt)
+
+    return
+end subroutine end_phys
 
 end module phys_mod
 

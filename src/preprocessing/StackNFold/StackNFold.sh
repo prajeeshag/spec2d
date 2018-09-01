@@ -1,7 +1,7 @@
 #!/bin/bash 
 
 usage() { echo "Usage: $0 -x NLON -y NLAT -i inputfile.nc [-n] [-r] \
-[-o outfile.nc] [-m output_mask_file] [-v vars] [-p optionlist]" 1>&2; exit 1;}
+[-o outfile.nc] [-m grid_spec_file] [-v vars] [-p optionlist]" 1>&2; exit 1;}
 
 npack=2
 reduce=1
@@ -16,7 +16,7 @@ while getopts 'x:y:i:o:v:p:m:nr' flag; do
     o) outfile="$OPTARG" ;;
 	v) valist="$OPTARG" ;;
 	p) oplist="$OPTARG" ;;
-	m) maskfile="$OPTARG" ;;
+	m) gridspec="$OPTARG" ;;
 	n) npack=1 ;;
 	r) reduce=0 ;;
     *)
@@ -57,7 +57,7 @@ NLAT = $NLAT
 ifpack="$npack".eq.2
 reduce="$reduce".eq.1
 
-maskfile="$maskfile"
+maskfile="$gridspec"
 
 ifomask = True
 if (maskfile.eq."") then
@@ -569,6 +569,224 @@ begin
 end
 
 ;-------------------------------------------------------------------------------
+function unstack_and_unfold_conserve(dati:numeric)
+local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, j, k, ongrid, ongrd
+begin
+;--------------------------------------------------------------------------------	
+
+	siz = dimsizes(dati)
+	ndim = dimsizes(siz)
+
+	if (siz(ndim-1).ne.OCNX.or.siz(ndim-2).ne.OCNY) then
+		print("FATAL: unstack_and_unfold_conserve: dati size mismatch")
+		status_exit(1)
+	end if
+
+	howmany = 1
+	
+	do i = 0, ndim-3
+		howmany=siz(i)*howmany
+	end do
+	
+	osiz=new(ndim,integer)
+
+	do i = 0, ndim-3
+		osiz(i) = siz(i)
+	end do
+
+	osiz(ndim-2) = NLAT
+	osiz(ndim-1) = NLON
+
+	datii = reshape(dati,(/howmany,OCNY,OCNX/))
+	datoi = new((/howmany,NLAT,NLON/),typeof(dati)) 
+	
+	ncopy = 4
+	latfi = latGau(ncopy, "lat", "latitude", "degrees_N")
+
+    do j = 0, NPACK-1
+        do i = 0, OCNY-1
+            lonc = lonGlobeF(ILEN(j,i), "lon", "longitude", "degrees_E")
+			ip = PACK(j,i)
+			rfi = new((/howmany,ncopy,ILEN(j,i)/),typeof(datii))
+			do k = 0, ncopy-1
+				rfi(:,k,:) = datii(:,i,IS(j,i):IE(j,i))
+			end do
+            rfo = area_conserve_remap(lonc,latfi,rfi,LONF,latfi,False)
+			do k = 0, 1
+            	datoi(:,ip,:) = (/rfo(:,(ncopy+1)/2-1,:)/)
+			end do
+			delete(lonc)
+			delete(rfi)
+        end do
+    end do
+
+	dato = reshape(datoi,osiz)
+
+	copy_VarCoords_2(dati,dato)
+	copy_VarAtts(dati,dato)
+	
+	nnd = ndim - 1
+	dato!nnd = "lon"
+	nnd = ndim - 2
+	dato!nnd = "lat"
+	dato&lon = LONF
+	dato&lat = LATF
+	dato&lon@axis = "X"
+	dato&lat@axis = "Y"
+
+	return(dato)
+end
+;end unstack_and_unfold_conserve
+
+;--------------------------------------------------------------------------------	
+function winner(dati:numeric)
+local dati, val, i, n, nmax, ii
+begin
+;--------------------------------------------------------------------------------	
+
+	unq = get_unique_values(dati)
+	if(dimsizes(unq).eq.1) then
+		return(unq(0))
+	end if
+
+	nmax = 0	
+	do i = 0, dimsizes(unq)-1
+		n = num(dati.eq.unq(i))
+		if (n.gt.nmax) then
+			nmax = n
+			ii = i
+		end if
+	end do
+	
+	return(unq(ii))
+
+end 
+
+;--------------------------------------------------------------------------------	
+function assign_nearest1(dati:numeric, prblm:logical)
+local dati, indz, dato, i, j, n, siz, mask, siz1, i1, j1, i2, j2, lat1, lon1
+begin
+;--------------------------------------------------------------------------------
+
+
+	indz = ind_resolve(ind(ndtooned(prblm)),dimsizes(prblm))
+	siz = dimsizes(indz)
+	siz1 = dimsizes(dati)
+	wnsiz = min(siz1)/2
+	ilen = siz1(1)
+	jlen = siz1(0)
+
+	iar = new(siz1,integer)
+	jar = new(siz1,integer)
+
+	do i = 0, ilen-1
+		do j = 0, jlen-1
+			iar(j,i) = i
+			jar(j,i) = j
+		end do
+	end do
+
+	iar1d = ndtooned(iar)
+	jar1d = ndtooned(jar)
+	dat1d = ndtooned(dati)
+	dato = dati
+
+	do n = 0, siz(0)-1
+		j1 = indz(n,0)
+		i1 = indz(n,1)
+	   	
+		do w = 1, wnsiz-1	
+			is = i1 - w
+			ie = i1 + w
+			js = j1 - w
+			je = j1 + w
+			if (is.lt.0) then
+				is=ilen+is
+			end if
+			if (ie.ge.ilen) then
+				ie=ie-ilen
+			end if
+			if (js.lt.0) then
+				js = 0
+			end if
+			if (je.ge.jlen) then
+				je = jlen-1
+			end if
+
+			if (is.gt.i1.or.ie.lt.i1) then
+				ia = (iar1d.ge.is.or.iar1d.le.ie)
+			else 
+				ia = (iar1d.ge.is.and.iar1d.le.ie)
+			end if
+
+			ja = (jar1d.ge.js.and.jar1d.le.je)
+			
+			wvals = dat1d(ind(ia.and.ja))
+			ind0 = ind(wvals.gt.0)
+		
+			if (any(ismissing(ind0))) then
+				delete(wvals)
+				delete(ind0)
+				continue
+			end if
+
+			wval0 = wvals(ind(wvals.gt.0))
+
+			dato(j1,i1) = winner(wval0)
+		
+			delete(wvals)
+			delete(wval0)
+			delete(ind0)
+			break
+		end do
+	end do
+
+	return(dato)
+
+end 
+
+;--------------------------------------------------------------------------------	
+procedure assign_nearest2(dati:numeric, indz:numeric)
+local dati, indz, dato, i, j, n, siz, mask, siz1, i1, j1, i2, j2, lat1, lon1
+begin
+;--------------------------------------------------------------------------------	
+	siz = dimsizes(indz)
+	siz1 = dimsizes(dati)
+	pole = new(1,typeof(OCLAT))
+	pole = 90.	
+
+	do n = 0, siz(0)-1
+		j1 = indz(n,0)
+		i1 = indz(n,1)
+		lat1 = OCLAT(j1,i1)
+		lon1 = OCLON(j1,i1)
+		min_dist = gc_latlon(-pole,0.,pole,0.,2,4)
+		i2 = -1
+		j2 = -1
+		do i = 0, siz1(1)-1
+			do j = 0, siz1(0)-1
+				if (dati(j,i).lt.1) then
+					continue
+				end if
+			    dist = gc_latlon(lat1,lon1,OCLAT(j,i),OCLON(j,i),2,4)
+				if (dist.lt.min_dist) then
+					min_dist = dist
+					i2 = i
+					j2 = j
+				end if
+			end do
+		end do
+		if (i2.eq.-1.or.j2.eq.-1) then
+			print("FATAL: i2.eq.-1.or.j2.eq.-1")
+			status_exit(1)
+		end if
+		print(" "+n+" "+dati(j2,i2)+" "+dati(j1,i1))
+		dati(j1,i1) = dati(j2,i2)
+	end do
+end 
+
+
+;-------------------------------------------------------------------------------
 function stack_and_fold_dtype(fi:numeric,xi:numeric,yi:numeric,ongrid:string,conv2int:logical)
 local siz, rsiz, dato, datii, ndim, i, datf, xi, yi, j, k, ongrid, ongrd, conv2int, fi, dati
 begin
@@ -600,6 +818,30 @@ begin
 		xxi = LONF
 	end if
 
+	if (ifomask) then
+		grid_spec=addfile(maskfile,"r")
+		omask = grid_spec->AREA_LND
+		if (any(dimsizes(omask)-(/OCNY,OCNX/).ne.0)) then
+			if (all(dimsizes(omask)-(/OCNX,OCNY/).eq.0)) then
+				otmp=transpose(omask)
+				delete(omask)
+				omask=otmp
+			else
+				print("FATAL: AREA_LND should be of the size [OCNY,OCNX]")
+				status_exit(1)
+			end if
+		end if
+	else
+		omask = new((/OCNY,OCNX/),float)
+		omask = 0. 
+	end if
+
+	omask = where(omask.gt.0.,1.,0.)
+
+	rmask = unstack_and_unfold_conserve(omask)
+
+	rmask = where(rmask.gt.0.,1.,0.)
+
 	if (ongrd(0).eq."T".and.ongrd(1).eq."T") then
 		dati = datf
 	else
@@ -625,26 +867,21 @@ begin
 	osiz(ndim-2) = OCNY
 	osiz(ndim-1) = OCNX
 
-	if (ifomask) then
-		mfil=addfile(maskfile,"r")
-		omask = mfil->mask
-		if (any(dimsizes(omask)-(/OCNY,OCNX/).ne.0)) then
-			if (all(dimsizes(omask)-(/OCNX,OCNY/).eq.0)) then
-				otmp=transpose(omask)
-				delete(omask)
-				omask=otmp
-			else
-				print("FATAL: mask should be of the size [OCNY,OCNX]")
-				status_exit(1)
-			end if
-		end if
-	else
-		omask = new((/OCNY,OCNX/),float)
-		omask = 0. 
-	end if
-
 	datii = reshape(dati,(/howmany,ny,nx/))
 	datoi = new((/howmany,OCNY,OCNX/),typeof(dati)) 
+
+	do k = 0, howmany-1
+		prblm = (datii(k,:,:) - rmask).lt.0.
+		nmprbl = num(prblm)
+		print("mask problem before nearest assign1 - "+nmprbl)
+		if (nmprbl.gt.0) then
+			datii(k,:,:) = assign_nearest1 (datii(k,:,:),prblm)
+			prblm = (datii(k,:,:) - rmask).lt.0.
+			nmprbl = num(prblm)
+			print("mask problem after nearest assign1 - "+nmprbl)
+		end if
+	end do
+	delete(prblm)
 
 	ncopy = 4
 	rfi = new((/howmany,ncopy,nx/),typeof(datii))
@@ -664,22 +901,20 @@ begin
         end do
     end do
 
-    do j = 0, NPACK-1
-        do i = 0, OCNY-1
-            rfo=datoi(:,i,IS(j,i):IE(j,i))
-			msk=omask(i,IS(j,i):IE(j,i))
-			datoi(:,i,IS(j,i):IE(j,i))=search_and_fill(rfo,msk)
-			delete(rfo)
-			delete(msk)
-		end do
-	end do
-
 	do k = 0, howmany-1
-		if (any(datoi(k,:,:)-omask.lt.0)) then
-			nmprbl=num(datoi(k,:,:)-omask.lt.0)
-			print("FATAL: mask problem - "+nmprbl)
+		prblm = (datoi(k,:,:)-omask).lt.0
+		nmprbl=num(prblm)
+		print("mask problem before nearest assign2 - "+nmprbl)
+		if (nmprbl.gt.0) then
+			indz = ind_resolve(ind(ndtooned(prblm)),dimsizes(prblm))
+			print(dimsizes(indz))
+			assign_nearest2(datoi(k,:,:), indz)
+			delete(indz)
 			;status_exit(1) 
-	    end if
+			prblm = datoi(k,:,:)-omask.lt.0
+			nmprbl=num(prblm)
+			print("mask problem after nearest assign2 - "+nmprbl)
+		end if
 	end do		
 
 	dato = reshape(datoi,osiz)	
@@ -911,6 +1146,12 @@ begin
 
 	xnm = "x"
 	ynm = "y" 
+
+	if (xynm@z) then
+		znm=xynm(ndim-3)
+		dato&\$znm\$@cartesian_axis="Z"
+	end if	
+				
 	if (ndim.gt.3) then
 		znm=xynm(ndim-3)
 		fo->\$vnm\$ = dato(\$xynm(0)\$|:,\$xnm\$|:,\$ynm\$|:,\$znm\$|:)
@@ -925,7 +1166,7 @@ begin
 		fo->\$vnm\$ = dato(\$xnm\$|:,\$ynm\$|:)
 	end if
 	end if
-				
+
 	delete(dati)
 	delete(dato)
 	return

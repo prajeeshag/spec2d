@@ -13,7 +13,7 @@ include 'mpif.h'
 private
 
 public :: split_pelist, spec_comm_allgather, spec_comm_max, spec_comm_sumI, spec_comm_sumDC, &
-          spec_comm_npes, spec_comm_pe, spec_comm_bcast
+          spec_comm_npes, spec_comm_pe, spec_comm_bcast, spec_comm_min
 
 interface spec_comm_sum
     module procedure spec_comm_sumDC
@@ -127,6 +127,28 @@ subroutine spec_comm_bcast(buff, n, pe, comm_id)
 
     return
 end subroutine spec_comm_bcast
+
+!--------------------------------------------------------------------------------   
+subroutine spec_comm_min(arr, n, comm_id)
+!--------------------------------------------------------------------------------   
+    integer, intent(in) :: n
+    real(kind=8), intent(inout) :: arr(n) 
+    integer, intent(in), optional :: comm_id
+    real(kind=8) :: buff(n) 
+    integer :: ierr, commID
+
+    if (present(comm_id)) then
+        commID = comm_id
+    else
+        call mpp_get_current_pelist(commid=commID)
+    endif
+    call MPI_ALLREDUCE(arr, buff, n, MPI_REAL8, MPI_min, commID, ierr)
+    if (ierr/=MPI_SUCCESS) call mpp_error(FATAL,'spec_comm_min: error '//int2str(ierr))
+
+    arr = buff
+
+    return
+end subroutine spec_comm_min
 
 !--------------------------------------------------------------------------------   
 subroutine spec_comm_max(arr, n, comm_id)

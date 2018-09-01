@@ -4,7 +4,8 @@ use mpp_mod, only : mpp_error, FATAL, NOTE
 
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
 
-use fms_io_mod, only : restart_file_type, reg_rf=>register_restart_field
+use fms_io_mod, only : restart_file_type, reg_rf=>register_restart_field, file_exist, &
+    restore_state, save_restart
 
 use gscond_mod, only : gscond
 
@@ -15,11 +16,14 @@ use ocpack_mod, only : ocpack_typeP, oc_ny, oc_nlat, oc_npack, get_ocpackP
 implicit none
 private
 
-public :: init_micro_phys, micro_phys
+public :: init_micro_phys, micro_phys, end_micro_phys, save_restart_micro_phys 
 
 real, allocatable, dimension(:,:,:) :: tp, qp, tp1, qp1
 real, allocatable, dimension(:,:) :: psp, psp1
 real, allocatable, dimension(:,:) :: work1, work2
+
+type(restart_file_type) :: rstrt
+character (len=32) :: resfnm = 'amfi_mp_res'
 
 integer :: is, ie, js, je, nlev
 
@@ -29,10 +33,9 @@ logical :: initialized=.false.
 
 contains
 
-subroutine init_micro_phys(domain,nlev_in,rstrt,lat)
+subroutine init_micro_phys(domain,nlev_in,lat)
     type(domain2d) :: domain
     integer, intent(in) :: nlev_in
-    type(restart_file_type), intent(inout) :: rstrt
     real, intent(in) :: lat(:,:)
 
     real, parameter :: dxmax=-16.118095651, dxmin=-9.800790154, &
@@ -52,12 +55,12 @@ subroutine init_micro_phys(domain,nlev_in,rstrt,lat)
     tp = 0.;  qp = 0.;  tp1 = 0.;  qp1 = 0. 
     psp = 0; psp1 = 0.;
         
-    indx = reg_rf(rstrt, '', 'tp', tp, domain, mandatory=.false.)
-    indx = reg_rf(rstrt, '', 'tp1', tp1, domain, mandatory=.false.)
-    indx = reg_rf(rstrt, '', 'qp', qp, domain, mandatory=.false.)
-    indx = reg_rf(rstrt, '', 'qp1', qp1, domain, mandatory=.false.)
-    indx = reg_rf(rstrt, '', 'psp', psp, domain, mandatory=.false.)
-    indx = reg_rf(rstrt, '', 'psp1', psp1, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'tp', tp, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'tp1', tp1, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'qp', qp, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'qp1', qp1, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'psp', psp, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'psp1', psp1, domain, mandatory=.false.)
 
     allocate(work1(js:je,is:ie), work2(js:je,is:ie))
 
@@ -74,6 +77,8 @@ subroutine init_micro_phys(domain,nlev_in,rstrt,lat)
         end do
     end do
     work2 = 1.0 - work1
+
+    if (file_exist('INPUT/'//trim(resfnm))) call restore_state(rstrt)
 
     initialized = .true. 
 end subroutine init_micro_phys
@@ -137,5 +142,17 @@ subroutine zhao_carr(imax, km, dt, prsl, ps, del, q, cwm, t, tpc, qpc, pspc, &
       return
 
 end subroutine zhao_carr
+
+subroutine save_restart_micro_phys(tstamp)
+    character(len=*), optional :: tstamp
+
+    call save_restart(rstrt,tstamp)
+   
+end subroutine save_restart_micro_phys 
+
+subroutine end_micro_phys()
+    call save_restart(rstrt)
+    return
+end subroutine end_micro_phys
 
 end module micro_phys_mod

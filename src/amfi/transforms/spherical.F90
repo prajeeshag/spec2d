@@ -1307,7 +1307,7 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
     if (.not.initialized) call mpp_error('fourier_to_spherical', 'module not initialized', FATAL)
 
     ks = 1; ke = size(fourier,1); klen = ke-ks+1
-    
+   
     nrq = 0
 
     if (useHnm1) then
@@ -1392,14 +1392,17 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
         enddo 
     endif
 
-#ifdef MPI3
-    if (layout(1)>1) call MPI_WAITALL(nrq, rqst(1), stts(1,1), ierr)
-#else
     if (layout(1)>1) then
+#ifdef MPI3
+       call MPI_WAITALL(nrq, rqst(1), stts(1,1), ierr)
+#else
        nbuff = size(buff)
        call MPI_allreduce(buff, waves, nbuff, MPI_DOUBLE_COMPLEX, MPI_SUM, f_x_comm, ierr)
-    endif
+       if (ierr/=0) call mpp_error(FATAL,'fourier_to_spherical: error in MPI_allreduce')
 #endif
+    else 
+        waves = buff
+    endif
 
     call do_truncation(waves,do_trunc1)
 

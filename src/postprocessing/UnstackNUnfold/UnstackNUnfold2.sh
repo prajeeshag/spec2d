@@ -321,7 +321,17 @@ begin
 	end do
 
 	dato = reshape(rdato,osiz)
+
 	dato@missing_value = missing
+
+	nnd = ndim-1
+	dato!nnd = "lon"
+	nnd = ndim-2
+	dato!nnd = "lat"
+	dato&lon = lonGlobeF(NLON, "lon", "longitude", "degrees_E")
+	dato&lat = latGau(NLAT, "lat", "latitude", "degrees_N")
+	copy_VarCoords_2(dati,dato)
+
 	fo->\$vnm\$ = dato
 
 	delete(dati)
@@ -344,10 +354,11 @@ do f = 0, dimsizes(filelist)-1
 	print(" "+filnm)
 	fi = addfile(filnm,"r")
 	outfnm = "$outdir/"+filnm
-	if (fileexists(outfnm)) then
-		print("Error: File ("+outfnm+") already exist")
-		status_exit(1)
-	end if
+;	if (fileexists(outfnm)) then
+;		print("Error: File ("+outfnm+") already exist")
+;		status_exit(1)
+;	end if
+	system("rm -f "+outfnm)
 	fo = addfile(outfnm,"c")
 
 	fvnms = getfilevarnames(fi)

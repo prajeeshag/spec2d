@@ -29,10 +29,10 @@ integer :: js, je, is, ie, nlay
 
 logical :: dz_in_equal=.true.
 
-logical :: initialized=.false., use_this_aerosol=.true.
+logical :: initialized=.false., use_this_module=.false.
 
-namelist /radiation_aerosol_nml/ dz_in_equal, nlevs_of_tropo_in, z1_in, z0_in_tropo, &
-                                 dz_in_tropo, use_this_aerosol
+namelist /set_aerosols_nml/ dz_in_equal, nlevs_of_tropo_in, z1_in, z0_in_tropo, &
+                                 dz_in_tropo, use_this_module
 
 contains
 
@@ -41,7 +41,7 @@ contains
 subroutine init_set_aerosols(isc,iec,jsc,jec,nlev)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: isc, iec, jsc, jec, nlev
-    integer :: i, unit
+    integer :: i, unit, stat
     character (len=32) :: name
 
     if (initialized) return
@@ -51,10 +51,10 @@ subroutine init_set_aerosols(isc,iec,jsc,jec,nlev)
     nlay = nlev
 
     unit = open_namelist_file()
-    read(unit,nml=radiation_aerosol_nml)
+    read(unit,nml=set_aerosols_nml,iostat=stat)
     call close_file(unit)
 
-    if (.not.use_this_aerosol) then
+    if (.not.use_this_module) then
       initialized = .true.
       return
     endif
@@ -85,7 +85,7 @@ subroutine get_aerosols(Time)
 
     if(.not.initialized) call handle_error(FATAL,'set_aerosol_mod: module not initilialized')
 
-    if (.not.use_this_aerosol) return
+    if (.not.use_this_module) return
  
     overriden = .true.
      
@@ -131,7 +131,7 @@ subroutine set_aerosols (Time, prsi, prsl, tlay, geopl, oro, aerosw, aerolw)
 
     if(.not.initialized) call handle_error(FATAL,'set_aerosol_mod: module not initilialized')
 
-    if (.not.use_this_aerosol) return
+    if (.not.use_this_module) return
 
     aerosw = 0.
     aerolw = 0.

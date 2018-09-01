@@ -39,7 +39,8 @@ use sfc_diff_mod, only : sfc_diff
 implicit none
 private
 
-public :: init_sfc, get_land_frac, set_surface, do_surface
+public :: init_sfc, get_land_frac, set_surface, do_surface, end_sfc, &
+save_restart_sfc
 
 real, allocatable, dimension(:,:)   :: fland, cellarea
 real, allocatable, dimension(:,:)   :: tslnd
@@ -77,6 +78,9 @@ integer, parameter :: lsoil=4
 real, parameter :: zsoil(lsoil) = [-0.1,-0.4,-1.0,-2.0]
 real :: sldpth(lsoil)
 
+type(restart_file_type) :: rstrt
+character(len=32) :: resfnm='amfi_sfc_res'
+
 integer :: id_cd, id_cdq, id_rb, id_stress, id_ffmm, id_ffhh, id_uustar, &
            id_wind, id_fm10, id_fh2, id_qss, id_cmm, id_chh, id_evap, id_hflx
 
@@ -94,15 +98,14 @@ logical :: initialized=.false.
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_sfc(Time,deltim_in,domain_in,axes_in,rstrt)
+subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     type(domain2D), target :: domain_in
     real, intent(in) :: deltim_in
     integer, intent(in) :: axes_in(:)
-    type(restart_file_type), intent(inout) :: rstrt
     
-    integer :: indx
+    integer :: indx, k
 
     deltim = deltim_in 
     
@@ -148,53 +151,57 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in,rstrt)
     allocate( hice(js:je,is:ie) )
     allocate( emis_ref(js:je,is:ie) )
    
-    sheleg = 0.
-    indx = reg_rf(rstrt, '', 'sheleg', sheleg, domain, mandatory=.false.)
+    sheleg = 1e-10
+    indx = reg_rf(rstrt, resfnm, 'sheleg', sheleg, domain, mandatory=.false.)
 
-    snwdph = 0.
-    indx = reg_rf(rstrt, '', 'snwdph', snwdph, domain, mandatory=.false.)
+    snwdph = 1e-10
+    indx = reg_rf(rstrt, resfnm, 'snwdph', snwdph, domain, mandatory=.false.)
 
-    tslnd = KELVIN
-    indx = reg_rf(rstrt, '', 'tslnd', tslnd, domain, mandatory=.true.)
+    tslnd = tg3
+    indx = reg_rf(rstrt, resfnm, 'tslnd', tslnd, domain, mandatory=.false.)
 
-    stc = KELVIN
-    indx = reg_rf(rstrt, '', 'stc', stc, domain, mandatory=.true.)
+    do k = 1, size(stc,1)
+        stc(k,:,:) = tg3
+    end do
+    indx = reg_rf(rstrt, resfnm, 'stc', stc, domain, mandatory=.false.)
 
-    smc = 0.
-    indx = reg_rf(rstrt, '', 'smc', smc, domain, mandatory=.false.)
+    smc = 1e-6
+    indx = reg_rf(rstrt, resfnm, 'smc', smc, domain, mandatory=.false.)
 
-    stc = 0.
-    indx = reg_rf(rstrt, '', 'slc', slc, domain, mandatory=.false.)
+    slc = 1e-6
+    indx = reg_rf(rstrt, resfnm, 'slc', slc, domain, mandatory=.false.)
 
     canopy = 0.
-    indx = reg_rf(rstrt, '', 'canopy', canopy, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'canopy', canopy, domain, mandatory=.false.)
 
     trans = 0.
-    indx = reg_rf(rstrt, '', 'trans', trans, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'trans', trans, domain, mandatory=.false.)
 
     sncovr = 0.
-    indx = reg_rf(rstrt, '', 'sncovr', sncovr, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'sncovr', sncovr, domain, mandatory=.false.)
 
     zorlocn = zorl_min
-    indx = reg_rf(rstrt, '', 'zorlocn', zorlocn, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'zorlocn', zorlocn, domain, mandatory=.false.)
 
     tsice = tgice
-    indx = reg_rf(rstrt, '', 'tsice', tsice, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'tsice', tsice, domain, mandatory=.false.)
 
     tice = tgice
-    indx = reg_rf(rstrt, '', 'tice', tice, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'tice', tice, domain, mandatory=.false.)
 
     hice = himin
-    indx = reg_rf(rstrt, '', 'hice', hice, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'hice', hice, domain, mandatory=.false.)
 
     hsnow_sice = 0.
-    indx = reg_rf(rstrt, '', 'hsnow_sice', hsnow_sice, domain, mandatory=.false.)
+    indx = reg_rf(rstrt, resfnm, 'hsnow_sice', hsnow_sice, domain, mandatory=.false.)
 
     call sfc_diag_init(axes_in,Time)
   
     call init_land(Time)
 
     call init_albedo() 
+
+    if (file_exist('INPUT/'//trim(resfnm))) call restore_state(rstrt)
 
     initialized = .true.
 
@@ -986,6 +993,22 @@ subroutine get_emis(sfcemis)
 
     return
 end subroutine get_emis
+
+subroutine save_restart_sfc(tstamp)
+    character(len=*), optional :: tstamp
+
+    call save_restart(rstrt,tstamp)
+
+    return
+end subroutine save_restart_sfc
+
+
+subroutine end_sfc()
+
+    call save_restart(rstrt)
+
+    return
+end subroutine end_sfc
 
 end module sfc_mod
 

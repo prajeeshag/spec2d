@@ -29,6 +29,7 @@ echo $mkmftemplate
 EXE="spec2d"
 
 execdir="$thisdir/exec"
+srcdir="$thisdir/src"
 mkmf="$thisdir/bin/mkmf"
 
 amfi="$thisdir/amfi"
@@ -92,7 +93,7 @@ make -j 16
 #-------------------------make amfi_grid--------------------------------------
 cppDef="-Duse_netCDF -Duse_libMPI"  
 exe=amfi_grid
-tpath="$thisdir/make_grids/amfi $thisdir/amfi/ocpack \
+tpath="$srcdir/preprocessing/make_grids/amfi $thisdir/amfi/ocpack \
 		$thisdir/amfi/transforms/gauss_and_legendre.F90"
 export LD=$FC
 mkdir -p $execdir/$exe
@@ -106,7 +107,7 @@ make
 #-------------------------make xgrid--------------------------------------
 cppDef="-Duse_netCDF"  
 exe=xgrid
-tpath="$thisdir/make_grids/xgrid"
+tpath="$srcdir/preprocessing/make_grids/xgrid"
 export LD=$CC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
@@ -117,7 +118,7 @@ make
 #-------------------------make xregrid--------------------------------------
 cppDef="-Duse_netCDF"  
 exe=xregrid
-tpath="$thisdir/make_grids/regrid"
+tpath="$srcdir/preprocessing/make_grids/regrid"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
@@ -127,23 +128,24 @@ $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
 make 
 #--------------------------------------------------------------------------------	
 
-#-------------------------make xregrid--------------------------------------
-cppDef="-Duse_netCDF"  
-exe=xregrid
-tpath="$thisdir/make_grids/regrid"
-export LD=$FC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-OPTS="-I$execdir/lib_fms"
-LIBS="$execdir/lib_fms/lib_fms.a"
-$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
-make 
-#--------------------------------------------------------------------------------	
+##-------------------------make regrid_p2r--------------------------------------
+#cppDef="-Duse_netCDF"  
+#exe=regrid_p2r
+#tpath="$srcdir/postprocessing/regrid_p2r"
+#export LD=$FC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#OPTS="-I$execdir/lib_fms"
+#LIBS="$execdir/lib_fms/lib_fms.a"
+#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $tpath
+#make 
+##--------------------------------------------------------------------------------	
 
 #-------------------------make p2r_xgrid--------------------------------------
 cppDef="-Duse_netCDF -Dlib_xgrid"  
 exe=p2r_xgrid
-tpath="$thisdir/make_grids/xgrid $thisdir/make_grids/p2r_xgrid $thisdir/amfi/ocpack"
+tpath="$srcdir/preprocessing/make_grids/xgrid $srcdir/preprocessing/make_grids/p2r_xgrid \
+		$thisdir/amfi/ocpack"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
@@ -157,6 +159,7 @@ make
 #make AMFI
 #--------------------------------------------------------------------------------	
 cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
+#cppDef="-Duse_netCDF -Duse_libMPI"  
 mkdir -p $execdir/$EXE
 cd $execdir/$EXE
 
@@ -169,16 +172,13 @@ $mkmf -c "$cppDef" -f -p ${EXE}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 make -j $numproc
 #--------------------------------------------------------------------------------	
 
-#cd $thisdir/work_ocy
+cd $thisdir/work_ocy
 
-#rm -f fftw.*
+rm -f fftw.*
 
-#mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
+mpirun -np 8 -prepend-rank $thisdir/exec/spec2d/spec2d.exe
 
-#rm -f atm_out.nc
+rm -f atm_out.nc
 
-#./mppncc -r atm_out.nc
+./mppncc -r atm_out.nc
 
-#cd $thisdir
-
-#$execdir/amfi_grid/amfi_grid  <<< 94

@@ -15,13 +15,14 @@ use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
 use time_manager_mod, only : time_type
 
-use diag_manager_mod, only : reg_df=>register_diag_field, send_data, diag_axis_init
+use diag_manager_mod, only : reg_df=>register_diag_field, send_data, diag_axis_init, register_static_field
 
 use constants_mod, only : RVGAS, RDGAS, GRAV, RADIUS
 
 use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init, &
                     stdlog, stdout, stderr
-use fms_io_mod, only : fms_io_exit, restart_file_type, register_restart_field
+use fms_io_mod, only : fms_io_exit, restart_file_type, register_restart_field, &
+        file_exist, field_exist, field_size
 
 use tracer_manager_mod, only : get_tracer_index, get_tracer_name, get_number_tracers
 
@@ -43,13 +44,13 @@ use horiz_diffusion_mod, only : init_horiz_diffusion, horiz_diffusion
 
 use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, get_ocpackP
 
-use spec_comm_mod, only : spec_comm_max
+use spec_comm_mod, only : spec_comm_max, spec_comm_min
 
 implicit none
 private
 
 public :: init_spectral_dynamics, spectral_dynamics, get_latsP, get_lonsP, &
-          finish_spectral_dynamics, save_spec_restart, restore_spec_restart, end_spectral_dynamics
+          finish_spectral_dynamics, save_spec_restart, end_spectral_dynamics
 
 type satm_type
     complex, dimension(:,:,:),   allocatable :: vor
@@ -73,13 +74,13 @@ end type gatm_type
 
 type(gatm_type) :: gatm(2), dphi, dlam, dt
 
-real :: pdryini
+real :: pdryini = 98.2633
 
-complex, dimension(:,:,:), allocatable :: sucos, svcos, stopo, stmp3d
+complex, dimension(:,:,:), allocatable :: sucos, svcos, stopo, soro, stmp3d
 complex, dimension(:,:,:,:), allocatable :: stmp3d1
 
 real, allocatable, dimension(:,:,:) :: div, vor
-real, allocatable, dimension(:,:) :: gtopo
+real, allocatable, dimension(:,:,:) :: gtopo
 
 real, allocatable, dimension(:) :: spdmax
 
@@ -101,6 +102,8 @@ integer :: commID
 real :: deltim=600.
 real :: filta = 0.85 
 logical :: mass_corr=.true.
+logical :: zero_topo=.false.
+integer :: niter_topo = 10
 
 integer :: i0 = -1
 
@@ -110,41 +113,49 @@ real, allocatable :: sin_latP(:,:), cosm2_latP(:,:), cosm_latP(:,:), wts_latP(:,
                      cos_latP(:,:)
 real, allocatable :: typdel(:)
 
-integer, allocatable :: sph_wave(:,:)
-
-real, parameter :: fv = RVGAS/RDGAS-1.
+integer, allocatable :: sph_wave(:,:), nnp1(:,:)
 
 character(len=8) :: moist_tracer_names(10)
 integer, allocatable :: moist_ind(:)
 integer :: nmoist_tracers = 0
 
-integer :: id_dtadv, id_dttot, id_dtdyn
+integer :: id_dtadv, id_dttot, id_dtdyn, id_topo, id_prs_ini, id_tem_ini
 integer, allocatable, dimension(:) :: id_dtradv, id_dtrtot, id_dtrdyn
 
+real, parameter :: fv = RVGAS/RDGAS-1., GA2=GRAV/(RADIUS*RADIUS)
+
 character(len=8), parameter :: rou='sdyn'
+character(len=256) :: topo_file='INPUT/topography.nc', topo_field='topo'
+character(len=256) :: temp_file='INPUT/temp_pres.nc'
 
 contains
 
 !--------------------------------------------------------------------------------
-subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rstrt, gaxis)
+subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, gaxis)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     integer, intent(in) :: nlev_in, trunc_in
     real, intent(in) :: deltim_in
     type(domain2d), target :: domain
-    type(restart_file_type), intent(inout) :: rstrt
     integer, intent(out) :: gaxis(4)
 
     integer :: i, j, k, ntr
-    real :: ref_temp
+    real :: ref_temp, tmpmx(1)
     real, dimension(nlev_in+1) :: ak, bk, si, plevp
     real, dimension(nlev_in) :: sl, plev
     real, allocatable :: tmpg(:,:)
     integer :: idx, tr, n, is, ie, nlon
-    integer :: num_prog, num_diag
+    integer :: num_prog, num_diag, unit, stat
+    logical :: used
+
+    namelist/spectral_dynamics_nml/zero_topo, niter_topo, topo_file, topo_field, pdryini
     
     call mpp_init()
     call fms_init()
+
+    unit = open_namelist_file()
+    read(unit,nml=spectral_dynamics_nml)
+    call close_file(unit) 
 
     nlev = nlev_in 
     trunc = trunc_in 
@@ -189,6 +200,7 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     call init_vertical_levels(nlev)
     
     allocate(sph_wave(nwaves_oe,2))
+    allocate(nnp1(nwaves_oe,2))
    
     allocate(tmpg(ocny,ocnx)) 
     allocate(sin_latP(jsp:jep,isp:iep), cosm2_latP(jsp:jep,isp:iep))
@@ -225,7 +237,6 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
     allocate(typdel(nlev))
     typdel(:) = si(1:nlev) - si(2:nlev+1)
     
-    !call get_pressure_at_levels(100.,prsi=plevp, prsl=plev)
     forall(k=1:nlev) plev(k) = k
     forall(k=1:nlev+1) plevp(k) = k
     
@@ -241,11 +252,11 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
 
     call init_diag_out(gaxis,Time) 
 
-    call get_spherical_wave(sph_wave)
-
+    call get_spherical_wave(sph_wave,nnp1)
+    
     do i = 1, size(sph_wave,1)
         if (sph_wave(i,1) == 0) then
-            i0 = .true.
+            i0 = i
             exit
         endif
     enddo
@@ -261,10 +272,180 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, rs
    
     call init_data()
 
-    pdryini = 0.
-    idx = register_restart_field(rstrt,'','pdryini',pdryini,domain_g,mandatory=.false.)
+    call restore_spec_restart()
 
+    gtopo = 0.; stopo = 0.; soro = 0.
+    if (.not.zero_topo) then
+        call read_topo()
+    endif
+
+    used = send_data(id_topo, gtopo(1,:,:))
+    
+    tmpmx = 0.
+    if (nwaves_oe>0) tmpmx(1) = maxval(abs(satm(2)%prs))
+    call spec_comm_max(tmpmx,1,commID)
+
+    if (tmpmx(1)<=0.) then
+        call mpp_error(WARNING,'Initial conditions not given or not proper, assuming a cold start')
+        call mpp_error(WARNING,'-------------------COLD START-------------------------')
+        call mpp_error(NOTE,'All tracers set to Zero')
+        satm(1)%tr = 0.; satm(2)%tr = 0.
+        
+        call set_prs_temp_prof()
+    end if
+        
 end subroutine init_spectral_dynamics
+
+!--------------------------------------------------------------------------------   
+subroutine set_prs_temp_prof()
+!--------------------------------------------------------------------------------   
+    character(len=100) :: cval
+    real, allocatable :: tmp2d(:,:), tmp3d(:,:,:), axin(:)
+    real, allocatable :: prsl(:,:,:)
+    integer :: i, siz(4), j
+    logical :: used
+
+    if (.not.file_exist(temp_file)) call mpp_error(FATAL,trim(temp_file)//' does not exist')
+    if (.not.field_exist(temp_file,'temp')) call mpp_error(FATAL,'field temp does not exist in file '&
+                                          //trim(temp_file))
+    if (.not.field_exist(temp_file,'pres')) call mpp_error(FATAL,'field pres does not exist in file '&
+                                          //trim(temp_file))
+
+    allocate(tmp2d(oc_ny(),oc_nx()))
+    call read_data(temp_file,'pres',tmp2d)
+    gatm(1)%prs(1,:,:) = tmp2d(jsp:jep,isp:iep) * 0.001 !->pascals to centibar
+    gatm(1)%prs(1,:,:) = log(gatm(1)%prs(1,:,:))
+
+    do i = 1, size(satm)
+        call grid_to_spherical(gatm(1)%prs, satm(i)%prs, do_trunc=.true.)
+    end do
+   
+    call mpp_error(NOTE,'Surface pressure is set from file '//trim(temp_file))
+
+    call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs)
+
+    gatm(1)%prs = exp(gatm(1)%prs)
+    used =  send_data(id_prs_ini,gatm(1)%prs(1,:,:))
+
+    deallocate(tmp2d)
+
+    call field_size(temp_file,'level',siz)
+
+    allocate(axin(siz(1)), tmp3d(siz(1),oc_ny(),oc_nx()))
+    allocate(prsl(nlev,jsp:jep,isp:iep))
+
+    call read_data(temp_file,'level',axin)
+    call read_data(temp_file,'temp',tmp3d)
+    call get_pressure_at_levels(gatm(1)%prs(1,:,:), prsl=prsl)
+    
+    axin = axin * 0.1 !-> mb to cb
+
+    do i = isp, iep
+        do j = jsp, jep
+            call interp_vert(tmp3d(:,j,i), gatm(1)%tem(:,j,i), axin, prsl(:,j,i))
+        end do
+    end do
+
+    do i = 1, size(satm)
+        call grid_to_spherical(gatm(1)%tem, satm(i)%tem, do_trunc=.true.)
+    end do
+
+    call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem)
+
+    used =  send_data(id_tem_ini,gatm(1)%tem)
+
+    call mpp_error(NOTE,'Temperature profiles are set from file '//trim(temp_file))
+
+    deallocate(axin, tmp3d, prsl)
+
+    return
+end subroutine set_prs_temp_prof
+
+
+!--------------------------------------------------------------------------------   
+subroutine interp_vert (fldin,fldout,axin,axout)
+!--------------------------------------------------------------------------------   
+    real, dimension(:), intent(in) :: fldin, axin, axout
+    real, dimension(:), intent(out) :: fldout
+
+    integer :: i1, i2, ni, j
+    real :: w1, w2, tmp(size(axin)), w12
+   
+    ni = size(axin) 
+
+    do j = 1, size(axout)
+        tmp = axin-axout(j)
+        i1 = 0; i2 = 0
+        if (any(tmp>=0)) i1 = minloc(tmp, 1, mask=tmp>=0.)
+        if (any(tmp<=0)) i2 = maxloc(tmp, 1, mask=tmp<=0.)
+
+        if(i1<=0.and.i2<=0) call mpp_error(FATAL,'interp_vert: both i1 and i2 <= 0') 
+
+        if (i1<=0) i1=i2
+        if (i2<=0) i2=i1
+
+        w1 = abs(axout(j)-axin(i2))
+        w2 = abs(axout(j)-axin(i1))
+
+        if (w1==0.or.w2==0.) then
+            w1 = 1.; w2 = 1.
+        endif
+
+        w12 = w1 + w2
+
+        w1 = w1/w12; w2=w2/w12
+
+        fldout(j) = fldin(i1)*w1+fldin(i2)*w2
+    end do
+
+    return
+
+end subroutine interp_vert
+
+
+subroutine read_topo()
+    real, allocatable :: topog(:,:)
+    real :: topomin(1)
+    character(len=100) :: cval
+    integer :: n
+
+    if (.not.file_exist(topo_file)) call mpp_error(FATAL,'init_spectral_dynamics: zero_topo is False but '// &
+                                            trim(topo_file)//' not present')
+
+    if (.not.field_exist(topo_file,trim(topo_field))) call mpp_error(FATAL,'init_spectral_dynamics: '//&
+                'cannot find field '//trim(topo_field)//' in file '//trim(topo_file))
+
+    call mpp_error(NOTE,'init_spectral_dynamics: reading new topography from '//trim(topo_file))
+
+    allocate(topog(oc_ny(),oc_nx())) 
+
+    call read_data(topo_file,topo_field,topog)
+
+    gtopo(1,:,:) = topog(jsp:jep,isp:iep)
+
+    call grid_to_spherical(gtopo,soro,do_trunc=.true.)
+
+    do n = 1, niter_topo
+        call spherical_to_grid(soro,grid=gtopo)
+        topomin = minval(gtopo)
+        call spec_comm_min(topomin, 1, commID)
+        if (topomin(1) > 0.) exit
+        where(gtopo<0.) gtopo = 0.
+        call grid_to_spherical(gtopo,soro,do_trunc=.true.)
+    end do
+
+    call spherical_to_grid(soro,grid=gtopo)
+    topomin = minval(gtopo)
+    call spec_comm_min(topomin, 1, commID)
+    write(cval,*) topomin(1)
+    call mpp_error(NOTE,'Minimum value of Topography is '//trim(adjustl(cval)))
+
+    stopo(1,:,:) = soro(1,:,:)*(GA2*real(nnp1))
+    deallocate(topog)
+
+    return
+end subroutine read_topo
+
 
 subroutine end_spectral_dynamics()
     integer :: i
@@ -284,6 +465,7 @@ subroutine end_spectral_dynamics()
         deallocate(satm(i)%prs)
     enddo
     deallocate(stopo)
+    deallocate(soro)
     do i = 1, 2
         deallocate(gatm(i)%u)
         deallocate(gatm(i)%v)
@@ -344,7 +526,9 @@ subroutine init_data()
     enddo
     
     allocate(stopo(1,nwaves_oe,2))
+    allocate(soro(1,nwaves_oe,2))
     stopo = 0.
+    soro = 0.
     
     do i = 1, 2
         allocate(gatm(i)%u(nlev,jsp:jep,isp:iep))
@@ -374,18 +558,22 @@ subroutine init_data()
     
     allocate(div(nlev,jsp:jep,isp:iep))
     allocate(vor(nlev,jsp:jep,isp:iep))
+    allocate(gtopo(1,jsp:jep,isp:iep))
     allocate(spdmax(nlev))
 
     spdmax = 0.
 
-    idx=register_spec_restart('topo',stopo,.true.,0.)
-
     do i = 1, 2
         nm='_m'
         if (i==2) nm='_n'
+        satm(i)%vor = 0.
+        satm(i)%div = 0.
+        satm(i)%tem = 0.
+        satm(i)%prs = 0.
+        satm(i)%tr = 0.
         idx=register_spec_restart('vor'//nm,satm(i)%vor,.false.,0.)
         idx=register_spec_restart('div'//nm,satm(i)%div,.false.,0.)
-        idx=register_spec_restart('tem'//nm,satm(i)%tem,.true.,0.)
+        idx=register_spec_restart('tem'//nm,satm(i)%tem,.false.,0.)
         idx=register_spec_restart('prs'//nm,satm(i)%prs,.false.,0.)
         do tr = 1, ntrac
             write(fldnm,'(A,I3.3,A)') 'tr',tr,nm
@@ -410,6 +598,10 @@ subroutine init_diag_out(axis, Time)
     allocate(id_dtradv(ntrac))
     allocate(id_dtrtot(ntrac))
     allocate(id_dtrdyn(ntrac))
+
+    id_tem_ini = register_static_field(rou, 'tem_ini', axis1, 'Temperature', 'K')
+    id_prs_ini = register_static_field(rou, 'prs_ini', axis1(2:3), 'Surface Pressure', 'cbar')
+    id_topo = register_static_field(rou, 'topo', axis1(2:3), 'Topography', 'm')
 
     id_dtadv = reg_df(rou, 'dtadv', axis1, Time, 'Temperature tendency (adv)', 'Ks-1')
     do n = 1, ntrac
@@ -455,8 +647,6 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     real, intent(out), dimension(jsp:jep,isp:iep)            :: p, p1
 
     real, dimension(nlev,jsp:jep,isp:iep) :: gtmp1
-    complex, dimension(nlev,nwaves_oe,2) :: stmp1
-    complex, dimension(nlev,nwaves_oe,2,ntrac) :: stmp2
     real :: val
     integer :: i, j, k, ntr
     logical :: used
@@ -506,6 +696,7 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
             dt%prs, dt%tem, dt%tr, dt%u, dt%v, spdmax)
   
     call spec_comm_max(spdmax, size(spdmax), commID)
+    
     spdmax = sqrt(spdmax)
 
     call grid_to_spherical(dt%prs, satm(3)%prs, do_trunc=.true.)
@@ -649,7 +840,7 @@ subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
 
     if (mass_corr) then
         satm(3)%prs = cmplx(0.,0.)
-        if (i0>0) satm(3)%prs(1,0,1) = cmplx(pcorr,0.)
+        if (i0>0) satm(3)%prs(1,i0,1) = cmplx(pcorr,0.)
         
         do k = 1, nlev
             satm(3)%prs(1,:,:) = satm(3)%prs(1,:,:) + typdel(k) * rqt(k,:,:)
@@ -727,8 +918,6 @@ subroutine calc_mass_corr(ps, trc, mi, pcorr)
     !pstot = sum(psl*wts_lat)
 
     pdryg = pstot - pwattot
-
-    if (pdryini<=0.) pdryini = pdryg
 
     pcorr = (pdryini - pdryg)/pstot*sqrt(2.)
 
@@ -855,6 +1044,7 @@ subroutine damp_speed(dive,vore,teme,rte,ndexev,spdmax,jcap,delt)
     alfadt=alfa*delt/RADIUS
 
     do k = 1, nlev 
+        if (spdmax(k)==0.) cycle
         rncrit=beta/spdmax(k)
         if (rncrit.lt.jcap) then
             coef=alfadt*spdmax(k)

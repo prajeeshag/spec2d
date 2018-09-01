@@ -15,7 +15,7 @@ use fms_mod, only : open_namelist_file, close_file, fms_init
 use fms_mod, only : read_data, write_data
 
 use fms_io_mod, only : read_data, restart_file_type, register_restart_field
-use fms_io_mod, only : restore_state, save_restart
+use fms_io_mod, only : restore_state, save_restart, file_exist
 use fms_io_mod, only : fms_io_exit 
 
 use constants_mod, only : RADIUS
@@ -374,6 +374,8 @@ subroutine restore_spec_restart()
 !--------------------------------------------------------------------------------   
 
     if(.not.fpe) return
+
+    if (.not.file_exist('INPUT/'//trim(resnm))) return
 
     call mpp_set_current_pelist(fpesall,no_sync=.true.)
 
