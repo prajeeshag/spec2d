@@ -3,8 +3,9 @@
 queue="cccr-res"
 WCLOCK="240:00"
 JOBNAME="AMFI"
-STDOUT="stdout"
-EXE=/moes/home/prajeesh/spec2d/exec/spec2d/spec2d.exe
+STDOUT="stdout"_$JOBNAME
+
+EXE=_EXENAME_
 
 
 line1=$(sed -n '/&atmos_nml/,/\//p' input.nml | \

@@ -1,0 +1,187 @@
+Module|Field|Long Name|Units|Number of Axis|Time Axis|Missing Value|Min Value|Max Value|AXES LIST
+sdyn|tem_ini|Temperature|K|3|F||||lev,ocy,ocx
+sdyn|prs_ini|Surface Pressure|cbar|2|F||||ocy,ocx
+sdyn|topo|Topography|m|2|F||||ocy,ocx
+sdyn|dtadv|Temperature tendency (adv)|Ks-1|3|T||||lev,ocy,ocx
+sdyn|dsphumadv|specific humidity tendency (advection)|kg/kg s-1|3|T||||lev,ocy,ocx
+sdyn|dclwadv|cloud liquid water tendency (advection)|kg/kg s-1|3|T||||lev,ocy,ocx
+sdyn|dttot|Temperature tendency (total)|Ks-1|3|T||||lev,ocy,ocx
+sdyn|dsphumtot|specific humidity tendency (total)|kg/kg s-1|3|T||||lev,ocy,ocx
+sdyn|dclwtot|cloud liquid water tendency (total)|kg/kg s-1|3|T||||lev,ocy,ocx
+sdyn|dtdyn|Temperature tendency (dynamics)|Ks-1|3|T||||lev,ocy,ocx
+sdyn|dsphumdyn|specific humidity tendency (dynamics)|kg/kg s-1|3|T||||lev,ocy,ocx
+sdyn|dclwdyn|cloud liquid water tendency (dynamics)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_sfc|facsf|facsf|1|2|F||||ocy,ocx
+am_sfc|facwf|facwf|1|2|F||||ocy,ocx
+am_sfc|cd|noname|nounit|2|T||||ocy,ocx
+am_sfc|cdq|noname|nounit|2|T||||ocy,ocx
+am_sfc|rb|noname|nounit|2|T||||ocy,ocx
+am_sfc|stress|noname|nounit|2|T||||ocy,ocx
+am_sfc|ffmm|noname|nounit|2|T||||ocy,ocx
+am_sfc|ffhh|noname|nounit|2|T||||ocy,ocx
+am_sfc|uustar|noname|nounit|2|T||||ocy,ocx
+am_sfc|wind|noname|nounit|2|T||||ocy,ocx
+am_sfc|fm10|noname|nounit|2|T||||ocy,ocx
+am_sfc|fh2|noname|nounit|2|T||||ocy,ocx
+am_sfc|qss|noname|nounit|2|T||||ocy,ocx
+am_sfc|cmm|noname|nounit|2|T||||ocy,ocx
+am_sfc|chh|noname|nounit|2|T||||ocy,ocx
+am_sfc|evap|noname|nounit|2|T||||ocy,ocx
+am_sfc|hflx|noname|nounit|2|T||||ocy,ocx
+am_sfc|vegtype|vegtype|1|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|soiltype|soiltype|1|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|slopetype|slopetype|1|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|canopy|canopy|mm|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|tslnd|Land Surface Temperature|K|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|sheleg|sheleg|mm|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|stc|Soil Temperature|K|3|T|  -99999.0000000000|||lsoil,ocy,ocx
+am_sfc|smc|Soil Moisture|nounit|3|T|  -99999.0000000000|||lsoil,ocy,ocx
+am_sfc|slc|Soil Liquid Water|nounit|3|T|  -99999.0000000000|||lsoil,ocy,ocx
+am_sfc|vegfrac|Green Vegetation Fraction|1|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|snwdph|Snow Height|mm|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|nroot|No: of root layers|1|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|eta|Latent Heat Flux (Land|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|sheat|Sensible Heat Flux (Land)|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|ec|ec|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|edir|edir|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|et|et|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|trans|trans|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|esnow|esnow|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|drip|drip|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|dew|dew|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|beta|beta|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|etp|etp|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|ssoil|ssoil|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|flx1|flx1|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|flx2|flx2|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|flx3|flx3|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|runoff1|runoff1|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|runoff2|runoff2|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|runoff3|runoff3|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|snomlt|snomlt|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|sncovr|sncovr|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|rc|rc|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|pc|pc|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|rsmin|rsmin|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|xlai|xlai|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|rcs|rcs|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|rct|rct|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|rcq|rcq|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|rcsoil|rcsoil|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|soilw|soilw|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|soilm|soilm|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|smcwlt|smcwlt|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|smcdry|smcdry|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|smcref|smcref|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_sfc|smcmax|smcmax|nounit|2|T|  -99999.0000000000|||ocy,ocx
+am_rad|aod|Aerosol Optical Depth at 550 nm||3|T||||lev,ocy,ocx
+am_rad|ssa|Single scattering Albedo||3|T||||lev,ocy,ocx
+am_rad|asy|Asymmetry Parameter||3|T||||lev,ocy,ocx
+am_rad|plvl|Pressure|mb|3|T||||levp,ocy,ocx
+am_rad|plyr|Pressure|mb|3|T||||lev,ocy,ocx
+am_rad|tskin|Surface Temperature|K|2|T||||ocy,ocx
+am_rad|albedo|Surface Albedo 1|1|2|T||||ocy,ocx
+am_rad|tlyr|Temperature|K|3|T||||lev,ocy,ocx
+am_rad|tlvl|Temperature|K|3|T||||levp,ocy,ocx
+am_rad|coszen|coszen|1|2|T||||ocy,ocx
+am_rad|fracday|fracday|1|2|T||||ocy,ocx
+am_rad|ozone|Ozone|?|3|T||||lev,ocy,ocx
+am_rad|qlyr|Sp Humidity|?|3|T||||lev,ocy,ocx
+am_rad|clw|Cloud Condensate|?|3|T||||lev,ocy,ocx
+am_rad|sfcemis|Surface Emissivity|?|2|T||||ocy,ocx
+am_rad|clouds01|clouds01|?|3|T||||lev,ocy,ocx
+am_rad|clouds02|clouds02|?|3|T||||lev,ocy,ocx
+am_rad|clouds03|clouds03|?|3|T||||lev,ocy,ocx
+am_rad|clouds04|clouds04|?|3|T||||lev,ocy,ocx
+am_rad|clouds05|clouds05|?|3|T||||lev,ocy,ocx
+am_rad|clouds06|clouds06|?|3|T||||lev,ocy,ocx
+am_rad|clouds07|clouds07|?|3|T||||lev,ocy,ocx
+am_rad|clouds08|clouds08|?|3|T||||lev,ocy,ocx
+am_rad|clouds09|clouds09|?|3|T||||lev,ocy,ocx
+am_rad|gas01|gas01|?|3|T||||lev,ocy,ocx
+am_rad|gas02|gas02|?|3|T||||lev,ocy,ocx
+am_rad|gas03|gas03|?|3|T||||lev,ocy,ocx
+am_rad|gas04|gas04|?|3|T||||lev,ocy,ocx
+am_rad|gas05|gas05|?|3|T||||lev,ocy,ocx
+am_rad|gas06|gas06|?|3|T||||lev,ocy,ocx
+am_rad|gas07|gas07|?|3|T||||lev,ocy,ocx
+am_rad|gas08|gas08|?|3|T||||lev,ocy,ocx
+am_rad|gas09|gas09|?|3|T||||lev,ocy,ocx
+am_rad|gas10|gas10|?|3|T||||lev,ocy,ocx
+am_rad|icsd01|icsd01|?|3|T||||lev,ocy,ocx
+am_rad|icsd02|icsd02|?|3|T||||lev,ocy,ocx
+am_rad|htsw|Shortwave Heating Rate|?|3|T||||lev,ocy,ocx
+am_rad|rsdt|TOA Incident Shortwave Radiation|W m-2|2|T||||ocy,ocx
+am_rad|rsut|TOA Upward Shortwave|W m-2|2|T||||ocy,ocx
+am_rad|rsutc|TOA Upward Shortwave (Clear)|W m-2|2|T||||ocy,ocx
+am_rad|rsds|Surface Downwelling Shortwave|W m-2|2|T||||ocy,ocx
+am_rad|rsdsc|Surface Downwelling Shortwave (Clear)|W m-2|2|T||||ocy,ocx
+am_rad|rsus|Surface Upwelling Shortwave|W m-2|2|T||||ocy,ocx
+am_rad|rsusc|Surface Upwelling Shortwave (Clear)|W m-2|2|T||||ocy,ocx
+am_rad|ruvds|Surface Downwelling UV|W m-2|2|T||||ocy,ocx
+am_rad|ruvdsc|Surface Downwelling UV (Clear)|W m-2|2|T||||ocy,ocx
+am_rad|rnirdsbm|Surface Downwelling Near-IR (dir)|W m-2|2|T||||ocy,ocx
+am_rad|rnirdsdf|Surface Downwelling Near-IR (dif)|W m-2|2|T||||ocy,ocx
+am_rad|rvisdsbm|Surface Downwelling visible (dir)|W m-2|2|T||||ocy,ocx
+am_rad|rvisdsdf|Surface Downwelling visible (dif)|W m-2|2|T||||ocy,ocx
+am_rad|htlw|Longwave Heating Rate|K sec-1|3|T||||lev,ocy,ocx
+am_rad|rlut|TOA Upward Longwave|W m-2|2|T||||ocy,ocx
+am_rad|rlutc|TOA Upward Longwave (Clear)|W m-2|2|T||||ocy,ocx
+am_rad|rlds|Surface Downwelling Longwave|W m-2|2|T||||ocy,ocx
+am_rad|rldsc|Surface Downwelling Longwave (Clear)|W m-2|2|T||||ocy,ocx
+am_rad|rlus|Surface Upwelling Longwave|W m-2|2|T||||ocy,ocx
+am_rad|rlusc|Surface Upwelling Longwave (Clear)|W m-2|2|T||||ocy,ocx
+am_phys|rsds|surface downwelling shortwave|w m-2|2|T||||ocy,ocx
+am_phys|rsus|surface upwelling shortwave|w m-2|2|T||||ocy,ocx
+am_phys|rsns|surface net shortwave|w m-2|2|T||||ocy,ocx
+am_phys|sfcemis|surface emisivity|w m-2|2|T||||ocy,ocx
+am_phys|rlds|surface downwelling longwave|w m-2|2|T||||ocy,ocx
+am_phys|rlus|surface upwelling longwave|w m-2|2|T||||ocy,ocx
+am_phys|tskin|Surface Temperature|K|2|T||||ocy,ocx
+am_phys|dtrd|temperature tendency (radiation)|k s-1|3|T||||lev,ocy,ocx
+am_phys|dtlw|temperature tendency (lw)|ks-1|3|T||||lev,ocy,ocx
+am_phys|shflx|sensible heat flux|wm-2|2|T||||ocy,ocx
+am_phys|lhflx|latent heat flux|wm-2|2|T||||ocy,ocx
+am_phys|taux|u-wind stress|pa|2|T||||ocy,ocx
+am_phys|tauy|v-wind stress|pa|2|T||||ocy,ocx
+am_phys|hpbl|height of planetary boundary layer|m|2|T||||ocy,ocx
+am_phys|dtvd|temperature tendency (vertical diffusion)|k s-1|3|T||||lev,ocy,ocx
+am_phys|duvd|u-velocity tendency (vertical diffusion)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dvvd|v-velocity tendency (vertical diffusion)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dsphumvd|specific humidity tendency (vertical diffusion)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dclwvd|cloud liquid water tendency (vertical diffusion)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dugwd|u-velocity tendency (gravity wave drag)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dvgwd|v-velocity tendency (gravity wave drag)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|ducgwd|u-velocity tendency (convective gravity wave drag)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dvcgwd|v-velocity tendency (convective gravity wave drag)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dtcu|temperature tendency (cumulus conv)|k s-1|3|T||||lev,ocy,ocx
+am_phys|ducu|u-velocity tendency (cumulus conv)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dvcu|v-velocity tendency (cumulus conv)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|lprcu|rainfall rate (cumulus conv)|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|fprcu|snowfall rate (cumulus conv)|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|kcnv|cumulus conv occurence|1|2|T||||ocy,ocx
+am_phys|dsphumcu|specific humidity tendency (cumulus convection)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dclwcu|cloud liquid water tendency (cumulus convection)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dtsc|temperature tendency (shallow conv)|k s-1|3|T||||lev,ocy,ocx
+am_phys|dsphumsc|specific humidity tendency (shallow convection)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dclwsc|cloud liquid water tendency (shallow convection)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|inmpclw|temperature tendency (micro phys)|k s-1|3|T||||lev,ocy,ocx
+am_phys|inmpq|temperature tendency (micro phys)|k s-1|3|T||||lev,ocy,ocx
+am_phys|dtmp|temperature tendency (micro phys)|k s-1|3|T||||lev,ocy,ocx
+am_phys|lprmp|rainfall rate (micro phys)|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|fprmp|snowfall rate (micro phys)|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|dsphummp|specific humidity tendency (micro phys)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dclwmp|cloud liquid water tendency (micro phys)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|ua|u-velocity (phys-in)|ms-1|3|T||||lev,ocy,ocx
+am_phys|va|v-velocity (phys-in)|ms-1|3|T||||lev,ocy,ocx
+am_phys|ta|Temperature|K|3|T||||lev,ocy,ocx
+am_phys|dtphy|temperature tendency (phys)|k s-1|3|T||||lev,ocy,ocx
+am_phys|duphy|u-velocity tendency (phys)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|dvphy|v-velocity tendency (phys)|m/s-2|3|T||||lev,ocy,ocx
+am_phys|lpr|rainfall rate|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|fpr|snowfall rate|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|pr|precipitation rate|kg m-2 s-1|2|T||||ocy,ocx
+am_phys|dsphumphy|specific humidity tendency (phys)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|dclwphy|cloud liquid water tendency (phys)|kg/kg s-1|3|T||||lev,ocy,ocx
+am_phys|sphum_in|specific humidity (phys)|kg/kg|3|T||||lev,ocy,ocx
+am_phys|clw_in|cloud liquid water (phys)|kg/kg|3|T||||lev,ocy,ocx

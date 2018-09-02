@@ -1,13 +1,46 @@
 #!/bin/bash
 set -e
 
+# Path to the root directory.
+rootdir=_ROOTDIR_
+
+# Fortran compiler
 export FC=mpiifort
-export CC=mpiicc
-export MPICC=mpiicc
 export F77=mpiifort
 
+# C compiler
+export CC=mpiicc
+export MPICC=mpiicc
 
-rootdir=$(pwd)
+# if mpi library version is 3 or above
+MPI3=True
+
+#netcdf library path
+NETCDF=/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1
+
+#Fortran compiler options
+FFLAGS="-r8 -O2 -fp-model precise -convert big_endian -align array32byte -I$NETCDF/include"
+#Fortran compiler debug options
+DFFLAGS="-g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created"
+
+# C compiler options
+CFLAGS="-O2 -I$NETCDF/include"
+# C compiler debug options
+DCFLAGS="-g -traceback"
+
+#Linker options
+LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm"
+
+
+
+
+
+#--------------------------------------------------------------------------------	
+#--------------------------------------------------------------------------------	
+#----------------------------No editing needed beyond this-----------------------
+#--------------------------------------------------------------------------------	
+#--------------------------------------------------------------------------------	
+
 execdir="$rootdir/exec"
 srcdir="$rootdir/src"
 mkmf="$rootdir/bin/mkmf"
@@ -16,9 +49,10 @@ mkmftemplate="$rootdir/bin/mkmf.template"
 
 numproc=16
 
+debug=False
 while getopts 'gj:' flag; do
     case "${flag}" in
-    g) mkmftemplate="$rootdir/bin/mkmf.template.debug" ;;
+	g) debug=True ;;
 	j) numproc="$OPTARG" ;;
     *)
 		echo "error"
@@ -27,9 +61,23 @@ while getopts 'gj:' flag; do
     esac
 done
 
+if [[ "$debug" == True ]]; then
+cat<<EOF > $mkmftemplate
+FFLAGS = $DFFLAGS $FFLAGS
+CFLAGS = $DCFLAGS $CFLAGS
+LDFLAGS = $LDFLAGS
+EOF
+else
+cat<<EOF > $mkmftemplate
+FFLAGS = $FFLAGS
+CFLAGS = $CFLAGS
+LDFLAGS = $LDFLAGS
+EOF
+fi
+
 shift $(expr $OPTIND - 1)
 
-echo $mkmftemplate
+cat $mkmftemplate
 
 #-------------------------MAKE MPPNCCOMBINE--------------------------------------
 cppDef="-Duse_netCDF -Duse_libMPI"  
@@ -155,8 +203,11 @@ amfi="$srcdir/amfi"
 #paths="$amfi/model $amfi/driver $amfi/radiation $amfi/spec_dyn"
 paths=$(find $amfi -type d)
 
-#cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
-cppDef="-Duse_netCDF -Duse_libMPI"  
+if [[ "$MPI3" == True ]]; then
+	cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
+else
+	cppDef="-Duse_netCDF -Duse_libMPI"
+fi
 exe=spec2d
 mkdir -p $execdir/$exe
 cd $execdir/$exe
@@ -170,13 +221,5 @@ $mkmf -c "$cppDef" -f -p ${exe}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $pat
 make -j $numproc
 #--------------------------------------------------------------------------------	
 
-cd $rootdir/work/ocy
 
-rm -f fftw.*
-
-mpirun -np 8 -prepend-rank $rootdir/exec/spec2d/spec2d.exe
-
-rm -f atm_out.nc
-
-./mppncc -r atm_out.nc
 

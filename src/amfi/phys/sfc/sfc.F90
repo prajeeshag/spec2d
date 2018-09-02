@@ -227,8 +227,8 @@ subroutine sfc_diag_init(axes,Time)
     axesl(:) = [id_lsoil,axes(1),axes(2)]
     axesi(:) = [id_kmi,axes(1),axes(2)]
 
-    id_facsf  = register_static_field('amfi_sfc','facsf',axes,'facsf','1')
-    id_facwf  = register_static_field('amfi_sfc','facwf',axes,'facwf','1')
+    id_facsf  = register_static_field('am_sfc','facsf',axes,'facsf','1')
+    id_facwf  = register_static_field('am_sfc','facwf',axes,'facwf','1')
 
     id_cd      =  reg_df('am_sfc',  'cd',      axes,  Time,  'noname',  'nounit')
     id_cdq     =  reg_df('am_sfc',  'cdq',     axes,  Time,  'noname',  'nounit')
