@@ -5,15 +5,13 @@ use mpp_mod, only : mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, &
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain
 
-use fms_mod, only : open_namelist_file, close_file, read_data, write_data
+use fms_mod, only : open_namelist_file, close_file, read_data, write_data, field_size
 
 use time_manager_mod, only : time_type, set_time, get_date
 
 use data_override_mod, only : data_override
 
 use diag_manager_mod, only : diag_axis_init, reg_df=>register_diag_field, send_data
-
-use vertical_levels_mod, only : get_pressure_at_levels
 
 use sat_vapor_pres_mod, only : compute_qs
 
@@ -47,8 +45,11 @@ integer, public, parameter :: NF_AESW=3, NF_AELW=3
 integer, public, parameter :: NF_CLDS=9, NF_VGAS=10
 integer, public, parameter :: NF_ALBD=4
 integer :: icwp=1, iovr=1, isubc=2
+character(len=512) :: ozone_fnm="NOOZON" ! ozone file name, if no ozone file 
+                                   ! name given, assumes no ozone
 
 integer :: ind_q=-1, ind_clw=-1, ind_oz=-1
+
 
 real :: co2vmr = 284.7E-6
 real :: n2ovmr =  0.275E-6
@@ -61,8 +62,9 @@ real :: f22vmr = 0.0
 real :: cl4vmr = 0.0
 real :: f113vmr = 0.0
 
-real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lat_deg, lon_deg
-real, allocatable, dimension(:,:) :: fland
+real, allocatable, dimension(:,:) :: lat_rad, lon_rad, lat_deg, lon_deg, fland
+real, allocatable, dimension(:,:,:) :: o3tmp
+real, allocatable, dimension(:) :: o3lev
 
 integer :: id_plvl, id_plyr, id_tskin, id_albedo, id_tlyr, id_tlvl, id_coszen, &
            id_fracday, id_ozone, id_qlyr, id_clw, id_clouds(NF_CLDS), id_gasvmr(NF_VGAS), &
@@ -76,7 +78,7 @@ integer :: clck_swrad, clck_lwrad
 
 logical :: initialized=.true.
 
-namelist/radiation_nml/icwp, iovr, isubc 
+namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm
 
 contains
 
@@ -318,11 +320,16 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
     qlyr = 0.
     olyr = 0.
     clw = 0.
-    
-    call data_override('ATM','ozone',olyr,Time,kxy=1)
+   
 
     if (ind_q>0) qlyr = tr(:,:,:,ind_q)
-    if (ind_oz>0) olyr = tr(:,:,:,ind_oz)
+
+    if (ind_oz>0) then
+        olyr = tr(:,:,:,ind_oz)
+    else
+        call get_ozone(time,plyr,olyr) 
+    endif
+        
     if (ind_clw>0) clw = tr(:,:,:,ind_clw)
 
     faersw = 0.
@@ -401,6 +408,81 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
     enddo
 
 end subroutine radiation
+
+!--------------------------------------------------------------------------------   
+subroutine get_ozone(time,prsl,o3)
+!--------------------------------------------------------------------------------   
+    type(time_type), intent(in) :: time
+    real, intent(in) :: prsl(:,js:,is:)
+    real, intent(out) :: o3(:,js:,is:)
+    integer :: siz(4), i, j
+
+    o3 = 0.
+    if (trim(ozone_fnm)=='NOOZON') return
+
+    if (.not.allocated(o3tmp)) then
+        call field_size(trim(ozone_fnm),'level',siz)
+        allocate(o3lev(siz(1)))
+        allocate(o3tmp(siz(1),js:je,is:ie))
+        call read_data(trim(ozone_fnm),'level',o3lev)
+    end if
+   
+    call data_override('ATM','ozone',o3tmp,Time,kxy=1)
+
+    do i = is, ie
+        do j = js, je
+            call interp_vert(o3tmp(:,j,i),o3(:,j,i),o3lev,prsl(:,j,i),.false.)
+        end do
+    end do    
+   
+    return 
+end subroutine get_ozone
+
+
+!--------------------------------------------------------------------------------   
+subroutine interp_vert (fldin,fldout,axin,axout,extrap)
+!--------------------------------------------------------------------------------   
+    real, dimension(:), intent(in) :: fldin, axin, axout
+    real, dimension(:), intent(out) :: fldout
+    logical, intent(in) :: extrap
+
+    integer :: i1, i2, ni, j
+    real :: w1, w2, tmp(size(axin)), w12
+   
+    ni = size(axin) 
+
+    do j = 1, size(axout)
+        tmp = axin-axout(j)
+        i1 = 0; i2 = 0
+        if (any(tmp>=0)) i1 = minloc(tmp, 1, mask=tmp>=0.)
+        if (any(tmp<=0)) i2 = maxloc(tmp, 1, mask=tmp<=0.)
+
+        if(i1<=0.and.i2<=0) call mpp_error(FATAL,'radiation_mod:interp_vert: both i1 and i2 <= 0') 
+        if (i1<=0) i1=i2
+        if (i2<=0) i2=i1
+
+        w1 = abs(axout(j)-axin(i2))
+        w2 = abs(axout(j)-axin(i1))
+
+        if (w1==0.or.w2==0.) then
+            if (extrap) then
+                w1 = 1.; w2 = 1.
+            else
+                fldout(j) = 0.
+                cycle 
+            endif
+        endif
+
+        w12 = w1 + w2
+
+        w1 = w1/w12; w2=w2/w12
+
+        fldout(j) = fldin(i1)*w1+fldin(i2)*w2
+    end do
+
+    return
+
+end subroutine interp_vert
 
 
 !--------------------------------------------------------------------------------   

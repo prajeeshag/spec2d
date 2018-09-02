@@ -59,6 +59,7 @@ integer, allocatable, dimension(:,:) :: soiltype, vegtype, slopetype
 
 logical, allocatable, dimension(:,:)   :: lland, locn
 logical, allocatable, dimension(:,:,:)   :: lland3d
+logical :: aquaplanet=.false.
 
 real, parameter :: con_fvirt = RVGAS/RDGAS-1.
 real, parameter :: ELOCP = HLV/CP_AIR
@@ -151,18 +152,23 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
     allocate( hice(js:je,is:ie) )
     allocate( emis_ref(js:je,is:ie) )
    
-    sheleg = 1e-10
+    call init_land(Time)
+
+    call init_albedo() 
+
+    sheleg = 0. 
     indx = reg_rf(rstrt, resfnm, 'sheleg', sheleg, domain, mandatory=.false.)
 
-    snwdph = 1e-10
+    snwdph = 0.
     indx = reg_rf(rstrt, resfnm, 'snwdph', snwdph, domain, mandatory=.false.)
 
     tslnd = tg3
     indx = reg_rf(rstrt, resfnm, 'tslnd', tslnd, domain, mandatory=.false.)
 
     do k = 1, size(stc,1)
-        stc(k,:,:) = tg3
+        stc(k,js:je,is:ie) = tg3(js:je,is:ie)
     end do
+    
     indx = reg_rf(rstrt, resfnm, 'stc', stc, domain, mandatory=.false.)
 
     smc = 1e-6
@@ -197,10 +203,6 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
 
     call sfc_diag_init(axes_in,Time)
   
-    call init_land(Time)
-
-    call init_albedo() 
-
     if (file_exist('INPUT/'//trim(resfnm))) call restore_state(rstrt)
 
     initialized = .true.
@@ -346,7 +348,7 @@ subroutine init_land(Time)
 !-------------------------------------------------------------------------------- 
     type(time_type), intent(in) :: Time
     character(len=32) :: gridfile='INPUT/grid_spec.nc'
-    real, allocatable :: tmp(:,:), tmpt(:,:) 
+    real, allocatable :: tmpt(:,:) 
     integer :: isg, ieg, jsg, jeg, iglen
     integer :: indx, k, me
     logical :: ov, used
@@ -364,15 +366,13 @@ subroutine init_land(Time)
 
     call mpp_get_global_domain(domain,jsg,jeg,isg,ieg)
 
-    allocate(tmp(isg:ieg,jsg:jeg))
     allocate(tmpt(jsg:jeg,isg:ieg))
 
-    call read_data(gridfile,'AREA_LND',tmp)
-    tmpt = transpose(tmp)
+    call read_data(gridfile,'AREA_LND',tmpt)
     fland(js:je,is:ie) = tmpt(js:je,is:ie)
+    aquaplanet = all(tmpt<=0.)
 
-    call read_data(gridfile,'AREA_LND_CELL',tmp)
-    tmpt = transpose(tmp)
+    call read_data(gridfile,'AREA_LND_CELL',tmpt)
     cellarea(js:je,is:ie) = tmpt(js:je,is:ie)
     fland = fland/cellarea
 
@@ -381,12 +381,12 @@ subroutine init_land(Time)
 
     focn = 1.0 - fland
     fice = 0.
-    
+
     lland = fland>0.
     forall(k=1:lsoil) lland3d(k,:,:) = lland
     locn = focn>0.
 
-    if (any(lland)) then
+    if (.not.aquaplanet) then
         call read_data('INPUT/soiltype','soiltype',tmpt)
         soiltype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
 
@@ -644,6 +644,15 @@ subroutine do_land(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
     integer :: im, iter, i, j
     logical :: ov, used
 
+    if (aquaplanet) return
+
+    ddvel=0.; sfcems=0.; vegfrac=0.; slimsk=0.; eta=0.; sheat=0.; 
+    ec=0.; edir=0.; et=0.; esnow=0.; drip=0.; dew=0.; beta=0.; etp=0.; 
+    ssoil=0.; flx1=0.; flx2=0.; flx3=0.; runoff1=0.; runoff2=0.; 
+    runoff3=0.; snomlt=0.; rc=0.; pc=0.; rsmin=0.; xlai=0.; rcs=0.; rcq=0.; 
+    rcsoil=0.; soilw=0.; soilm=0.; smcwlt=0.; smcdry=0.; smcref=0.; smcmax=0.; 
+    rct=0.; tsurf=0.
+
     im = size(pgr,1)*size(pgr,2)
 
     slimsk = 1.
@@ -877,7 +886,7 @@ subroutine set_surface(Time,tskin,coszen,sfcalb,sfcemis)
     logical :: ov
     integer :: k
 
-    if (any(lland)) then
+    if (.not.aquaplanet) then
         call data_override('ATM','zorl',zorl,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for zorl !')
     endif
@@ -937,7 +946,7 @@ subroutine get_albedo(Time,coszen,sfcalb)
     albsice = 0.
     albocn = 0.
 
-    if (any(lland)) then 
+    if (.not.aquaplanet) then 
         call data_override('ATM','alvsf',alvsf,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'get_albedo: data_override failed for alvsf !')
 

@@ -51,7 +51,7 @@ subroutine init_set_aerosols(isc,iec,jsc,jec,nlev)
     nlay = nlev
 
     unit = open_namelist_file()
-    read(unit,nml=set_aerosols_nml,iostat=stat)
+    read(unit,nml=set_aerosols_nml)
     call close_file(unit)
 
     if (.not.use_this_module) then

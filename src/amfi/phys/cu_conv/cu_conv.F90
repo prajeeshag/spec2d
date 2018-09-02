@@ -21,21 +21,28 @@ logical :: cloudice=.false.
 character (len=8) :: avail_conv_scheme(2) = ['SAS','SASNEW']
 
 integer :: seed0, iseed
+integer :: is, ie, js, je
 
-logical :: initialized = .false.
+logical :: initialized = .false., debug=.false.
 
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_cu_conv()
+subroutine init_cu_conv(isc,iec,jsc,jec)
 !--------------------------------------------------------------------------------   
+    integer, intent(in) :: isc,iec,jsc,jec
     integer :: unit, stat
     real :: wrk(1)
-    namelist/cu_conv_nml/conv_scheme, cloudice
+    namelist/cu_conv_nml/conv_scheme, cloudice, debug
 
     unit = open_namelist_file()
-    read(unit,nml=cu_conv_nml,iostat=stat)
+    read(unit,nml=cu_conv_nml)
     call close_file(unit)
+
+    is = isc
+    ie = iec
+    js = jsc
+    je = jec
 
     conv_scheme = uppercase(conv_scheme) 
     
@@ -66,16 +73,27 @@ subroutine cu_conv (dtp, del, prsl, pgr, phil, clw, cli, q0, t0, u0, v0, cldwrk,
     integer, dimension(:,:), intent(out) :: kbot, ktop, kcnv
     real, dimension(:,:), intent(out) :: rain, cldwrk
 
-    integer :: imax, km
+    integer :: imax, km, i, j, k
+    character(len=512) :: msg
 
     if(.not.initialized) call mpp_error(FATAL,'cu_conv_mod: module not initialized!')
 
     imax = size(del,2)*size(del,3)
     km = size(del,1)
 
-    if (any(t0>=KELVIN+100.).or.any(t0<=KELVIN-160.)) then
-        call mpp_error(FATAL,'error temp')
-    endif
+    if (debug) then
+        do i = 1, size(t0,3)
+            do j = 1, size(t0,2)
+                do k = 1, size(t0,1)
+                    if (t0(k,j,i)>=KELVIN+100..or.t0(k,j,i)<=KELVIN-160.) then
+                        write(msg,'(A,3(I4,1x),F15.10)') &
+                                'cu_conv: temperature out of range: ', k, js+j-1, is+i-1, t0(k,j,i)
+                        call mpp_error(FATAL,trim(msg))
+                    endif
+                end do
+            end do
+        end do
+    end if
 
     call sascnv_drv(imax, km, dtp, del, prsl, pgr, phil, &
                     clw, cli, q0, t0, u0, v0, cldwrk, &

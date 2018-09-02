@@ -43,8 +43,6 @@ fi
 
 tfile=$(mktemp)
 
-echo $tfile
-
 cat <<EOF > $tfile
 
 begin
@@ -248,7 +246,7 @@ begin
 	cart = ""
 	atts = getvaratts(var)
 	if (all(ismissing(atts))) then
-		print("Cannot determine cartesian axis attribute for "+ax)
+		print("FATAL: Cannot determine cartesian axis attribute for "+ax)
 		status_exit(1)
 	end if	
 
@@ -310,7 +308,7 @@ begin
 	end do
 
 	if (ynm.eq."".or.xnm.eq."") then
-		print("Cannot find X or Y coordinate for variable: "+varnm)
+		print("FATAL: Cannot find X or Y coordinate for variable: "+varnm)
 		status_exit(1)
 	end if
 
@@ -1144,6 +1142,11 @@ begin
 	end if
 	end if
 
+	if (any(ismissing(dato))) then
+		print("FATAL: missing values in dato")
+		status_exit(1)
+	end if
+
 	xnm = "x"
 	ynm = "y" 
 
@@ -1240,6 +1243,6 @@ EOF
 
 
 #cat $tfile
-ncl $tfile
+ncl -Q $tfile
 
 

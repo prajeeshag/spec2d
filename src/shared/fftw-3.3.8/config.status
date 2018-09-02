@@ -437,7 +437,7 @@ Copyright (C) 2012 Free Software Foundation, Inc.
 This config.status script is free software; the Free Software Foundation
 gives unlimited permission to copy, distribute and modify it."
 
-ac_pwd='/moes/home/prajeesh/spec2d/shared/fftw-3.3.8'
+ac_pwd='/moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8'
 srcdir='.'
 INSTALL='/usr/bin/install -c'
 MKDIR_P='/bin/mkdir -p'
@@ -928,14 +928,14 @@ S["PTHREAD_CC"]="mpiicc -std=gnu99 -no-gcc"
 S["acx_pthread_config"]=""
 S["OPENMP_CFLAGS"]="-fopenmp"
 S["FLIBS"]=" -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/mpi/intel64/lib/debug_mt -L/gpfs1/opt/intel/parallel_studio_xe_"\
-"2016/compilers_and_libraries_2016.2.181/linux/mpi/intel64/lib -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/ip"\
-"p/lib/intel64 -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/compiler/lib/intel64 -L/gpfs1/opt/intel/parallel_s"\
-"tudio_xe_2016/compilers_and_libraries_2016.2.181/linux/mkl/lib/intel64 -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181"\
-"/linux/tbb/lib/intel64/gcc4.4 -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/daal/lib/intel64_lin -L/gpfs1/opt/"\
-"intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/daal/../compiler/lib/intel64_lin -L/gpfs1/home/Libs/GNU/LIBTIFF/tiff-4.0.3/li"\
-"b -L/gpfs1/home/Libs/INTEL/UUID/uuid-1.6.2/lib -L/gpfs1/home/Libs/INTEL/UDUNITS/udunits-2.2.20/lib -L/gpfs1/home/Libs/INTEL/PROJ/4.7.0/lib -L/gpfs1/"\
-"home/Libs/INTEL/HDF5/hdf5-1.8.11_new/lib -L/gpfs1/home/Libs/GNU/NCL/ncl_ncarg-6.4.0.gnu447/lib -L/gpfs1/home/Libs/GNU/SVN/subversion-1.8.10/lib -L/g"\
-"pfs1/home/Libs/GNU/OPENSSL/openssl-1.0.0m_with-fPIC/lib -L/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/lib -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8.11/"\
+"2016/compilers_and_libraries_2016.2.181/linux/mpi/intel64/lib -L/gpfs1/home/Libs/GNU/LIBTIFF/tiff-4.0.3/lib -L/gpfs1/home/Libs/INTEL/UUID/uuid-1.6.2"\
+"/lib -L/gpfs1/home/Libs/INTEL/UDUNITS/udunits-2.2.20/lib -L/gpfs1/home/Libs/INTEL/PROJ/4.7.0/lib -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8.11_new/lib -"\
+"L/gpfs1/home/Libs/GNU/NCL/ncl_ncarg-6.4.0.gnu447/lib -L/gpfs1/home/Libs/GNU/SVN/subversion-1.8.10/lib -L/gpfs1/home/Libs/GNU/OPENSSL/openssl-1.0.0m_"\
+"with-fPIC/lib -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/ipp/lib/intel64 -L/gpfs1/opt/intel/parallel_studio"\
+"_xe_2016/compilers_and_libraries_2016.2.181/linux/compiler/lib/intel64 -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181"\
+"/linux/mkl/lib/intel64 -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/tbb/lib/intel64/gcc4.4 -L/gpfs1/opt/intel"\
+"/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/daal/lib/intel64_lin -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libr"\
+"aries_2016.2.181/linux/daal/../compiler/lib/intel64_lin -L/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/lib -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8.11/"\
 "lib -L/gpfs1/home/Libs/INTEL/ZLIB/zlib-1.2.8/lib -L/gpfs1/home/Libs/INTEL/SZIP/szip-2.1/lib -L/gpfs1/home/Libs/INTEL/P3DFFT.2.2FFTWD/lib -L/gpfs1/ho"\
 "me/Libs/INTEL/LIBPNG/libpng-1.6.13/lib -L/gpfs1/home/Libs/INTEL/JASPER/jasper-1.900.1-with-fpic/lib -L/gpfs1/home/Libs/INTEL/FFTW/lib -L/gpfs1/home/"\
 "Libs/INTEL/EXPAT/lib -L/gpfs1/home/Libs/GNU/IMAGEMAGIC/ImageMagick-6.8.9-8/lib -L/gpfs1/home/Libs/GNU/tk8.5.15/lib -L/gpfs1/home/Libs/GNU/tcl8.5.15/"\
@@ -945,14 +945,14 @@ S["FLIBS"]=" -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_
 "2.144/tbb/lib/intel64/gcc4.4 -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/compiler/lib/intel64_lin -L/gpfs1/h"\
 "ome/Libs/GNU/tcl8.5.15/lib/../lib64 -L/gpfs1/home/Libs/GNU/tcl8.5.15/lib/../lib64/ -L/usr/lib/gcc/x86_64-redhat-linux/4.4.7/ -L/usr/lib/gcc/x86_64-r"\
 "edhat-linux/4.4.7/../../../../lib64 -L/usr/lib/gcc/x86_64-redhat-linux/4.4.7/../../../../lib64/ -L/lib/../lib64 -L/lib/../lib64/ -L/usr/lib/../lib64"\
-" -L/usr/lib/../lib64/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/ipp/lib/intel64/ -L/gpfs1/opt/intel/parall"\
-"el_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/compiler/lib/intel64/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_"\
-"2016.2.181/linux/mkl/lib/intel64/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/tbb/lib/intel64/gcc4.4/ -L/gpf"\
-"s1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/daal/lib/intel64_lin/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compi"\
-"lers_and_libraries_2016.2.181/linux/daal/../compiler/lib/intel64_lin/ -L/gpfs1/home/Libs/GNU/LIBTIFF/tiff-4.0.3/lib/ -L/gpfs1/home/Libs/INTEL/UUID/u"\
-"uid-1.6.2/lib/ -L/gpfs1/home/Libs/INTEL/UDUNITS/udunits-2.2.20/lib/ -L/gpfs1/home/Libs/INTEL/PROJ/4.7.0/lib/ -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8."\
-"11_new/lib/ -L/gpfs1/home/Libs/GNU/NCL/ncl_ncarg-6.4.0.gnu447/lib/ -L/gpfs1/home/Libs/GNU/SVN/subversion-1.8.10/lib/ -L/gpfs1/home/Libs/GNU/OPENSSL/"\
-"openssl-1.0.0m_with-fPIC/lib/ -L/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/lib/ -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8.11/lib/ -L/gpfs1/home/Libs/I"\
+" -L/usr/lib/../lib64/ -L/gpfs1/home/Libs/GNU/LIBTIFF/tiff-4.0.3/lib/ -L/gpfs1/home/Libs/INTEL/UUID/uuid-1.6.2/lib/ -L/gpfs1/home/Libs/INTEL/UDUNITS/"\
+"udunits-2.2.20/lib/ -L/gpfs1/home/Libs/INTEL/PROJ/4.7.0/lib/ -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8.11_new/lib/ -L/gpfs1/home/Libs/GNU/NCL/ncl_ncarg"\
+"-6.4.0.gnu447/lib/ -L/gpfs1/home/Libs/GNU/SVN/subversion-1.8.10/lib/ -L/gpfs1/home/Libs/GNU/OPENSSL/openssl-1.0.0m_with-fPIC/lib/ -L/gpfs1/opt/intel"\
+"/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/ipp/lib/intel64/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_librarie"\
+"s_2016.2.181/linux/compiler/lib/intel64/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/mkl/lib/intel64/ -L/gpf"\
+"s1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/tbb/lib/intel64/gcc4.4/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/com"\
+"pilers_and_libraries_2016.2.181/linux/daal/lib/intel64_lin/ -L/gpfs1/opt/intel/parallel_studio_xe_2016/compilers_and_libraries_2016.2.181/linux/daal"\
+"/../compiler/lib/intel64_lin/ -L/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/lib/ -L/gpfs1/home/Libs/INTEL/HDF5/hdf5-1.8.11/lib/ -L/gpfs1/home/Libs/I"\
 "NTEL/ZLIB/zlib-1.2.8/lib/ -L/gpfs1/home/Libs/INTEL/SZIP/szip-2.1/lib/ -L/gpfs1/home/Libs/INTEL/P3DFFT.2.2FFTWD/lib/ -L/gpfs1/home/Libs/INTEL/LIBPNG/"\
 "libpng-1.6.13/lib/ -L/gpfs1/home/Libs/INTEL/JASPER/jasper-1.900.1-with-fpic/lib/ -L/gpfs1/home/Libs/INTEL/FFTW/lib/ -L/gpfs1/home/Libs/INTEL/EXPAT/l"\
 "ib/ -L/gpfs1/home/Libs/GNU/IMAGEMAGIC/ImageMagick-6.8.9-8/lib/ -L/gpfs1/home/Libs/GNU/tk8.5.15/lib/ -L/gpfs1/home/Libs/GNU/tcl8.5.15/lib64 -L/gpfs1/"\
@@ -1087,12 +1087,12 @@ S["mkdir_p"]="$(MKDIR_P)"
 S["MKDIR_P"]="/bin/mkdir -p"
 S["INSTALL_STRIP_PROGRAM"]="$(install_sh) -c -s"
 S["STRIP"]="strip"
-S["install_sh"]="${SHELL} /moes/home/prajeesh/spec2d/shared/fftw-3.3.8/install-sh"
-S["MAKEINFO"]="${SHELL} /moes/home/prajeesh/spec2d/shared/fftw-3.3.8/missing makeinfo"
-S["AUTOHEADER"]="${SHELL} /moes/home/prajeesh/spec2d/shared/fftw-3.3.8/missing autoheader"
-S["AUTOMAKE"]="${SHELL} /moes/home/prajeesh/spec2d/shared/fftw-3.3.8/missing automake-1.15"
-S["AUTOCONF"]="${SHELL} /moes/home/prajeesh/spec2d/shared/fftw-3.3.8/missing autoconf"
-S["ACLOCAL"]="${SHELL} /moes/home/prajeesh/spec2d/shared/fftw-3.3.8/missing aclocal-1.15"
+S["install_sh"]="${SHELL} /moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8/install-sh"
+S["MAKEINFO"]="${SHELL} /moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8/missing makeinfo"
+S["AUTOHEADER"]="${SHELL} /moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8/missing autoheader"
+S["AUTOMAKE"]="${SHELL} /moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8/missing automake-1.15"
+S["AUTOCONF"]="${SHELL} /moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8/missing autoconf"
+S["ACLOCAL"]="${SHELL} /moes/home/prajeesh/spec2d/src/shared/fftw-3.3.8/missing aclocal-1.15"
 S["VERSION"]="3.3.8"
 S["PACKAGE"]="fftw"
 S["CYGPATH_W"]="echo"

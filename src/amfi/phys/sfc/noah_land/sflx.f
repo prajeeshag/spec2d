@@ -3546,7 +3546,7 @@
 
           do while ( (nlog < 10) .and. (kcount == 0) )
             nlog = nlog + 1
-
+            
             df = alog( (psis*gs2/lsubf) * ( (1.0 + ck*swl)**2.0 )       
      &         * (smcmax/(smc-swl))**bx ) - alog(-(tkelv-tfreez)/tkelv)
 
@@ -3888,7 +3888,7 @@
           else
             tavg = stc(k)
           endif
-
+            
           call snksrc                                                   
 !  ---  inputs:
      &     ( nsoil, k, tavg, smc(k), smcmax, psisat, bexp, dt,          

@@ -5,7 +5,7 @@
      &     U1,V1,T1,Q1,
      &     PSK,RBSOIL,FM,FH,QSS,HEAT,EVAP,STRESS,SPD1,KPBL,
      &     PRSI,DEL,PRSL,PRSLK,PHII,PHIL,DELTIM,
-     &     DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,HGAMQ,xkzm)
+     &     DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,HGAMQ,chck)
 
       USE constants_mod, only : grav, RD => RDGAS, CP => CP_AIR
      &,             HVAP => HLV, RVGAS
@@ -29,6 +29,7 @@
      &                     dvsfc,     dtsfc,
      &                     DQSFC,     HPBL,
      &                     HGAMT,     hgamq
+      logical, intent(in) :: chck
       integer iprt,is,iun,k,kk,kmpbl,lond
       real evap,  heat,    phih,
      &                     phim,  rbdn,    rbup,
@@ -58,7 +59,8 @@
      &                     tem,     ti,     ttend,  tvd,
      &                     tvu,     utend,  vk,     vk2,
      &                     vpert,   vtend,  xkzo(km),   zfac,
-     &                     zfmin,   zk,     tem1, xkzm
+     &                     zfmin,   zk,     tem1
+      real :: xkzm=1.
       parameter (gravi=1.0/grav)
       PARAMETER(g=grav)
       PARAMETER(GOR=G/RD,GOCP=G/CP)

@@ -4,7 +4,7 @@ use constants_mod, only : GRAV, CP_AIR, RDGAS, RVGAS
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_global_domain
 
-use fms_mod, only : read_data, mpp_error, FATAL, mpp_pe, mpp_root_pe
+use fms_mod, only : read_data, mpp_error, FATAL, mpp_pe, mpp_root_pe, file_exist, WARNING
 
 use gwdps_mod, only : gwdps
 
@@ -24,9 +24,8 @@ logical :: initialized=.false.
 
 contains
 
-subroutine init_gwdrag(domain,lfrac)
+subroutine init_gwdrag(domain)
     type(domain2D) :: domain
-    real, intent(in) :: lfrac(:,:)
     real, allocatable :: tmp(:,:,:)
     character(len=16) :: fld
     integer :: i, k
@@ -43,7 +42,7 @@ subroutine init_gwdrag(domain,lfrac)
     gamma = 0.; elvmax = 0.; elvmax = 0.; oc = 0.
     hprime = 0.
 
-    if (any(lfrac>0.)) then
+    if (file_exist('INPUT/mtn.nc')) then
         allocate(tmp(latf,lonf,nmtvr))   
         do i = 1, nmtvr
             write(fld,*) i-1
@@ -65,6 +64,8 @@ subroutine init_gwdrag(domain,lfrac)
         elvmax(js:je,is:ie) = tmp(js:je,is:ie,14)
 
         deallocate(tmp)
+    else
+        call mpp_error(WARNING,'file INPUT/mtn.nc does not exist, assuming Aquaplanet!!')
     endif
  
     initialized = .true.
