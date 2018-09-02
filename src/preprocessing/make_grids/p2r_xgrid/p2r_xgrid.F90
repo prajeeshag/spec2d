@@ -7,6 +7,8 @@ use mpp_mod, only : mpp_init, mpp_error, FATAL, NOTE
 use mkxgrid_mod, only : vtx, clipin, poly_area
 use ocpack_mod, only : init_ocpack, oc_nx, oc_ny, ocpack_typeP, oc_maxlon, &
         oc_npack, get_ocpackP, oc_nlat
+use gauss_and_legendre_mod, only : compute_gaussian
+use constants_mod, only : PI
 
 implicit none
 
@@ -38,13 +40,13 @@ subroutine make_xgrid_oc2rg(nlat)
     type(vtx) :: v1(2), v2(2), v_out(4)
     type(vtx), allocatable :: vtxoc(:,:,:), vtxrg(:,:,:)
     real, allocatable :: latb(:), lonfb(:)
+    real, allocatable :: lonfc(:), latc(:), sin_hem(:), wts_hem(:)
     real :: dlonf, dlon, dlat, area, area1
     integer :: nlon, is, ie, i, j, k, n, g, i1, i2
     integer :: ierr, ncid, xn_id
     integer :: pxi_id, pxj_id, pxf_id
     integer :: rxi_id, rxj_id, rxf_id, xf_id
-
-    if (allocated(xf)) return
+    integer :: londim_id, latdim_id, lon_id, lat_id
 
     call init_ocpack(nlat,nlat/2,1)
     
@@ -55,7 +57,22 @@ subroutine make_xgrid_oc2rg(nlat)
 
     allocate(ocP(oc_npack(),oc_ny()))
     allocate(vtxoc(2,oc_ny(),oc_nx()), vtxrg(2,nlat,oc_maxlon()))
-    
+
+    allocate(latc(nlat), lonfc(oc_maxlon()))
+    allocate(sin_hem(nlat/2),wts_hem(nlat/2))
+
+    call compute_gaussian(sin_hem, wts_hem, nlat/2)
+
+    latc(1:nlat/2) = -sin_hem
+    latc(nlat:nlat/2+1:-1) = sin_hem
+    latc = asin(latc)*180./PI
+
+    dlon=360./oc_maxlon()
+    lonfc(1) = 0.
+    do j = 2, oc_maxlon()
+        lonfc(j) = lonfc(j-1) + dlon
+    end do
+ 
     dlat=180./nlat
     
     latb(1) = -90.
@@ -137,12 +154,20 @@ subroutine make_xgrid_oc2rg(nlat)
 
     ierr = nf90_def_dim(ncid,'xn',xn,xn_id)
     call handle_err(ierr)
+    ierr = nf90_def_dim(ncid,'lon',oc_maxlon(),londim_id)
+    call handle_err(ierr)
+    ierr = nf90_def_dim(ncid,'lat',nlat,latdim_id)
+    call handle_err(ierr)
 
     ierr = nf90_def_var(ncid,'pxi',NF90_INT,[xn_id],pxi_id)
     call handle_err(ierr)
     ierr = nf90_def_var(ncid,'pxj',NF90_INT,[xn_id],pxj_id)
     call handle_err(ierr)
     ierr = nf90_def_var(ncid,'pxf',NF90_DOUBLE,[xn_id],pxf_id)
+    call handle_err(ierr)
+    ierr = nf90_def_var(ncid,'lon',NF90_DOUBLE,[londim_id],lon_id)
+    call handle_err(ierr)
+    ierr = nf90_def_var(ncid,'lat',NF90_DOUBLE,[latdim_id],lat_id)
     call handle_err(ierr)
 
     ierr = nf90_def_var(ncid,'rxi',NF90_INT,[xn_id],rxi_id)
@@ -180,6 +205,11 @@ subroutine make_xgrid_oc2rg(nlat)
     call handle_err(ierr)
 
     ierr = nf90_put_var(ncid,xf_id,xf(3,1:xn)) 
+    call handle_err(ierr)
+
+    ierr = nf90_put_var(ncid,lon_id,lonfc) 
+    call handle_err(ierr)
+    ierr = nf90_put_var(ncid,lat_id,latc) 
     call handle_err(ierr)
 
     ierr = nf90_close(ncid)

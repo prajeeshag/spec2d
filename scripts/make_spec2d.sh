@@ -186,8 +186,9 @@ make -j $numproc
 #-------------------------MAKE P2R_XGRID--------------------------------------
 cppDef="-Duse_netCDF -Dlib_xgrid"  
 exe=p2r_xgrid
-paths="$srcdir/preprocessing/make_grids/xgrid $srcdir/preprocessing/make_grids/p2r_xgrid \
-		$srcdir/amfi/ocpack"
+paths="$srcdir/preprocessing/make_grids/xgrid \
+       $srcdir/preprocessing/make_grids/p2r_xgrid \
+		$srcdir/amfi/ocpack $srcdir/amfi/transforms/gauss_and_legendre.F90"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
