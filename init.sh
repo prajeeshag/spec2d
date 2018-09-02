@@ -1,8 +1,9 @@
 #!/bin/bash
+set -e
 
 rootdir=$(pwd)
 
-if [ ! -f ._init_ ]; then
+if [ -f ._init_ ]; then
 	rootdir1=$(cat ._init_)
 	sed -i "s|$rootdir1|$rootdir|g" scripts/*.sh
 else

@@ -1,4 +1,4 @@
-prefix=/moes/home/prajeesh/spec2d/exec/fftw
+prefix=/moes/home/prajeesh/amfi/exec/fftw
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # rootdir -  Absolute path to the root directory
-rootdir=_ROOTDIR_
+rootdir=/moes/home/prajeesh/spec2d
 
 # NLAT - number of latitudes (should be a even number)
 NLAT=94

@@ -2,7 +2,7 @@
 set -e
 
 # Path to the root directory.
-rootdir=_ROOTDIR_
+rootdir=/moes/home/prajeesh/spec2d
 
 # Fortran compiler
 export FC=mpiifort
@@ -101,6 +101,7 @@ if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
 	make clean
 	make -j $numproc 
 	make install
+	make clean
 fi
 #--------------------------------------------------------------------------------	
 
