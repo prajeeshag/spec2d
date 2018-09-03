@@ -90,6 +90,17 @@ $mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
 make -j $numproc
 #--------------------------------------------------------------------------------	
 
+#-------------------------MAKE MPPNCCOMBINEP2R--------------------------------------
+cppDef="-Duse_netCDF -Duse_libMPI"  
+exe=mppnccp2r
+paths="$srcdir/postprocessing/mppnccombinep2r"
+export LD=$CC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+$mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
+make -j $numproc
+#--------------------------------------------------------------------------------	
+
 
 # MAKE FFTW
 #--------------------------------------------------------------------------------	
@@ -167,20 +178,6 @@ LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc 
 #--------------------------------------------------------------------------------	
-
-
-##-------------------------make regrid_p2r--------------------------------------
-#cppDef="-Duse_netCDF"  
-#exe=regrid_p2r
-#paths="$srcdir/postprocessing/regrid_p2r"
-#export LD=$FC
-#mkdir -p $execdir/$exe
-#cd $execdir/$exe
-#OPTS="-I$execdir/lib_fms"
-#LIBS="$execdir/lib_fms/lib_fms.a"
-#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-#make 
-##--------------------------------------------------------------------------------	
 
 
 #-------------------------MAKE P2R_XGRID--------------------------------------

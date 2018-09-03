@@ -46,9 +46,10 @@
 #include <netcdf.h>
 
 
-char xgrid[1024];
-xgrid = "p2r_xgrid.n";
-
+char* xgrid="p_xgrd.nc";
+int nlon=0, nlat=0, xn=0;
+int *pxi, *pxj, *rxi, *rxj;
+double *lonc, *latc, *xf, *rxf;
 
 /* Information structure for a file */
 struct fileinfo
@@ -64,9 +65,13 @@ struct fileinfo
 	int vardim[MAX_NC_VARS][MAX_NC_DIMS];  /* Dimensions for each variable */
 	int natts[MAX_NC_VARS];  /* Number of attributes for each variable */
 	unsigned char vardecomp[MAX_NC_VARS];  /* Is the variable decomposed */
+	unsigned char varislat[MAX_NC_VARS];
+	unsigned char varislon[MAX_NC_VARS];
+	unsigned char islev[MAX_NC_DIMS];
 	char dimname[MAX_NC_DIMS][MAX_NC_NAME];  /* Names of the dimensions */
 	long dimsize[MAX_NC_DIMS];  /* Sizes of the dimensions (decomposed) */
 	long dimfullsize[MAX_NC_DIMS];  /* Full sizes of the dimensions */
+	long dimregsize[MAX_NC_DIMS];  /* Full sizes of the dimensions */
 	long dimstart[MAX_NC_DIMS];  /* Start positions within full dimensions */
 	long dimend[MAX_NC_DIMS];  /* End positions within full dimensions */
 	unsigned char varmiss[MAX_NC_VARS];  /* Does variable have missing_value */
@@ -76,14 +81,14 @@ struct fileinfo
 /* Auxiliary function prototypes */
 void usage();
 int process_file(char *, unsigned char, struct fileinfo *, char *, int *,
-		int *, int, int, void *[], int, unsigned char,
+		int *, int, int, void *[], void *[], int, unsigned char,
 		unsigned char);
 int process_vars(struct fileinfo *, struct fileinfo *, unsigned char, int *,
-		int, int, int, void *[], unsigned char, unsigned char);
-int flush_decomp(struct fileinfo *, int, int, void *[], unsigned char);
+		int, int, int, void *[], void *[], unsigned char, unsigned char);
+int flush_decomp(struct fileinfo *, int, int, void *[], void *[], unsigned char);
 void print_debug(struct fileinfo *, unsigned char);
 char *nc_type_to_str(nc_type);
-
+int read_xgrid();
 
 
 int main(int argc, char *argv[])
@@ -111,6 +116,7 @@ int main(int argc, char *argv[])
 	int status; /* Return status */
 	int nrecs=1;  /* Number of records in each decomposed file */
 	void *varbuf[NC_MAX_VARS];  /* Buffers for decomposed variables */
+	void *vbuf[NC_MAX_VARS];  /* Buffers for upacked variables */
 	size_t blksz=65536; /* netCDF block size */
 
 	/* Check the command-line arguments */
@@ -176,6 +182,11 @@ int main(int argc, char *argv[])
 	/* Disable fatal returns from netCDF library functions */
 	ncopts=0;
 
+	/* Read xgrid */
+	if (!read_xgrid()) {printf("Succesfully read xgrid...\n");}
+	else {fprintf(stderr,"Error reading xgrid !\n"); return(1);}
+
+
 	/* Create a new netCDF output file */
 	if ((ncoutfile=(struct fileinfo *)malloc(sizeof(struct fileinfo)))==NULL)
 	{
@@ -206,8 +217,10 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	for (f=0; f < NC_MAX_VARS; f++)
+	for (f=0; f < NC_MAX_VARS; f++){
 		varbuf[f]=NULL;
+		vbuf[f]=NULL;
+	}
 
 	/* No input files are specified on the command-line */
 	if (inputarg==(-1))
@@ -228,7 +241,7 @@ int main(int argc, char *argv[])
 					}
 					if (stat(infilename,&statbuf)!=0) continue;
 					infileerror=process_file(infilename,appendnc,ncoutfile,
-							outfilename,&nfiles,&nrecs,r,f,varbuf,
+							outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
 							headerpad,verbose,missing);
 					if (infileerror) infileerrors=1;
 					appendnc=1; f++;
@@ -236,7 +249,9 @@ int main(int argc, char *argv[])
 					{
 						if (verbose > 1)
 							printf("  Write variables from previous %d files\n",f);
-						flush_decomp(ncoutfile,nfiles,r,varbuf,verbose);
+						//	flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose);
+						if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
+							fprintf(stderr,"Error while writing to disk.."); return(1);}
 						break;
 					}
 				}
@@ -258,7 +273,7 @@ int main(int argc, char *argv[])
 						printf("processing \"%s\"\n",infilename);
 					}
 					infileerror=process_file(infilename,appendnc,ncoutfile,
-							outfilename,&nfiles,&nrecs,r,f,varbuf,
+							outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
 							headerpad,verbose,missing);
 					if (infileerror) infileerrors=1;
 					if (a==nstart && nfiles > 0) nend=nstart+nfiles;
@@ -267,7 +282,9 @@ int main(int argc, char *argv[])
 					{
 						if (verbose > 1)
 							printf("  Write variables from previous %d files\n",f);
-						flush_decomp(ncoutfile,nfiles,r,varbuf,verbose);
+						//	flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose);
+						if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
+							fprintf(stderr,"Error while writing to disk.."); return(1);}
 						f=0; continue;
 					}
 				}
@@ -289,7 +306,7 @@ int main(int argc, char *argv[])
 					printf("processing \"%s\"\n",argv[a]);
 				}
 				infileerror=process_file(argv[a],appendnc,ncoutfile,
-						outfilename,&nfiles,&nrecs,r,f,varbuf,
+						outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
 						headerpad,verbose,missing);
 				if (infileerror) infileerrors=1;
 				appendnc=1; f++;
@@ -297,7 +314,8 @@ int main(int argc, char *argv[])
 				{
 					if (verbose > 1)
 						printf("  Write variables from previous %d files\n",f);
-					flush_decomp(ncoutfile,nfiles,r,varbuf,verbose);
+					if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
+						fprintf(stderr,"Error while writing to disk.."); return(1);}
 					f=0; continue;
 				}
 			}
@@ -306,9 +324,18 @@ int main(int argc, char *argv[])
 	/* Clean up... return 1 on error, otherwise 0 */
 	for (f=0; f < NC_MAX_VARS; f++)
 	{
-		if (varbuf[f]!=NULL) free(varbuf[f]);
+		if (varbuf[f]!=NULL){ 
+			free(varbuf[f]); 
+			if (verbose) printf("releasing memory of %d varbuf\n",f);
+		}
+		if (vbuf[f]!=NULL) { 
+			free(vbuf[f]); 
+			if (verbose) printf("releasing memory of %d vbuf\n",f);
+		}
 	}
+	if (verbose) printf("released memory of arbuf\n");
 	ncclose(ncoutfile->ncfid); free(ncoutfile);
+
 	if (!infileerrors)
 	{
 		if (removein)
@@ -337,6 +364,155 @@ int main(int argc, char *argv[])
 	else
 		fprintf(stderr,"Warning: output file may be incomplete!\n");
 	return(infileerrors);
+}
+
+int read_xgrid()
+{	
+	int ncfid, dimid, varid;
+	char dimnm[MAX_NC_NAME];
+	size_t dimsize;
+	long start[1], count[1];  /* Data array sizes */
+	int maxrxi, maxrxj, maxpxi, maxpxj, n;
+
+	if ((ncfid=ncopen(xgrid,NC_NOWRITE))==(-1)) 
+	{ fprintf(stderr,"Error: cannot open xgrid file!\n"); return(1); } 
+	if ((dimid=ncdimid(ncfid,"xn"))==(-1)) 
+	{ 
+		fprintf(stderr,"Error: cannot read xgrid dimension xn!\n");
+		ncclose(ncfid); return(1);
+	}
+	if ((ncdiminq(ncfid,dimid,dimnm,&(dimsize)))==(-1))
+	{ 
+		fprintf(stderr,"Error: cannot read xgrid dimension #%d's metadata!\n",dimid);
+		ncclose(ncfid); return(1);
+	}
+	xn=dimsize;	
+
+	if ((dimid=ncdimid(ncfid,"lon"))==(-1)) 
+	{ 
+		fprintf(stderr,"Error: cannot read xgrid dimension lon!\n");
+		ncclose(ncfid); return(1);
+	}
+	if ((ncdiminq(ncfid,dimid,dimnm,&(dimsize)))==(-1))
+	{ 
+		fprintf(stderr,"Error: cannot read xgrid dimension #%d's metadata!\n",dimid);
+		ncclose(ncfid); return(1);
+	}
+	nlon=dimsize;	
+
+	if ((dimid=ncdimid(ncfid,"lat"))==(-1)) 
+	{ 
+		fprintf(stderr,"Error: cannot read xgrid dimension lat!\n");
+		ncclose(ncfid); return(1);
+	}
+	if ((ncdiminq(ncfid,dimid,dimnm,&(dimsize)))==(-1))
+	{ 
+		fprintf(stderr,"Error: cannot read xgrid dimension #%d's metadata!\n",dimid);
+		ncclose(ncfid); return(1);
+	}
+	nlat=dimsize;	
+
+	printf("no of exchange grids = %d\n",xn);
+	printf("nlon of regular grid = %d\n",nlon);
+	printf("nlat of regular grid = %d\n",nlat);
+
+	if ((rxi = malloc(xn * sizeof(int)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for rxi!\n"); ncclose(ncfid); return(1); }
+
+	if ((rxj = malloc(xn * sizeof(int)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for rxj!\n"); ncclose(ncfid); return(1); }
+
+	if ((pxi = malloc(xn * sizeof(int)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for pxi!\n"); ncclose(ncfid); return(1); }
+
+	if ((pxj = malloc(xn * sizeof(int)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for pxj!\n"); ncclose(ncfid); return(1); }
+
+	if ((xf = malloc(xn * sizeof(double)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for xf!\n"); ncclose(ncfid); return(1); }
+
+	if ((rxf = malloc(xn * sizeof(double)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for rxf!\n"); ncclose(ncfid); return(1); }
+
+	if ((lonc = malloc(nlon * sizeof(double)))==NULL) 
+	{ fprintf(stderr,"Error: cannot allocate enough memory for lonc!\n"); ncclose(ncfid); return(1); }
+
+	if ((latc = malloc(nlat * sizeof(double)))==NULL)
+	{ fprintf(stderr,"Error: cannot allocate enough memory for latc!\n"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"rxi"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for rxi!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = xn;
+	if (ncvarget(ncfid,varid,start,count,rxi)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "rxi"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"rxj"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for rxj!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = xn;
+	if (ncvarget(ncfid,varid,start,count,rxj)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "rxj"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"pxi"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for pxi!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = xn;
+	if (ncvarget(ncfid,varid,start,count,pxi)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "pxi"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"pxj"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for pxj!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = xn;
+	if (ncvarget(ncfid,varid,start,count,pxj)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "pxj"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"xf"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for xf!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = xn;
+	if (ncvarget(ncfid,varid,start,count,xf)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "xf"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"rxf"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for rxf!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = xn;
+	if (ncvarget(ncfid,varid,start,count,rxf)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "rxf"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"lon"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for lon!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = nlon;
+	if (ncvarget(ncfid,varid,start,count,lonc)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "lon"); ncclose(ncfid); return(1); }
+
+	if ((varid=ncvarid(ncfid,"lat"))==(-1))	
+	{ fprintf(stderr,"Error: cannot get varid for lat!\n"); ncclose(ncfid); return(1); }
+
+	start[0] = 0; count[0] = nlat;
+	if (ncvarget(ncfid,varid,start,count,latc)==(-1)) 
+	{ fprintf(stderr,"Error: cannot read variable \"%s\"'s values!\n", "lat"); ncclose(ncfid); return(1); }
+
+	maxrxi=maxrxj=maxpxi=maxpxj=0;
+	for (n=0; n < xn; n++) {
+		if (maxrxi<rxi[n]) maxrxi=rxi[n];
+		if (maxrxj<rxj[n]) maxrxj=rxj[n];
+		if (maxpxj<pxj[n]) maxpxj=pxj[n];
+		if (maxpxi<pxi[n]) maxpxi=pxi[n];
+		// fortran indexing to c indexing
+		rxi[n]=rxi[n]-1;
+		pxi[n]=pxi[n]-1;
+		pxj[n]=pxj[n]-1;
+		rxj[n]=rxj[n]-1;
+	}
+
+	printf("max value of rxi = %d, rxj = %d, pxi = %d, pxj = %d \n", 
+			maxrxi, maxrxj, maxpxi, maxpxj);
+
+	return(0);
 }
 
 
@@ -378,7 +554,7 @@ void usage()
 /* variables at the current record to memory                          */
 int process_file(char *ncname, unsigned char appendnc,
 		struct fileinfo *ncoutfile, char *outncname, int *nfiles,
-		int *nrecs, int r, int f, void *varbuf[], int headerpad,
+		int *nrecs, int r, int f, void *varbuf[], void *vbuf[], int headerpad,
 		unsigned char verbose, unsigned char missing)
 {
 	struct fileinfo *ncinfile;  /* Information about an input netCDF file */
@@ -392,6 +568,7 @@ int process_file(char *ncname, unsigned char appendnc,
 	/*  #3 ending position of decomposed dimension   */
 	char attname[MAX_NC_NAME];  /* Name of a global or variable attribute */
 	unsigned char ncinfileerror=0;  /* Were there any file errors? */
+	char cart[]="N";
 
 	/* Information for netCDF input file */
 	if ((ncinfile=(struct fileinfo *)malloc(sizeof(struct fileinfo)))==NULL)
@@ -440,6 +617,7 @@ int process_file(char *ncname, unsigned char appendnc,
 			ncclose(ncinfile->ncfid); free(ncinfile); return(1);
 		}
 		ncinfile->dimfullsize[d]=ncinfile->dimsize[d];
+		ncinfile->dimregsize[d]=ncinfile->dimsize[d];
 		ncinfile->dimstart[d]=1; ncinfile->dimend[d]=(-1);
 	}
 
@@ -461,6 +639,7 @@ int process_file(char *ncname, unsigned char appendnc,
 		}
 
 		/* If the variable is also a dimension then get decomposition info */
+		ncinfile->varislat[v]=ncinfile->varislon[v]=0;
 		if ((dimid=ncdimid(ncinfile->ncfid,ncinfile->varname[v]))!=(-1))
 		{
 			if (ncattget(ncinfile->ncfid,v,"domain_decomposition",
@@ -473,7 +652,29 @@ int process_file(char *ncname, unsigned char appendnc,
 			else
 			{
 				ncinfile->dimfullsize[dimid]=ncinfile->dimsize[dimid];
+				ncinfile->dimregsize[dimid]=ncinfile->dimsize[dimid];
 				ncinfile->dimstart[dimid]=1; ncinfile->dimend[dimid]=(-1);
+			}
+
+			if (ncattget(ncinfile->ncfid,v,"cartesian_axis", cart)!=(-1))
+			{   
+				if(verbose>1) printf("%s %s\n", ncinfile->varname[v], cart);
+				if (!strcmp(cart,"Z")) { ncinfile->islev[dimid]=1; }
+				else { ncinfile->islev[dimid]=0; }
+				if (!strcmp(cart,"X")) { 
+					if(verbose>1) printf("%s %s\n", ncinfile->varname[v], cart);
+					ncinfile->dimregsize[dimid]=nlon; 
+					ncinfile->varislon[v]=1;
+				}
+				if (!strcmp(cart,"Y")) {
+					if(verbose>1) printf("%s %s\n", ncinfile->varname[v], cart);
+					ncinfile->dimregsize[dimid]=nlat; 
+					ncinfile->varislat[v]=1;
+				}
+			}
+			else
+			{
+				ncinfile->islev[dimid]=0;
 			}
 		}
 	}
@@ -487,7 +688,7 @@ int process_file(char *ncname, unsigned char appendnc,
 		{
 			if (ncinfile->dimend[ncinfile->vardim[v][d]]!=(-1))
 			{
-				ncinfile->vardecomp[v]=1; break;
+				ncinfile->vardecomp[v]=1; 
 			}
 		}
 
@@ -497,9 +698,14 @@ int process_file(char *ncname, unsigned char appendnc,
 			ncoutfile->varndims[v]=ncinfile->varndims[v];
 			for (d=0; d < ncinfile->ndims; d++)
 				ncoutfile->dimfullsize[d]=ncinfile->dimfullsize[d];
+			for (d=0; d < ncinfile->ndims; d++)
+				ncoutfile->dimregsize[d]=ncinfile->dimregsize[d];
 			for (d=0; d < ncinfile->varndims[v]; d++)
 				ncoutfile->vardim[v][d]=ncinfile->vardim[v][d];
 			ncoutfile->vardecomp[v]=ncinfile->vardecomp[v];
+			ncoutfile->varislat[v]=ncinfile->varislat[v];
+			ncoutfile->varislon[v]=ncinfile->varislon[v];
+			ncoutfile->datatype[v]=ncinfile->datatype[v];
 			strcpy(ncoutfile->varname[v],ncinfile->varname[v]);
 			ncoutfile->varmiss[v]=0;
 		}
@@ -516,7 +722,7 @@ int process_file(char *ncname, unsigned char appendnc,
 			if (d==ncinfile->recdim)
 				ncdimdef(ncoutfile->ncfid,ncinfile->dimname[d],NC_UNLIMITED);
 			else ncdimdef(ncoutfile->ncfid,ncinfile->dimname[d],
-					ncinfile->dimfullsize[d]);
+					ncinfile->dimregsize[d]);
 		}
 
 		/* Define the variables and copy their attributes */
@@ -574,7 +780,7 @@ int process_file(char *ncname, unsigned char appendnc,
 
 	/* Copy all data values of the dimensions and variables to memory */
 	ncinfileerror=process_vars(ncinfile,ncoutfile,appendnc,nrecs,r,*nfiles,
-			f,varbuf,verbose,missing);
+			f,varbuf,vbuf,verbose,missing);
 
 	/* Done */
 	ncclose(ncinfile->ncfid); free(ncinfile); return(ncinfileerror);
@@ -584,7 +790,7 @@ int process_file(char *ncname, unsigned char appendnc,
 /* Copy all data values in an input file at the current record to memory */
 int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 		unsigned char appendnc, int *nrecs, int r, int nfiles,
-		int f, void *varbuf[], unsigned char verbose,
+		int f, void *varbuf[], void *vbuf[], unsigned char verbose,
 		unsigned char missing)
 {
 	int v, d, i, j, k, l, b, s;  /* Loop variables */
@@ -594,13 +800,14 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 	long count[MAX_NC_DIMS];                           /*        "         */
 	long long recsize;  /* Decomposed size of one record of a variable */
 	long long recfullsize;  /* Non-decomposed size of one record of a variable */
+	long long recregsize;  /* Non-decomposed regular size of one record of a variable */
 	int varrecdim;  /* Variable's record dimension */
 	static unsigned char first=1;  /* First time reading variables? */
 	int imax, jmax, kmax, lmax;
 	int imaxfull, jmaxfull, kmaxfull, lmaxfull;
 	int imaxjmaxfull, imaxjmaxkmaxfull;
 	int offset, ioffset, joffset, koffset, loffset;
-	long long varbufsize;
+	long long varbufsize, vbufsize;
 
 	/* Check the number of records */
 	if (*nrecs==1) *nrecs=ncinfile->dimsize[ncinfile->recdim];
@@ -617,7 +824,7 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 		if (verbose > 1) printf("    variable = %s\n",ncinfile->varname[v]);
 
 		/* Get read/write dimension sizes for the variable */
-		recsize=1; recfullsize=1; varrecdim=(-1);
+		recsize=1; recfullsize=1; varrecdim=(-1); recregsize=1;
 		outstart[0]=0; outstart[1]=0; outstart[2]=0; outstart[3]=0;
 		for (d=0; d < ncinfile->varndims[v]; d++)
 		{
@@ -631,6 +838,7 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 				recsize*=count[d]; instart[d]=0;
 				outstart[d]=ncinfile->dimstart[ncinfile->vardim[v][d]]-1;
 				recfullsize*=ncinfile->dimfullsize[ncinfile->vardim[v][d]];
+				recregsize*=ncinfile->dimregsize[ncinfile->vardim[v][d]];
 			}
 			if (verbose > 1)
 				printf("      dim %d:  instart=%ld  outstart=%ld  count=%ld\n",d,
@@ -697,6 +905,32 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 				return(1);
 			}
 		}
+		else if (ncinfile->varislat[v]==1)
+		{
+			if (first) {
+				if(verbose) printf(" writing lat in place of %s to file\n", ncinfile->varname[v]);
+				outstart[0]=0; count[0]=nlat;
+				if (ncvarput(ncoutfile->ncfid,v,outstart,count,latc)==(-1))
+				{
+					fprintf(stderr,"Error: cannot write variable \"%s\"'s values!\n",
+							ncinfile->varname[v]);
+					return(1);
+				}
+			}
+		}
+		else if (ncinfile->varislon[v]==1)
+		{
+			if (first) {
+				if(verbose) printf(" writing lon in place of %s to file\n", ncinfile->varname[v]);
+				outstart[0]=0; count[0]=nlon;
+				if (ncvarput(ncoutfile->ncfid,v,outstart,count,lonc)==(-1))
+				{
+					fprintf(stderr,"Error: cannot write variable \"%s\"'s values!\n",
+							ncinfile->varname[v]);
+					return(1);
+				}
+			}
+		}
 		/* Save the buffer */
 		else
 		{
@@ -704,13 +938,24 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 			if (first)
 			{
 				varbufsize=nctypelen(ncinfile->datatype[v])*recfullsize;
-				if (verbose > 1)
-					printf("      allocating %lld bytes for full domain\n",
-							varbufsize);
+				vbufsize=nctypelen(ncinfile->datatype[v])*recregsize;
+
+				if (verbose > 0) printf(" allocating %lld bytes for full domain var %s\n",
+						varbufsize, ncinfile->varname[v]);
+
+				if (verbose > 0) printf(" allocating %lld bytes for unpacked var %s\n",
+						vbufsize, ncinfile->varname[v]);
+
 				if ((varbuf[v]=calloc(varbufsize,1))==NULL)
 				{
 					fprintf(stderr,"Error: cannot allocate %lld bytes for entire variable \"%s\"'s values!\n",
 							varbufsize,ncinfile->varname[v]); return(1);
+				}
+
+				if ((vbuf[v]=calloc(vbufsize,1))==NULL)
+				{
+					fprintf(stderr,"Error: cannot allocate %lld bytes for unpacked variable \"%s\"'s values!\n",
+							vbufsize,ncinfile->varname[v]); return(1);
 				}
 				if (missing && ncoutfile->varmiss[v])
 					switch (ncinfile->datatype[v])
@@ -744,6 +989,10 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 					}
 			}
 			if (varbuf[v]==NULL)
+			{
+				fprintf(stderr,"Internal memory usage error!\n"); return(1);
+			}
+			if (vbuf[v]==NULL)
 			{
 				fprintf(stderr,"Internal memory usage error!\n"); return(1);
 			}
@@ -926,26 +1175,33 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 }
 
 
-/* Write all the buffered decomposed variables to the output file */
 int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
-		void *varbuf[], unsigned char verbose)
+		void *varbuf[], void *vbuf[], unsigned char verbose)
 {
 	int v, d;  /* Loop variable */
 	long outstart[MAX_NC_DIMS];  /* Data array sizes */
 	long count[MAX_NC_DIMS];     /*        "         */
 	int varrecdim;  /* Position of a variable's record dimension */
+	int imaxp, jmaxp, kmaxp, lmaxp;
+	int imaxjmaxp, imaxjmaxkmaxp;
+	int imaxr, jmaxr, kmaxr, lmaxr;
+	int imaxjmaxr, imaxjmaxkmaxr;
+	int i, l, n, k, poffset, roffset, varhaslev;
 
-	if (verbose > 1)
+	if (verbose > 0)
 	{
-		printf("    nvars=%d\n",ncoutfile->nvars);
+		printf("    nvars=%d, r=%d\n",ncoutfile->nvars,r);
 	}
 
 	/* Write out all the decomposed variables */
 	for (v=0; v < ncoutfile->nvars; v++)
 	{
 		if (ncoutfile->vardecomp[v]==0) continue;
-		if (verbose > 1) printf("    v=%d (%s)\n",v,ncoutfile->varname[v]);
+		if (ncoutfile->varislat[v]==1) continue;
+		if (ncoutfile->varislon[v]==1) continue;
+		if (verbose > 0) printf("    v=%d (%s)\n",v,ncoutfile->varname[v]);
 		varrecdim=(-1);
+		varhaslev=0;
 		for (d=0; d < ncoutfile->varndims[v]; d++)
 		{
 			outstart[d]=0;
@@ -955,66 +1211,308 @@ int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
 			}
 			else
 			{
-				count[d]=ncoutfile->dimfullsize[ncoutfile->vardim[v][d]];
+				count[d]=ncoutfile->dimregsize[ncoutfile->vardim[v][d]];
 			}
-			if (verbose > 1)
+			if (verbose > 0)
 				printf("      d=%d:  outstart=%ld  count=%ld\n",d,outstart[d],
 						count[d]);
 		}
+
+		if (ncoutfile->varndims[v]>3) varhaslev=1;
+		else if ((ncoutfile->varndims[v]==3) && (varrecdim==(-1))) varhaslev=1;
+
 		if (varrecdim!=(-1)) outstart[varrecdim]=r;
 		if (varrecdim==(-1) && r > 0) continue;
-		if (verbose > 1)
-			printf("      writing to disk\n");
-		if (ncvarput(ncoutfile->ncfid,v,outstart,count,varbuf[v])==(-1))
+
+		//combined -> unpacked (varbuf -> vbuf)
+
+		imaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-1]];
+
+		if (ncoutfile->varndims[v] > 1)
+			jmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-2]];
+		else jmaxp=1;
+
+		if (ncoutfile->varndims[v] > 2)
+		{
+			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-3]!=ncoutfile->recdim)
+				kmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-3]];
+			else kmaxp=1;
+		}
+		else kmaxp=1;
+
+		if (ncoutfile->varndims[v] > 3)
+		{
+			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-4]!=ncoutfile->recdim)
+				lmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-4]];
+			else lmaxp=1;
+		}
+		else lmaxp=1;
+
+		if (verbose)
+			printf(" %s  imaxp=%d  jmaxp=%d  kmaxp=%d  lmaxp=%d\n",
+					ncoutfile->varname[v],imaxp,jmaxp,kmaxp,lmaxp);
+
+		imaxjmaxp=imaxp*jmaxp;
+		imaxjmaxkmaxp=imaxp*jmaxp*kmaxp;
+
+		imaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-1]];
+
+		if (ncoutfile->varndims[v] > 1)
+			jmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-2]];
+		else jmaxr=1;
+
+		if (ncoutfile->varndims[v] > 2)
+		{
+			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-3]!=ncoutfile->recdim)
+				kmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-3]];
+			else kmaxr=1;
+		}
+		else kmaxr=1;
+
+		if (ncoutfile->varndims[v] > 3)
+		{
+			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-4]!=ncoutfile->recdim)
+				lmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-4]];
+			else lmaxr=1;
+		}
+		else lmaxr=1;
+
+		if (verbose)
+			printf(" %s  imaxr=%d  jmaxr=%d  kmaxr=%d  lmaxr=%d\n",
+					ncoutfile->varname[v],imaxr,jmaxr,kmaxr,lmaxr);
+
+		imaxjmaxr=imaxr*jmaxr;
+		imaxjmaxkmaxr=imaxr*jmaxr*kmaxr;
+
+		if (varhaslev!=0)
+		{
+			if (!((lmaxr==lmaxp) && (imaxr=imaxp))) {
+				fprintf(stderr,"dimension mismatch lmax = %d, %d, imax = %d, %d\n", 
+						lmaxr,lmaxp,imaxr,imaxp);
+				return(1);
+			}
+
+			switch (ncoutfile->datatype[v])
+			{
+				case NC_SHORT:
+					if (verbose > 1) printf("      start unpacking short\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((short *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (n=0; n < xn; n++)
+							for (i=0; i < imaxp; i++)
+							{
+								poffset=i+
+									pxj[n]*imaxp+
+									pxi[n]*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=i+
+									rxj[n]*imaxr+
+									rxi[n]*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((short *)(vbuf[v])+roffset)=
+									*((short *)(vbuf[v])+roffset) +
+									*((short *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking short\n");
+					break;
+				case NC_INT:
+					if (verbose > 1) printf("      start unpacking int\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((int *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (n=0; n < xn; n++)
+							for (i=0; i < imaxp; i++)
+							{
+								poffset=i+
+									pxj[n]*imaxp+
+									pxi[n]*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=i+
+									rxj[n]*imaxr+
+									rxi[n]*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((int *)(vbuf[v])+roffset)=
+									*((int *)(vbuf[v])+roffset) +
+									*((int *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking int\n");
+					break;
+				case NC_FLOAT:
+					if (verbose > 1) printf("      start unpacking float\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((float *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (n=0; n < xn; n++)
+							for (i=0; i < imaxp; i++)
+							{
+								poffset=i+
+									pxj[n]*imaxp+
+									pxi[n]*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=i+
+									rxj[n]*imaxr+
+									rxi[n]*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((float *)(vbuf[v])+roffset)=
+									*((float *)(vbuf[v])+roffset) +
+									*((float *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking float\n");
+					break;
+				case NC_DOUBLE:
+					if (verbose > 1) printf("      start unpacking double\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((double *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (n=0; n < xn; n++)
+							for (i=0; i < imaxp; i++)
+							{
+								poffset=i+
+									pxj[n]*imaxp+
+									pxi[n]*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=i+
+									rxj[n]*imaxr+
+									rxi[n]*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((double *)(vbuf[v])+roffset)=
+									*((double *)(vbuf[v])+roffset) +
+									*((double *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking double\n");
+					break;
+			} //switch case
+		} // if varhaslev
+		else 
+		{
+			if (!((lmaxr==lmaxp) && (kmaxr=kmaxp))) {
+				fprintf(stderr,"dimension mismatch lmax = %d, %d, kmax = %d, %d\n", 
+						lmaxr,lmaxp,kmaxr,kmaxp);
+				return(1);
+			}
+
+			switch (ncoutfile->datatype[v])
+			{
+				case NC_SHORT:
+					if (verbose > 1) printf("      start unpacking short\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((short *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (k=0; k < kmaxp; k++)
+							for (n=0; n < xn; n++)
+							{
+								poffset=pxj[n]+
+									pxi[n]*imaxp+
+									k*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=rxj[n]+
+									rxi[n]*imaxr+
+									k*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((short *)(vbuf[v])+roffset)=
+									*((short *)(vbuf[v])+roffset) +
+									*((short *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking short\n");
+					break;
+				case NC_INT:
+					if (verbose > 1) printf("      start unpacking int\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((int *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (k=0; k < kmaxp; k++)
+							for (n=0; n < xn; n++)
+							{
+								poffset=pxj[n]+
+									pxi[n]*imaxp+
+									k*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=rxj[n]+
+									rxi[n]*imaxr+
+									k*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((int *)(vbuf[v])+roffset)=
+									*((int *)(vbuf[v])+roffset) +
+									*((int *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking int\n");
+					break;
+				case NC_FLOAT:
+					if (verbose > 1) printf("      start unpacking float\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((float *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (k=0; k < kmaxp; k++)
+							for (n=0; n < xn; n++)
+							{
+								poffset=pxj[n]+
+									pxi[n]*imaxp+
+									k*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=rxj[n]+
+									rxi[n]*imaxr+
+									k*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((float *)(vbuf[v])+roffset)=
+									*((float *)(vbuf[v])+roffset) +
+									*((float *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking float\n");
+					break;
+				case NC_DOUBLE:
+					if (verbose > 1) printf("      start unpacking double\n");
+					for (n=0; n < imaxjmaxkmaxr; n++) { *((double *)(vbuf[v])+n) = 0; } 
+					for (l=0; l < lmaxp; l++)
+						for (k=0; k < kmaxp; k++)
+							for (n=0; n < xn; n++)
+							{
+								poffset=pxj[n]+
+									pxi[n]*imaxp+
+									k*imaxjmaxp+
+									l*imaxjmaxkmaxp;
+
+								roffset=rxj[n]+
+									rxi[n]*imaxr+
+									k*imaxjmaxr+
+									l*imaxjmaxkmaxr;
+
+								*((double *)(vbuf[v])+roffset)=
+									*((double *)(vbuf[v])+roffset) +
+									*((double *)(varbuf[v])+poffset) *
+									rxf[n];
+							}
+					if (verbose > 1) printf("      end unpacking double\n");
+					break;
+			} //switch case
+		} // if varhaslev
+
+
+		//done unpacking
+		if (verbose) printf("      writing to disk\n");
+		if (vbuf[v]==NULL) { fprintf(stderr,"Error: memory error"); return(1);}
+		if (ncvarput(ncoutfile->ncfid,v,outstart,count,vbuf[v])==(-1))
 		{
 			fprintf(stderr,"Error: cannot write variable \"%d\"'s values!\n",
 					v); return(1);
 		}
+		if (verbose) printf("      done writing to disk\n");
 	}
 	return(0);
 }
 
 
-/*
-   U.S. Department of Commerce (DOC) Software License for "mppnccombine"
-   written at NOAA's Geophysical Fluid Dynamics Laboratory, Princeton
-   Forrestal Campus
-
-   1. Scope of License
-
-   Subject to all the terms and conditions of this license, DOC grants USER the
-   royalty-free, nonexclusive, nontransferable, and worldwide rights to
-   reproduce, modify, and distribute "mppnccombine", herein referred to as the
-   PRODUCT.
-
-   2. Conditions and Limitations of Use
-
-   Warranties.  Neither the U.S. Government, nor any agency or employee
-   thereof, makes any warranties, expressed or implied, with respect to the
-   PRODUCT provided under this license, including but not limited to the
-   implied warranties or merchantability and fitness for any particular
-   purpose.
-
-   Liability.  In no event shall the U.S. Government, nor any agency or
-   employee thereof, be liable for any direct, indirect, or consequential
-   damages flowing from the use of the PRODUCT provided under this license.
-
-   Non-Assignment.  Neither this license nor any rights granted hereunder are
-   transferable or assignable without the explicit prior written consent of
-   DOC.
-
-   Names and Logos.  USER shall not substitute its name or logo for the name or
-   logo of DOC, or any of its agencies, in identification of the PRODUCT.
-
-   Export of Technology.  USER shall comply with all U.S. laws and regulations
-   restricting the export of the PRODUCT to other countries.
-
-   Governing Law.  This license shall be governed by the laws of United States
-   as interpreted and applied  by the Federal courts in the District of
-   Columbia.
-
-   3. Term of License
-
-   This license shall remain in effect as long as USER uses the PRODUCT in
-   accordance with Paragraphs 1 and 2.
-   */
