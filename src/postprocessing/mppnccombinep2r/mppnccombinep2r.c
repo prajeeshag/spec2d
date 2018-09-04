@@ -47,6 +47,7 @@
 
 
 char* xgrid="p_xgrd.nc";
+unsigned char xgrid_init=0; 
 int nlon=0, nlat=0, xn=0;
 int *pxi, *pxj, *rxi, *rxj;
 double *lonc, *latc, *xf, *rxf;
@@ -89,9 +90,17 @@ int flush_decomp(struct fileinfo *, int, int, void *[], void *[], unsigned char)
 void print_debug(struct fileinfo *, unsigned char);
 char *nc_type_to_str(nc_type);
 int read_xgrid();
+int nccp2r(int, char * []);
 
-
+#ifndef lib_mppnccp2r
 int main(int argc, char *argv[])
+{
+	return(nccp2r(argc, argv));
+}
+#endif
+
+
+int nccp2r(int argmntc, char *argmntv[])
 {
 	unsigned char verbose=0;  /* Print some progress information? */
 	unsigned char appendnc=0;  /* Append to an existing netCDF file? */
@@ -120,48 +129,48 @@ int main(int argc, char *argv[])
 	size_t blksz=65536; /* netCDF block size */
 
 	/* Check the command-line arguments */
-	if (argc < 2)
+	if (argmntc < 2)
 	{
 		usage(); return(1);
 	}
-	for (a=1; a < argc; a++)
+	for (a=1; a < argmntc; a++)
 	{
-		if (!strcmp(argv[a],"-v")) verbose=1;
-		else if (!strcmp(argv[a],"-vv")) verbose=2;  /* Hidden debug mode */
-		else if (!strcmp(argv[a],"-a")) appendnc=1;
-		else if (!strcmp(argv[a],"-r")) removein=1;
-		else if (!strcmp(argv[a],"-n"))
+		if (!strcmp(argmntv[a],"-v")) verbose=1;
+		else if (!strcmp(argmntv[a],"-vv")) verbose=2;  /* Hidden debug mode */
+		else if (!strcmp(argmntv[a],"-a")) appendnc=1;
+		else if (!strcmp(argmntv[a],"-r")) removein=1;
+		else if (!strcmp(argmntv[a],"-n"))
 		{
 			a++;
-			if (a < argc) nstart=atoi(argv[a]);
+			if (a < argmntc) nstart=atoi(argmntv[a]);
 			else
 			{
 				usage(); return(1);
 			}
 		}
-		else if (!strcmp(argv[a],"-e"))
+		else if (!strcmp(argmntv[a],"-e"))
 		{
 			a++;
-			if (a < argc) nend=atoi(argv[a]);
+			if (a < argmntc) nend=atoi(argmntv[a]);
 			else
 			{
 				usage(); return(1);
 			}
 		}
-		else if (!strcmp(argv[a],"-h"))
+		else if (!strcmp(argmntv[a],"-h"))
 		{
 			a++;
-			if (a < argc) headerpad=atoi(argv[a]);
+			if (a < argmntc) headerpad=atoi(argmntv[a]);
 			else
 			{
 				usage(); return(1);
 			}
 		}
-		else if (!strcmp(argv[a],"-64"))
+		else if (!strcmp(argmntv[a],"-64"))
 			format=(NC_NOCLOBBER | NC_64BIT_OFFSET);
-		else if (!strcmp(argv[a], "-n4"))
+		else if (!strcmp(argmntv[a], "-n4"))
 			format=(NC_NOCLOBBER | NC_NETCDF4 | NC_CLASSIC_MODEL);
-		else if (!strcmp(argv[a],"-m")) missing=1;
+		else if (!strcmp(argmntv[a],"-m")) missing=1;
 		else
 		{
 			outputarg=a; break;
@@ -171,8 +180,8 @@ int main(int argc, char *argv[])
 	{
 		usage(); return(1);
 	}
-	if (argc-1 > outputarg) inputarg=outputarg+1;
-	sprintf(outfilename,argv[outputarg]); outlen=strlen(outfilename);
+	if (argmntc-1 > outputarg) inputarg=outputarg+1;
+	sprintf(outfilename,argmntv[outputarg]); outlen=strlen(outfilename);
 	if (outlen > 4)
 	{
 		strptr=outfilename+outlen-5;
@@ -183,8 +192,11 @@ int main(int argc, char *argv[])
 	ncopts=0;
 
 	/* Read xgrid */
-	if (!read_xgrid()) {printf("Succesfully read xgrid...\n");}
-	else {fprintf(stderr,"Error reading xgrid !\n"); return(1);}
+	if (!xgrid_init){
+		if (!read_xgrid()) {printf("Succesfully read xgrid...\n");}
+		else {fprintf(stderr,"Error reading xgrid !\n"); return(1);}
+		xgrid_init=1;
+	}
 
 
 	/* Create a new netCDF output file */
@@ -297,20 +309,20 @@ int main(int argc, char *argv[])
 		{
 			if (verbose) printf("record = %d\n",r);
 			f=0;
-			for (a=inputarg; a < argc; a++)
+			for (a=inputarg; a < argmntc; a++)
 			{
 				if (verbose)
 				{
-					if ((argc-a)==1) printf("  1 file to go... ");
-					else printf("  %d files to go... ",argc-a);
-					printf("processing \"%s\"\n",argv[a]);
+					if ((argmntc-a)==1) printf("  1 file to go... ");
+					else printf("  %d files to go... ",argmntc-a);
+					printf("processing \"%s\"\n",argmntv[a]);
 				}
-				infileerror=process_file(argv[a],appendnc,ncoutfile,
+				infileerror=process_file(argmntv[a],appendnc,ncoutfile,
 						outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
 						headerpad,verbose,missing);
 				if (infileerror) infileerrors=1;
 				appendnc=1; f++;
-				if (f==nfiles || a==(argc-1))
+				if (f==nfiles || a==(argmntc-1))
 				{
 					if (verbose > 1)
 						printf("  Write variables from previous %d files\n",f);
@@ -354,10 +366,10 @@ int main(int argc, char *argv[])
 			}
 			/* Loop over all the specified input files */
 			else
-				for (a=inputarg; a < argc; a++)
+				for (a=inputarg; a < argmntc; a++)
 				{
-					if (verbose) printf("Removing \"%s\"\n",argv[a]);
-					unlink(argv[a]);
+					if (verbose) printf("Removing \"%s\"\n",argmntv[a]);
+					unlink(argmntv[a]);
 				}
 		}
 	}

@@ -91,9 +91,9 @@ make -j $numproc
 #--------------------------------------------------------------------------------	
 
 #-------------------------MAKE MPPNCCOMBINEP2R--------------------------------------
-cppDef="-Duse_netCDF -Duse_libMPI"  
+cppDef=""  
 exe=mppnccp2r
-paths="$srcdir/postprocessing/mppnccombinep2r"
+paths="$srcdir/postprocessing/mppnccombinep2r/mppnccombinep2r.c"
 export LD=$CC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
@@ -192,6 +192,22 @@ cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+make -j $numproc
+#--------------------------------------------------------------------------------	
+
+#-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------
+cppDef="-Dlib_mppnccp2r"  
+exe=run_mppnccp2r
+paths="$srcdir/postprocessing/mppnccombinep2r"
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+
+OPTS="-I$execdir/lib_fms" 
+
+LIBS="$execdir/lib_fms/lib_fms.a"
+
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 make -j $numproc
 #--------------------------------------------------------------------------------	
 

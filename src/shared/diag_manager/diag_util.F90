@@ -55,7 +55,8 @@ MODULE diag_util_mod
   PUBLIC get_subfield_size, log_diag_field_info, update_bounds, check_out_of_bounds,&
        & check_bounds_are_exact_dynamic, check_bounds_are_exact_static, init_file, diag_time_inc,&
        & find_input_field, init_input_field, init_output_field, diag_data_out, write_static,&
-       & check_duplicate_output_fields, get_date_dif, get_subfield_vert_size, sync_file_times
+       & check_duplicate_output_fields, get_date_dif, get_subfield_vert_size, sync_file_times, &
+       & get_time_string
 
   CHARACTER(len=128),PRIVATE  :: version =&
        & '$Id: diag_util.F90,v 19.0.2.2 2012/04/03 18:41:44 sdu Exp $'
