@@ -196,6 +196,7 @@ make -j $numproc
 #--------------------------------------------------------------------------------	
 
 #-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------
+echo "#-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------"
 cppDef="-Dlib_mppnccp2r"  
 exe=run_mppnccp2r
 paths="$srcdir/postprocessing/mppnccombinep2r"

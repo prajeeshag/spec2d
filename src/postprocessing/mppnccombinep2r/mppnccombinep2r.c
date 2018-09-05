@@ -4,6 +4,11 @@
    designed to be used as a postprocessor for the parallel I/O
    programming interface "mpp_io_mod"
 
+   AMFI version: Prajeesh A Gopinathan
+	             Added option for combining and unpacking the dicomposed P-grid
+			     files of AMFI model to regular lat-lon grid.
+				 Added option for netcdf4 compression.
+
    V2.1.7:  Added option to initialize output variables with a missing_value
    from the variables of the first input file as suggested by
    Martin Schmidt (martin.schmidt@io-warnemuende.de) and
@@ -46,8 +51,8 @@
 #include <netcdf.h>
 
 
-char* xgrid="p_xgrd.nc";
-unsigned char xgrid_init=0; 
+char xgrid[1024]="p_xgrd.nc";
+unsigned char xgrid_init=0, unpack=0;
 int nlon=0, nlat=0, xn=0;
 int *pxi, *pxj, *rxi, *rxj;
 double *lonc, *latc, *xf, *rxf;
@@ -190,6 +195,16 @@ int nccp2r(int argmntc, char *argmntv[])
 			if (n4>9) n4=9;
 			if (n4<0) n4=0;
 		}
+		else if (!strcmp(argmntv[a], "-u")) 
+		{
+			unpack=1;
+			a++;
+			if (a < argmntc) strcpy(xgrid,argmntv[a]);
+			else
+			{
+				usage(); return(1);
+			}
+		}
 		else if (!strcmp(argmntv[a],"-m")) missing=1;
 		else
 		{
@@ -208,16 +223,19 @@ int nccp2r(int argmntc, char *argmntv[])
 		if (!strcmp(strptr,".0000")) outfilename[outlen-5]='\0';
 	}
 
+	printf(" combining... %s\n",outfilename);
+
 	/* Disable fatal returns from netCDF library functions */
 	ncopts=0;
 
 	/* Read xgrid */
-	if (!xgrid_init){
-		if (!read_xgrid()) {printf("Succesfully read xgrid...\n");}
-		else {fprintf(stderr,"Error reading xgrid !\n"); return(1);}
-		xgrid_init=1;
+	if (unpack) {
+		if (!xgrid_init){
+			if (!read_xgrid()) {printf("Succesfully read xgrid...\n");}
+			else {fprintf(stderr,"Error reading xgrid !\n"); return(1);}
+			xgrid_init=1;
+		}
 	}
-
 
 	/* Create a new netCDF output file */
 	if ((ncoutfile=(struct fileinfo *)malloc(sizeof(struct fileinfo)))==NULL)
@@ -561,6 +579,7 @@ void usage()
 	printf("  -h #  Add a specified number of bytes of padding at the end of the header.\n");
 	printf("  -64   Create netCDF output files with the 64-bit offset format.\n");
 	printf("  -n4 # Create netCDF output files in NETCDF4_CLASSIC mode, # deflate level. \n");
+	printf("  -u #  Unpack AMFI P-grid to latlon, # is the path to p_xgrd.nc file. \n");
 	printf("  -m    Initialize output variables with a \"missing_value\" from the variables\n");
 	printf("        of the first input file instead of the default 0 value.\n\n");
 	printf("mppnccombine joins together an arbitrary number of netCDF input files, each\n");
@@ -941,7 +960,7 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 				return(1);
 			}
 		}
-		else if (ncinfile->varislat[v]==1)
+		else if (unpack && (ncinfile->varislat[v]==1))
 		{
 			if (first) {
 				if(verbose) printf(" writing lat in place of %s to file\n", ncinfile->varname[v]);
@@ -954,7 +973,7 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 				}
 			}
 		}
-		else if (ncinfile->varislon[v]==1)
+		else if (unpack && (ncinfile->varislon[v]==1))
 		{
 			if (first) {
 				if(verbose) printf(" writing lon in place of %s to file\n", ncinfile->varname[v]);
@@ -985,13 +1004,14 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 							varbufsize,ncinfile->varname[v]); return(1);
 				}
 
-				if (verbose > 0) printf(" allocating %lld bytes for unpacked var %s\n",
-						vbufsize, ncinfile->varname[v]);
-
-				if ((vbuf[v]=calloc(vbufsize,1))==NULL)
-				{
-					fprintf(stderr,"Error: cannot allocate %lld bytes for unpacked variable \"%s\"'s values!\n",
-							vbufsize,ncinfile->varname[v]); return(1);
+				if (unpack){ 
+					if (verbose > 0) printf(" allocating %lld bytes for unpacked var %s\n",
+							vbufsize, ncinfile->varname[v]);
+					if ((vbuf[v]=calloc(vbufsize,1))==NULL)
+					{
+						fprintf(stderr,"Error: cannot allocate %lld bytes for unpacked variable \"%s\"'s values!\n",
+								vbufsize,ncinfile->varname[v]); return(1);
+					}
 				}
 				if (missing && ncoutfile->varmiss[v])
 					switch (ncinfile->datatype[v])
@@ -1247,7 +1267,8 @@ int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
 			}
 			else
 			{
-				count[d]=ncoutfile->dimregsize[ncoutfile->vardim[v][d]];
+				if(unpack)count[d]=ncoutfile->dimregsize[ncoutfile->vardim[v][d]];
+				else count[d]=ncoutfile->dimfullsize[ncoutfile->vardim[v][d]];
 			}
 			if (verbose > 0)
 				printf("      d=%d:  outstart=%ld  count=%ld\n",d,outstart[d],
@@ -1261,291 +1282,301 @@ int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
 		if (varrecdim==(-1) && r > 0) continue;
 
 		//combined -> unpacked (varbuf -> vbuf)
+		if (unpack) {
+			imaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-1]];
 
-		imaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-1]];
+			if (ncoutfile->varndims[v] > 1)
+				jmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-2]];
+			else jmaxp=1;
 
-		if (ncoutfile->varndims[v] > 1)
-			jmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-2]];
-		else jmaxp=1;
-
-		if (ncoutfile->varndims[v] > 2)
-		{
-			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-3]!=ncoutfile->recdim)
-				kmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-3]];
+			if (ncoutfile->varndims[v] > 2)
+			{
+				if (ncoutfile->vardim[v][ncoutfile->varndims[v]-3]!=ncoutfile->recdim)
+					kmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-3]];
+				else kmaxp=1;
+			}
 			else kmaxp=1;
-		}
-		else kmaxp=1;
 
-		if (ncoutfile->varndims[v] > 3)
-		{
-			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-4]!=ncoutfile->recdim)
-				lmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-4]];
+			if (ncoutfile->varndims[v] > 3)
+			{
+				if (ncoutfile->vardim[v][ncoutfile->varndims[v]-4]!=ncoutfile->recdim)
+					lmaxp=ncoutfile->dimfullsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-4]];
+				else lmaxp=1;
+			}
 			else lmaxp=1;
-		}
-		else lmaxp=1;
 
-		if (verbose)
-			printf(" %s  imaxp=%d  jmaxp=%d  kmaxp=%d  lmaxp=%d\n",
-					ncoutfile->varname[v],imaxp,jmaxp,kmaxp,lmaxp);
+			if (verbose)
+				printf(" %s  imaxp=%d  jmaxp=%d  kmaxp=%d  lmaxp=%d\n",
+						ncoutfile->varname[v],imaxp,jmaxp,kmaxp,lmaxp);
 
-		imaxjmaxp=imaxp*jmaxp;
-		imaxjmaxkmaxp=imaxp*jmaxp*kmaxp;
+			imaxjmaxp=imaxp*jmaxp;
+			imaxjmaxkmaxp=imaxp*jmaxp*kmaxp;
 
-		imaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-1]];
+			imaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-1]];
 
-		if (ncoutfile->varndims[v] > 1)
-			jmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-2]];
-		else jmaxr=1;
+			if (ncoutfile->varndims[v] > 1)
+				jmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-2]];
+			else jmaxr=1;
 
-		if (ncoutfile->varndims[v] > 2)
-		{
-			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-3]!=ncoutfile->recdim)
-				kmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-3]];
+			if (ncoutfile->varndims[v] > 2)
+			{
+				if (ncoutfile->vardim[v][ncoutfile->varndims[v]-3]!=ncoutfile->recdim)
+					kmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-3]];
+				else kmaxr=1;
+			}
 			else kmaxr=1;
-		}
-		else kmaxr=1;
 
-		if (ncoutfile->varndims[v] > 3)
-		{
-			if (ncoutfile->vardim[v][ncoutfile->varndims[v]-4]!=ncoutfile->recdim)
-				lmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-4]];
+			if (ncoutfile->varndims[v] > 3)
+			{
+				if (ncoutfile->vardim[v][ncoutfile->varndims[v]-4]!=ncoutfile->recdim)
+					lmaxr=ncoutfile->dimregsize[ncoutfile->vardim[v][ncoutfile->varndims[v]-4]];
+				else lmaxr=1;
+			}
 			else lmaxr=1;
-		}
-		else lmaxr=1;
 
-		if (verbose)
-			printf(" %s  imaxr=%d  jmaxr=%d  kmaxr=%d  lmaxr=%d\n",
-					ncoutfile->varname[v],imaxr,jmaxr,kmaxr,lmaxr);
+			if (verbose)
+				printf(" %s  imaxr=%d  jmaxr=%d  kmaxr=%d  lmaxr=%d\n",
+						ncoutfile->varname[v],imaxr,jmaxr,kmaxr,lmaxr);
 
-		imaxjmaxr=imaxr*jmaxr;
-		imaxjmaxkmaxr=imaxr*jmaxr*kmaxr;
+			imaxjmaxr=imaxr*jmaxr;
+			imaxjmaxkmaxr=imaxr*jmaxr*kmaxr;
 
-		if (varhaslev!=0)
-		{
-			if (!((lmaxr==lmaxp) && (imaxr=imaxp))) {
-				fprintf(stderr,"dimension mismatch lmax = %d, %d, imax = %d, %d\n", 
-						lmaxr,lmaxp,imaxr,imaxp);
-				return(1);
-			}
-
-			switch (ncoutfile->datatype[v])
+			if (varhaslev!=0)
 			{
-				case NC_SHORT:
-					if (verbose > 1) printf("      start unpacking short\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((short *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (n=0; n < xn; n++)
-							for (i=0; i < imaxp; i++)
-							{
-								poffset=i+
-									pxj[n]*imaxp+
-									pxi[n]*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+				if (!((lmaxr==lmaxp) && (imaxr=imaxp))) {
+					fprintf(stderr,"dimension mismatch lmax = %d, %d, imax = %d, %d\n", 
+							lmaxr,lmaxp,imaxr,imaxp);
+					return(1);
+				}
 
-								roffset=i+
-									rxj[n]*imaxr+
-									rxi[n]*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+				switch (ncoutfile->datatype[v])
+				{
+					case NC_SHORT:
+						if (verbose > 1) printf("      start unpacking short\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((short *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (n=0; n < xn; n++)
+								for (i=0; i < imaxp; i++)
+								{
+									poffset=i+
+										pxj[n]*imaxp+
+										pxi[n]*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((short *)(vbuf[v])+roffset)=
-									*((short *)(vbuf[v])+roffset) +
-									*((short *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking short\n");
-					break;
-				case NC_INT:
-					if (verbose > 1) printf("      start unpacking int\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((int *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (n=0; n < xn; n++)
-							for (i=0; i < imaxp; i++)
-							{
-								poffset=i+
-									pxj[n]*imaxp+
-									pxi[n]*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+									roffset=i+
+										rxj[n]*imaxr+
+										rxi[n]*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-								roffset=i+
-									rxj[n]*imaxr+
-									rxi[n]*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+									*((short *)(vbuf[v])+roffset)=
+										*((short *)(vbuf[v])+roffset) +
+										*((short *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking short\n");
+						break;
+					case NC_INT:
+						if (verbose > 1) printf("      start unpacking int\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((int *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (n=0; n < xn; n++)
+								for (i=0; i < imaxp; i++)
+								{
+									poffset=i+
+										pxj[n]*imaxp+
+										pxi[n]*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((int *)(vbuf[v])+roffset)=
-									*((int *)(vbuf[v])+roffset) +
-									*((int *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking int\n");
-					break;
-				case NC_FLOAT:
-					if (verbose > 1) printf("      start unpacking float\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((float *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (n=0; n < xn; n++)
-							for (i=0; i < imaxp; i++)
-							{
-								poffset=i+
-									pxj[n]*imaxp+
-									pxi[n]*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+									roffset=i+
+										rxj[n]*imaxr+
+										rxi[n]*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-								roffset=i+
-									rxj[n]*imaxr+
-									rxi[n]*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+									*((int *)(vbuf[v])+roffset)=
+										*((int *)(vbuf[v])+roffset) +
+										*((int *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking int\n");
+						break;
+					case NC_FLOAT:
+						if (verbose > 1) printf("      start unpacking float\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((float *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (n=0; n < xn; n++)
+								for (i=0; i < imaxp; i++)
+								{
+									poffset=i+
+										pxj[n]*imaxp+
+										pxi[n]*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((float *)(vbuf[v])+roffset)=
-									*((float *)(vbuf[v])+roffset) +
-									*((float *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking float\n");
-					break;
-				case NC_DOUBLE:
-					if (verbose > 1) printf("      start unpacking double\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((double *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (n=0; n < xn; n++)
-							for (i=0; i < imaxp; i++)
-							{
-								poffset=i+
-									pxj[n]*imaxp+
-									pxi[n]*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+									roffset=i+
+										rxj[n]*imaxr+
+										rxi[n]*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-								roffset=i+
-									rxj[n]*imaxr+
-									rxi[n]*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+									*((float *)(vbuf[v])+roffset)=
+										*((float *)(vbuf[v])+roffset) +
+										*((float *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking float\n");
+						break;
+					case NC_DOUBLE:
+						if (verbose > 1) printf("      start unpacking double\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((double *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (n=0; n < xn; n++)
+								for (i=0; i < imaxp; i++)
+								{
+									poffset=i+
+										pxj[n]*imaxp+
+										pxi[n]*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((double *)(vbuf[v])+roffset)=
-									*((double *)(vbuf[v])+roffset) +
-									*((double *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking double\n");
-					break;
-			} //switch case
-		} // if varhaslev
-		else 
-		{
-			if (!((lmaxr==lmaxp) && (kmaxr=kmaxp))) {
-				fprintf(stderr,"dimension mismatch lmax = %d, %d, kmax = %d, %d\n", 
-						lmaxr,lmaxp,kmaxr,kmaxp);
-				return(1);
-			}
+									roffset=i+
+										rxj[n]*imaxr+
+										rxi[n]*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-			switch (ncoutfile->datatype[v])
+									*((double *)(vbuf[v])+roffset)=
+										*((double *)(vbuf[v])+roffset) +
+										*((double *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking double\n");
+						break;
+				} //switch case
+			} // if varhaslev
+			else 
 			{
-				case NC_SHORT:
-					if (verbose > 1) printf("      start unpacking short\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((short *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (k=0; k < kmaxp; k++)
-							for (n=0; n < xn; n++)
-							{
-								poffset=pxj[n]+
-									pxi[n]*imaxp+
-									k*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+				if (!((lmaxr==lmaxp) && (kmaxr=kmaxp))) {
+					fprintf(stderr,"dimension mismatch lmax = %d, %d, kmax = %d, %d\n", 
+							lmaxr,lmaxp,kmaxr,kmaxp);
+					return(1);
+				}
 
-								roffset=rxj[n]+
-									rxi[n]*imaxr+
-									k*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+				switch (ncoutfile->datatype[v])
+				{
+					case NC_SHORT:
+						if (verbose > 1) printf("      start unpacking short\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((short *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (k=0; k < kmaxp; k++)
+								for (n=0; n < xn; n++)
+								{
+									poffset=pxj[n]+
+										pxi[n]*imaxp+
+										k*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((short *)(vbuf[v])+roffset)=
-									*((short *)(vbuf[v])+roffset) +
-									*((short *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking short\n");
-					break;
-				case NC_INT:
-					if (verbose > 1) printf("      start unpacking int\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((int *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (k=0; k < kmaxp; k++)
-							for (n=0; n < xn; n++)
-							{
-								poffset=pxj[n]+
-									pxi[n]*imaxp+
-									k*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+									roffset=rxj[n]+
+										rxi[n]*imaxr+
+										k*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-								roffset=rxj[n]+
-									rxi[n]*imaxr+
-									k*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+									*((short *)(vbuf[v])+roffset)=
+										*((short *)(vbuf[v])+roffset) +
+										*((short *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking short\n");
+						break;
+					case NC_INT:
+						if (verbose > 1) printf("      start unpacking int\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((int *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (k=0; k < kmaxp; k++)
+								for (n=0; n < xn; n++)
+								{
+									poffset=pxj[n]+
+										pxi[n]*imaxp+
+										k*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((int *)(vbuf[v])+roffset)=
-									*((int *)(vbuf[v])+roffset) +
-									*((int *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking int\n");
-					break;
-				case NC_FLOAT:
-					if (verbose > 1) printf("      start unpacking float\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((float *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (k=0; k < kmaxp; k++)
-							for (n=0; n < xn; n++)
-							{
-								poffset=pxj[n]+
-									pxi[n]*imaxp+
-									k*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+									roffset=rxj[n]+
+										rxi[n]*imaxr+
+										k*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-								roffset=rxj[n]+
-									rxi[n]*imaxr+
-									k*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+									*((int *)(vbuf[v])+roffset)=
+										*((int *)(vbuf[v])+roffset) +
+										*((int *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking int\n");
+						break;
+					case NC_FLOAT:
+						if (verbose > 1) printf("      start unpacking float\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((float *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (k=0; k < kmaxp; k++)
+								for (n=0; n < xn; n++)
+								{
+									poffset=pxj[n]+
+										pxi[n]*imaxp+
+										k*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((float *)(vbuf[v])+roffset)=
-									*((float *)(vbuf[v])+roffset) +
-									*((float *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking float\n");
-					break;
-				case NC_DOUBLE:
-					if (verbose > 1) printf("      start unpacking double\n");
-					for (n=0; n < imaxjmaxkmaxr; n++) { *((double *)(vbuf[v])+n) = 0; } 
-					for (l=0; l < lmaxp; l++)
-						for (k=0; k < kmaxp; k++)
-							for (n=0; n < xn; n++)
-							{
-								poffset=pxj[n]+
-									pxi[n]*imaxp+
-									k*imaxjmaxp+
-									l*imaxjmaxkmaxp;
+									roffset=rxj[n]+
+										rxi[n]*imaxr+
+										k*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
-								roffset=rxj[n]+
-									rxi[n]*imaxr+
-									k*imaxjmaxr+
-									l*imaxjmaxkmaxr;
+									*((float *)(vbuf[v])+roffset)=
+										*((float *)(vbuf[v])+roffset) +
+										*((float *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking float\n");
+						break;
+					case NC_DOUBLE:
+						if (verbose > 1) printf("      start unpacking double\n");
+						for (n=0; n < imaxjmaxkmaxr; n++) { *((double *)(vbuf[v])+n) = 0; } 
+						for (l=0; l < lmaxp; l++)
+							for (k=0; k < kmaxp; k++)
+								for (n=0; n < xn; n++)
+								{
+									poffset=pxj[n]+
+										pxi[n]*imaxp+
+										k*imaxjmaxp+
+										l*imaxjmaxkmaxp;
 
-								*((double *)(vbuf[v])+roffset)=
-									*((double *)(vbuf[v])+roffset) +
-									*((double *)(varbuf[v])+poffset) *
-									rxf[n];
-							}
-					if (verbose > 1) printf("      end unpacking double\n");
-					break;
-			} //switch case
-		} // if varhaslev
+									roffset=rxj[n]+
+										rxi[n]*imaxr+
+										k*imaxjmaxr+
+										l*imaxjmaxkmaxr;
 
+									*((double *)(vbuf[v])+roffset)=
+										*((double *)(vbuf[v])+roffset) +
+										*((double *)(varbuf[v])+poffset) *
+										rxf[n];
+								}
+						if (verbose > 1) printf("      end unpacking double\n");
+						break;
+				} //switch case
+			} // if varhaslev
+		}//if unpack
 
 		//done unpacking
 		if (verbose) printf("      writing to disk\n");
-		if (vbuf[v]==NULL) { fprintf(stderr,"Error: memory error"); return(1);}
-		if (ncvarput(ncoutfile->ncfid,v,outstart,count,vbuf[v])==(-1))
-		{
-			fprintf(stderr,"Error: cannot write variable \"%d\"'s values!\n",
-					v); return(1);
+		if (unpack) {
+			if (ncvarput(ncoutfile->ncfid,v,outstart,count,vbuf[v])==(-1))
+			{
+				fprintf(stderr,"Error: cannot write variable \"%d\"'s values!\n",
+						v); return(1);
+			}
 		}
+		else
+		{
+			if (ncvarput(ncoutfile->ncfid,v,outstart,count,varbuf[v])==(-1))
+			{
+				fprintf(stderr,"Error: cannot write variable \"%d\"'s values!\n",
+						v); return(1);
+			}
+		}
+
 		if (verbose) printf("      done writing to disk\n");
 	}
 	return(0);
