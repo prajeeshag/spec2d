@@ -52,6 +52,10 @@ int nlon=0, nlat=0, xn=0;
 int *pxi, *pxj, *rxi, *rxj;
 double *lonc, *latc, *xf, *rxf;
 
+unsigned char n4=0;
+
+#define ERR(e) {if(e){printf("Error: %s\n", nc_strerror(e)); return 2;}}
+
 /* Information structure for a file */
 struct fileinfo
 {
@@ -128,7 +132,13 @@ int nccp2r(int argmntc, char *argmntv[])
 	void *vbuf[NC_MAX_VARS];  /* Buffers for upacked variables */
 	size_t blksz=65536; /* netCDF block size */
 
-	/* Check the command-line arguments */
+	verbose=0; appendnc=0; removein=0;  
+	nstart=0;  nend=(-1);  headerpad=16384;  
+	format=NC_NOCLOBBER;  missing=0;  outputarg=(-1);  
+	inputarg=(-1);  infileerror=0;  infileerrors=0;  
+	nfiles=(-1); nrecs=1; blksz=65536; 
+	n4=0;
+	
 	if (argmntc < 2)
 	{
 		usage(); return(1);
@@ -168,8 +178,18 @@ int nccp2r(int argmntc, char *argmntv[])
 		}
 		else if (!strcmp(argmntv[a],"-64"))
 			format=(NC_NOCLOBBER | NC_64BIT_OFFSET);
-		else if (!strcmp(argmntv[a], "-n4"))
+		else if (!strcmp(argmntv[a], "-n4")) 
+		{
 			format=(NC_NOCLOBBER | NC_NETCDF4 | NC_CLASSIC_MODEL);
+			a++;
+			if (a < argmntc) n4 = atoi(argmntv[a]);
+			else
+			{
+				usage(); return(1);
+			}
+			if (n4>9) n4=9;
+			if (n4<0) n4=0;
+		}
 		else if (!strcmp(argmntv[a],"-m")) missing=1;
 		else
 		{
@@ -261,7 +281,6 @@ int nccp2r(int argmntc, char *argmntv[])
 					{
 						if (verbose > 1)
 							printf("  Write variables from previous %d files\n",f);
-						//	flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose);
 						if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
 							fprintf(stderr,"Error while writing to disk.."); return(1);}
 						break;
@@ -294,7 +313,6 @@ int nccp2r(int argmntc, char *argmntv[])
 					{
 						if (verbose > 1)
 							printf("  Write variables from previous %d files\n",f);
-						//	flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose);
 						if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
 							fprintf(stderr,"Error while writing to disk.."); return(1);}
 						f=0; continue;
@@ -345,7 +363,7 @@ int nccp2r(int argmntc, char *argmntv[])
 			if (verbose) printf("releasing memory of %d vbuf\n",f);
 		}
 	}
-	if (verbose) printf("released memory of arbuf\n");
+	if (verbose) printf("released memory of ncoutfile\n");
 	ncclose(ncoutfile->ncfid); free(ncoutfile);
 
 	if (!infileerrors)
@@ -532,7 +550,7 @@ int read_xgrid()
 void usage()
 {
 	printf("mppnccombine 2.1.7 - (written by Hans.Vahlenkamp)\n\n");
-	printf("Usage:  mppnccombine [-v] [-a] [-r] [-n #] [-e #] [-h #] [-64] [-n4] [-m]\n");
+	printf("Usage:  mppnccombine [-v] [-a] [-r] [-n #] [-e #] [-h #] [-64] [-n4 #] [-m]\n");
 	printf("                     output.nc [input ...]\n\n");
 	printf("  -v    Print some progress information.\n");
 	printf("  -a    Append to an existing netCDF file (not heavily tested...).\n");
@@ -542,7 +560,7 @@ void usage()
 	printf("        Files within the range do not have to be consecutively numbered.\n");
 	printf("  -h #  Add a specified number of bytes of padding at the end of the header.\n");
 	printf("  -64   Create netCDF output files with the 64-bit offset format.\n");
-	printf("  -n4   Create netCDF output files in NETCDF4_CLASSIC mode (no v4 enhanced features).\n");
+	printf("  -n4 # Create netCDF output files in NETCDF4_CLASSIC mode, # deflate level. \n");
 	printf("  -m    Initialize output variables with a \"missing_value\" from the variables\n");
 	printf("        of the first input file instead of the default 0 value.\n\n");
 	printf("mppnccombine joins together an arbitrary number of netCDF input files, each\n");
@@ -581,6 +599,8 @@ int process_file(char *ncname, unsigned char appendnc,
 	char attname[MAX_NC_NAME];  /* Name of a global or variable attribute */
 	unsigned char ncinfileerror=0;  /* Were there any file errors? */
 	char cart[]="N";
+
+	strcpy(cart,"N");
 
 	/* Information for netCDF input file */
 	if ((ncinfile=(struct fileinfo *)malloc(sizeof(struct fileinfo)))==NULL)
@@ -742,6 +762,7 @@ int process_file(char *ncname, unsigned char appendnc,
 		{
 			ncvardef(ncoutfile->ncfid,ncinfile->varname[v],ncinfile->datatype[v],
 					ncinfile->varndims[v],ncinfile->vardim[v]);
+			if (n4) { ERR(nc_def_var_deflate(ncoutfile->ncfid,v,1,1,n4)) }
 			for (n=0; n < ncinfile->natts[v]; n++)
 			{
 				ncattname(ncinfile->ncfid,v,n,attname);
@@ -822,6 +843,9 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 	long long varbufsize, vbufsize;
 
 	/* Check the number of records */
+
+	first=1;
+
 	if (*nrecs==1) *nrecs=ncinfile->dimsize[ncinfile->recdim];
 	else
 		if (ncinfile->dimsize[ncinfile->recdim] != *nrecs)
@@ -955,14 +979,14 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 				if (verbose > 0) printf(" allocating %lld bytes for full domain var %s\n",
 						varbufsize, ncinfile->varname[v]);
 
-				if (verbose > 0) printf(" allocating %lld bytes for unpacked var %s\n",
-						vbufsize, ncinfile->varname[v]);
-
 				if ((varbuf[v]=calloc(varbufsize,1))==NULL)
 				{
 					fprintf(stderr,"Error: cannot allocate %lld bytes for entire variable \"%s\"'s values!\n",
 							varbufsize,ncinfile->varname[v]); return(1);
 				}
+
+				if (verbose > 0) printf(" allocating %lld bytes for unpacked var %s\n",
+						vbufsize, ncinfile->varname[v]);
 
 				if ((vbuf[v]=calloc(vbufsize,1))==NULL)
 				{

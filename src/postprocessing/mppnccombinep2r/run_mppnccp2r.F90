@@ -35,6 +35,13 @@ character(len=1024) :: msg, suffix, filename, base_name
 type(filenm_type), allocatable :: filenms(:)
 type(time_type) :: starttime, endtime
 
+character(len=8) :: arg_r="-r"//char(0)
+character(len=8) :: arg_v="-r"//char(0)
+character(len=8) :: arg_vv="-vv"//char(0)
+character(len=8) :: arg_n=("-n"//char(0))
+character(len=8) :: arg_n4=("-n4"//char(0))
+
+
 dt = 0.
 do while (dt <= totalwait)
     fexist=file_exist('run.timestamp')
