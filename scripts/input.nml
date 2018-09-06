@@ -1,0 +1,76 @@
+
+&amfi_nml
+	months=12
+	!days=0
+	dt_atmos=600
+/
+
+&phys_nml
+	dt_rad=3600
+	debug=.false.
+/
+
+&atmos_nml
+	trunc=62
+	num_lat = 94
+  	nlev = 64
+	packed = .true.
+	reduced = .true.
+	!layout = 8,16
+	layout = 8,32
+	!do_phys=.true.
+/
+
+&spectral_dynamics_nml
+/
+
+&cu_conv_nml
+  conv_scheme='SASNEW'
+  debug = .false.
+/
+
+&spherical_nml
+  debug = .false.
+/
+
+&grid_fourier_nml
+  plan_level = 3
+  debug = .false.
+/
+
+
+&radiation_nml
+ozone_fnm="INPUT/ozone.nc"
+/
+
+&set_aerosols_nml
+use_this_module=.false.
+/
+
+&albedo_nml
+/ 
+
+&diag_manager_nml
+  max_axes = 100,
+  max_num_axis_sets = 100,
+  max_input_fields = 699
+  max_output_fields = 699
+  mix_snapshot_average_fields=.false.
+  issue_oor_warnings = .false.
+  !do_diag_field_log = .true.
+/
+
+&fms_io_nml
+  threading_read='multi'
+  threading_write='single'
+  fileset_write='single'
+  max_files_r = 200
+  max_files_w = 200
+/
+
+&fms_nml
+  clock_grain='loop' ! 'component' ! 'routine' !
+  domains_stack_size = 8000000
+  stack_size =0
+/
+

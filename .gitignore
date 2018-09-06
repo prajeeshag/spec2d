@@ -5,4 +5,4 @@
 *.exe
 *.nc
 exec*
-shared/fftw-3.3.8/*
+reinit.sh
