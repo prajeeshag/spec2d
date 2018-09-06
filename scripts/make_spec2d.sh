@@ -35,11 +35,11 @@ LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm"
 
 
 
-#--------------------------------------------------------------------------------	
-#--------------------------------------------------------------------------------	
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
 #----------------------------No editing needed beyond this-----------------------
-#--------------------------------------------------------------------------------	
-#--------------------------------------------------------------------------------	
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
 
 execdir="$rootdir/exec"
 srcdir="$rootdir/src"
@@ -79,8 +79,8 @@ shift $(expr $OPTIND - 1)
 
 cat $mkmftemplate
 
-#-------------------------MAKE MPPNCCOMBINE--------------------------------------
-cppDef="-Duse_netCDF -Duse_libMPI"  
+echo "#--------------------------MAKE MPPNCCOMBINE-----------------------------------"
+cppDef="-Duse_netCDF -Duse_libMPI"
 exe=mppncc
 paths="$srcdir/postprocessing/mppnccombine"
 export LD=$CC
@@ -88,10 +88,10 @@ mkdir -p $execdir/$exe
 cd $execdir/$exe
 $mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
 make -j $numproc
-#--------------------------------------------------------------------------------	
+echo "#------------------------------------------------------------------------------"
 
-#-------------------------MAKE MPPNCCOMBINEP2R--------------------------------------
-cppDef=""  
+echo "#--------------------------MAKE MPPNCCOMBINEP2R-----------------------------------"
+cppDef=""
 exe=mppnccp2r
 paths="$srcdir/postprocessing/mppnccombinep2r/mppnccombinep2r.c"
 export LD=$CC
@@ -99,26 +99,25 @@ mkdir -p $execdir/$exe
 cd $execdir/$exe
 $mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
 make -j $numproc
-#--------------------------------------------------------------------------------	
+echo "#------------------------------------------------------------------------------"
 
 
 # MAKE FFTW
-#--------------------------------------------------------------------------------	
-cppDef=""  
+echo "#-------------------------------MAKE FFTW--------------------------------------"
+cppDef=""
 export LD=$FC
 if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
 	cd $srcdir/shared/fftw-3.3.8
 	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads
 	make clean
-	make -j $numproc 
+	make -j $numproc
 	make install
 	make clean
 fi
-#--------------------------------------------------------------------------------	
+echo "#------------------------------------------------------------------------------"
 
 
-# MAKE FMS LIBRARY
-#--------------------------------------------------------------------------------	
+echo "#-----------------------------MAKE FMS LIBRARY---------------------------------"
 paths="$srcdir/shared/mpp $srcdir/shared/include \
        $srcdir/shared/mpp/include \
        $srcdir/shared/fms $srcdir/shared/platform \
@@ -131,16 +130,16 @@ paths="$srcdir/shared/mpp $srcdir/shared/include \
 	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
 	   $srcdir/shared/strman"
 
-cppDef="-Duse_netCDF -Duse_libMPI"  
+cppDef="-Duse_netCDF -Duse_libMPI"
 mkdir -p $execdir/lib_fms
 cd $execdir/lib_fms
 $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $paths
-make -j $numproc 
-#--------------------------------------------------------------------------------	
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
 
 
-#-------------------------MAKE AMFI_GRID--------------------------------------
-cppDef="-Duse_netCDF -Duse_libMPI"  
+echo "#--------------------------MAKE AMFI_GRID-----------------------------------"
+cppDef="-Duse_netCDF -Duse_libMPI"
 exe=amfi_grid
 paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
 		$srcdir/amfi/transforms/gauss_and_legendre.F90"
@@ -150,24 +149,24 @@ cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-make -j $numproc 
-#--------------------------------------------------------------------------------	
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
 
 
-#-------------------------MAKE XGRID--------------------------------------
-cppDef="-Duse_netCDF"  
+echo "#--------------------------MAKE XGRID-----------------------------------"
+cppDef="-Duse_netCDF"
 exe=xgrid
 paths="$srcdir/preprocessing/make_grids/xgrid"
 export LD=$CC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate $paths
-make -j $numproc 
-#--------------------------------------------------------------------------------	
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
 
 
-#-------------------------MAKE XREGRID--------------------------------------
-cppDef="-Duse_netCDF"  
+echo "#--------------------------MAKE XREGRID-----------------------------------"
+cppDef="-Duse_netCDF"
 exe=xregrid
 paths="$srcdir/preprocessing/make_grids/regrid"
 export LD=$FC
@@ -176,12 +175,12 @@ cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-make -j $numproc 
-#--------------------------------------------------------------------------------	
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
 
 
-#-------------------------MAKE P2R_XGRID--------------------------------------
-cppDef="-Duse_netCDF -Dlib_xgrid"  
+echo "#--------------------------MAKE P2R_XGRID-----------------------------------"
+cppDef="-Duse_netCDF -Dlib_xgrid"
 exe=p2r_xgrid
 paths="$srcdir/preprocessing/make_grids/xgrid \
        $srcdir/preprocessing/make_grids/p2r_xgrid \
@@ -193,34 +192,32 @@ OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
-#--------------------------------------------------------------------------------	
+echo "#------------------------------------------------------------------------------"
 
-#-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------
 echo "#-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------"
-cppDef="-Dlib_mppnccp2r"  
+cppDef="-Dlib_mppnccp2r"
 exe=run_mppnccp2r
 paths="$srcdir/postprocessing/mppnccombinep2r"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 
-OPTS="-I$execdir/lib_fms" 
+OPTS="-I$execdir/lib_fms"
 
 LIBS="$execdir/lib_fms/lib_fms.a"
 
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 make -j $numproc
-#--------------------------------------------------------------------------------	
+echo "#--------------------------------------------------------------------------------"
 
 
-# MAKE AMFI
-#--------------------------------------------------------------------------------	
+echo "#----------------------------MAKE AMFI-----------------------------------------"
 amfi="$srcdir/amfi"
 #paths="$amfi/model $amfi/driver $amfi/radiation $amfi/spec_dyn"
 paths=$(find $amfi -type d)
 
 if [[ "$MPI3" == True ]]; then
-	cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"  
+	cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"
 else
 	cppDef="-Duse_netCDF -Duse_libMPI"
 fi
@@ -235,7 +232,7 @@ LIBS="$execdir/lib_fms/lib_fms.a $execdir/fftw/lib/libfftw3_mpi.a $execdir/fftw/
 $mkmf -c "$cppDef" -f -p ${exe}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 
 make -j $numproc
-#--------------------------------------------------------------------------------	
+echo "#------------------------------------------------------------------------------"
 
 
 

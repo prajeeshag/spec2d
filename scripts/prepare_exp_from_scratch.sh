@@ -75,14 +75,25 @@ if [ ! -f amfi_grid.nc ]; then
 	fi
 fi
 
+if [ ! -f p_xgrd.nc ]; then
+	echo "----------Preparing p_xgrd ${MAXLON}x${NLAT}------------------------"
+	$p_p2rxgrid <<< $NLAT
+	if [[ $? -ne 0 ]] ; then
+		rm -f p_xgrd.nc
+	    exit 1
+	fi
+fi
+
 if [ ! -f grid_spec.nc ]; then
 	echo "----------Preparing grid_spec------------------------"
 	$p_xgrid -o $ocean_grid -a amfi_grid.nc
 	if [[ $? -ne 0 ]] ; then
 		rm -f grid_spec.nc
+		rm -f *X*.nc
 	    exit 1
 	fi
 fi
+
 
 echo "----------Preparing INPUT files------------------------"
 
