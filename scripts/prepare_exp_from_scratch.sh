@@ -17,8 +17,9 @@ MAXLON=$((20+(NLAT/2-1)*4))
 ocean_grid=$rootdir/data/ocean_grid_360x200x50.nc
 
 
+# JOBSCDLR - [OPTIONAL] Name of job scheduler (Currently only lsf supported).  
 
-
+JOBSCDLR=lsf
 
 #------------------------------------No need to edit beyond this---------------------------------
 
@@ -253,10 +254,6 @@ $scriptdir/dflo_to_dtable.sh $scriptdir/diag_field_log.out
 
 cp $scriptdir/input.nml .
 
-cp $scriptdir/run_amfi_lsf.sh .
-
-#sed -i "s/_EXENAME_/$rootdir\/exec\/spec2d\/spec2d.exe/g" run_amfi_lsf.sh
-sed -i "s|_EXENAME_|$rootdir/exec/spec2d/spec2d.exe|g" run_amfi_lsf.sh
 
 mkdir -p INPUT
 mkdir -p RESTART
@@ -264,6 +261,11 @@ mkdir -p RESTART
 mv *.nc INPUT/
 mv atm.res INPUT/
 
+
+cp $scriptdir/run_amfi_lsf.sh .
+
+#sed -i "s/_EXENAME_/$rootdir\/exec\/spec2d\/spec2d.exe/g" run_amfi_lsf.sh
+sed -i "s|_EXENAME_|$rootdir/exec/spec2d/spec2d.exe|g" run_amfi_lsf.sh
 echo " "
 echo " "
 echo "--------------------------------------------------------------------------------"

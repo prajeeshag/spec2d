@@ -1,12 +1,23 @@
 #!/bin/bash
 
 queue="cccr-res"
-WCLOCK="240:00"
+WCLOCK="240"
 JOBNAME="AMFI"
 STDOUT="stdout"_$JOBNAME
+submit_combine=True
 
-EXE=_EXENAME_
 
+EXE=/moes/home/prajeesh/spec2d/exec/spec2d/spec2d.exe
+RUNNCCP2R=/moes/home/prajeesh/spec2d/exec/run_mppnccp2r/run_mppnccp2r
+
+
+alljobs=$(bjobs -noheader -o 'exec_cwd jobid job_name' 2>/dev/null | grep "$(pwd) ")
+if [ ! -z "$alljobs" ]; then
+	echo "Some jobs are already running in this directory!"
+    echo "Please kill these jobs before submitting!"
+	echo $alljobs
+	exit 1
+fi
 
 line1=$(sed -n '/&atmos_nml/,/\//p' input.nml | \
 		sed -n '/layout/,/\//p' | \
@@ -27,19 +38,16 @@ done
 
 echo "NPES = "$npes 
 
-tfile=$(mktemp)
-
 STDOUT=${STDOUT}_${npes}
 
-rm -f $STDOUT
-
+tfile=$(mktemp)
 cat <<EOF > $tfile
 
 #!/bin/bash
 
 #BSUB -q $queue
 #BSUB -x
-#BSUB -W $WCLOCK
+#BSUB -W ${WCLOCK}:00
 #BSUB -J $JOBNAME
 #BSUB -o $STDOUT
 #BSUB -n $npes
@@ -54,4 +62,52 @@ mpirun -env OMP_NUM_THREADS 1 -n $npes $EXE
 
 EOF
 
+rm -f $STDOUT
+
+if [ "$submit_combine" == "True" ]; then
+	echo "Removing any previous unprocessed output files."
+	rm -f *.nc.????
+fi
+
+output=$(bsub < $tfile)
+
+echo $output
+
+jobid=$(echo $output | head -n1 | cut -d'<' -f2 | cut -d'>' -f1;)
+
+if [ "$jobid" -eq "$jobid" ] 2>/dev/null; then
+  	echo "Job submitted" 
+else
+  	exit 1
+fi
+
+
+if [ "$submit_combine" == "True" ]; then
+
+WCLOCK=$((WCLOCK*2))
+
+tfile=$(mktemp)
+cat <<EOF > $tfile
+
+#!/bin/bash
+
+#BSUB -q $queue
+#BSUB -x
+#BSUB -W ${WCLOCK}:00
+#BSUB -J ${JOBNAME}_combine
+#BSUB -o ${STDOUT}_combine
+#BSUB -w started($jobid)
+#BSUB -n 1
+
+ulimit -c unlimited
+set -xu
+
+mpirun -n 1 $RUNNCCP2R <<< "&opts_nml removein=T, atmpes=$npes, child_run=T /"
+
+EOF
+
+rm -f ${STDOUT}_combine
+
 bsub < $tfile
+
+fi

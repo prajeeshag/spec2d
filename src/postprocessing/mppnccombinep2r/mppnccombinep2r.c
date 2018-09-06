@@ -49,6 +49,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <netcdf.h>
+#include <time.h>
+#include <utime.h>
 
 
 char xgrid[1024]="p_xgrd.nc";
@@ -100,6 +102,7 @@ void print_debug(struct fileinfo *, unsigned char);
 char *nc_type_to_str(nc_type);
 int read_xgrid();
 int nccp2r(int, char * []);
+double modtimediff(char * []);
 
 #ifndef lib_mppnccp2r
 int main(int argc, char *argv[])
@@ -1582,4 +1585,66 @@ int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
 	return(0);
 }
 
+
+double modtimediff (char *filename[]) {
+	const int narg=2;
+	struct stat foo1, foo2;
+	time_t mtime1, mtime2;
+	double diff_t;
+
+	if (stat(filename[0], &foo1) < 0) { perror(filename[0]); return (-1); }
+	mtime1 = foo1.st_mtime; /* seconds since the epoch */
+
+	if (stat(filename[1], &foo2) < 0) { perror(filename[1]); return (-1); }
+	mtime2 = foo2.st_mtime; 
+
+	diff_t = difftime(mtime2,mtime1);
+	return(diff_t);
+}
+
+int show_status (double percent)
+{
+    int x;
+	double percent1;
+
+	percent1 = percent;
+	//if (percent1>100.) percent1=100.;
+
+    //for(x = 0; x < percent1; x++)
+    //{
+    //   printf("|");
+
+    //}
+       printf("%.2f%%\r", percent1);
+       fflush(stdout);
+
+    return(EXIT_SUCCESS);
+}
+
+double modtime (char *filename[]) {
+	struct stat foo1, foo2;
+	time_t mtime1, mtime2;
+	struct tm str_time;
+	double diff_t;
+
+	str_time.tm_year = 1987-1900;
+	str_time.tm_mon = 3;
+	str_time.tm_mday = 26;
+	str_time.tm_hour = 0;
+	str_time.tm_min = 0;
+	str_time.tm_sec = 0;
+	str_time.tm_isdst = 0;
+
+	mtime1 = mktime(&str_time);
+
+	if (stat(filename[0], &foo2) < 0) { perror(filename[0]); return (-1); }
+	mtime2 = foo2.st_mtime; 
+
+	diff_t = difftime(mtime2,mtime1);
+	return(diff_t);
+}
+
+int rmfile(char *filename[]) {
+	return(remove(filename[0]));
+}
 
