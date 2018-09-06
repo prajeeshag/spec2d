@@ -7,8 +7,8 @@ STDOUT="stdout"_$JOBNAME
 submit_combine=True
 
 
-EXE=/moes/home/prajeesh/spec2d/exec/spec2d/spec2d.exe
-RUNNCCP2R=/moes/home/prajeesh/spec2d/exec/run_mppnccp2r/run_mppnccp2r
+EXE=_ROOTDIR_/exec/spec2d/spec2d.exe
+RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 
 
 alljobs=$(bjobs -noheader -o 'exec_cwd jobid job_name' 2>/dev/null | grep "$(pwd) ")
