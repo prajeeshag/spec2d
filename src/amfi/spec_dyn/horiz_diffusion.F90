@@ -157,6 +157,8 @@ subroutine horiz_diffusion(rte,we,xe,ye,qme)
     real :: coef00(size(ye,1))
     integer :: i, j, k, n
 
+    if (.not.isfpe()) return
+
     coef00(:) = 0.
     if (coef_pe) then
         coef00(:) = real(ye(:,coef_idx,1))
