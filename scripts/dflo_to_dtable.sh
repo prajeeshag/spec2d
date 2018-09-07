@@ -6,7 +6,7 @@ dflo="${dflo:-diag_field_log.out}"
 
 dtable=diag_table
 
-tail -n +2 "$dflo" | sed 's/|/ /g' | awk '{print $1", "$2", "$2", "$1"dstamp, all, .false., none, 2"}' >> ${dtable}_temp
+tail -n +2 "$dflo" | sed 's/|/ /g' | awk '{print $1", "$2", "$2", "$1"dstamp, all, .true., none, 2"}' >> ${dtable}_temp
 sed -i 's/dstamp/%4yr%2mo%2dy%2hr%2mi%2sc/g' ${dtable}_temp
 
 echo AMFI > $dtable
