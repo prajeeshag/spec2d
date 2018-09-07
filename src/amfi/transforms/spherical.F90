@@ -443,6 +443,15 @@ subroutine init_spherical2()
 
     nlat = oc_nlat()
 
+    if (mod(nlat,2)/=0) &
+        call mpp_error('init_spherical', 'NLAT should be a even number', FATAL)
+
+    allocate(ocP(npack(),oc_ny()))
+    allocate(ocF(nlat))
+
+    call get_ocpackP(ocP)
+    call get_ocpackF(ocF)
+
     ms = 0; me = -1
     jsf = 0; jef = -1
     jlenf = jef - jsf + 1
