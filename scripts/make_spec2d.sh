@@ -19,20 +19,20 @@ MPI3=True
 NETCDF=/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1
 
 #Fortran compiler options
-FFLAGS="-r8 -O2 -fp-model precise -convert big_endian -align array32byte -I$NETCDF/include"
-#Fortran compiler debug options
+FFLAGS="-r8 -O2 -fp-model precise -convert big_endian -align array32byte"
+# C compiler options
+CFLAGS="-O2"
+#Linker options
+LDFLAGS="-mkl -lrt -lstdc++ -lm"
+
+
+
+
+#Fortran compiler debug options [OPTIONAL]
 DFFLAGS="-g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created"
 
-# C compiler options
-CFLAGS="-O2 -I$NETCDF/include"
-# C compiler debug options
+# C compiler debug options [OPTIONAL]
 DCFLAGS="-g -traceback"
-
-#Linker options
-LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm"
-
-
-
 
 
 #--------------------------------------------------------------------------------
@@ -40,6 +40,11 @@ LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm"
 #----------------------------No editing needed beyond this-----------------------
 #--------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------
+
+
+FFLAGS=$FFLAGS" -I$NETCDF/include"
+CFLAGS=$CFLAGS" -I$NETCDF/include"
+LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff "$LDFLAGS
 
 execdir="$rootdir/exec"
 srcdir="$rootdir/src"

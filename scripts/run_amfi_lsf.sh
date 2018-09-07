@@ -11,12 +11,20 @@ EXE=_ROOTDIR_/exec/spec2d/spec2d.exe
 RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 
 
-alljobs=$(bjobs -noheader -o 'exec_cwd jobid job_name' 2>/dev/null | grep "$(pwd) ")
-if [ ! -z "$alljobs" ]; then
-	echo "Some jobs are already running in this directory!"
-    echo "Please kill these jobs before submitting!"
-	echo $alljobs
-	exit 1
+lsf=True
+if ! [ -x "$(command -v bjobs)" ]; then
+	lsf=False
+fi
+
+
+if [ "$lsf" == "True" ]; then
+	alljobs=$(bjobs -noheader -o 'exec_cwd jobid job_name' 2>/dev/null | grep "$(pwd) ")
+	if [ ! -z "$alljobs" ]; then
+		echo "Some jobs are already running in this directory!"
+	    echo "Please kill these jobs before submitting!"
+		echo $alljobs
+		exit 1
+	fi
 fi
 
 line1=$(sed -n '/&atmos_nml/,/\//p' input.nml | \
@@ -69,18 +77,18 @@ if [ "$submit_combine" == "True" ]; then
 	rm -f *.nc.????
 fi
 
-output=$(bsub < $tfile)
-
-echo $output
-
-jobid=$(echo $output | head -n1 | cut -d'<' -f2 | cut -d'>' -f1;)
-
-if [ "$jobid" -eq "$jobid" ] 2>/dev/null; then
-  	echo "Job submitted" 
+if [ "$lsf" == "True" ]; then
+	output=$(bsub < $tfile)
+	echo $output
+	jobid=$(echo $output | head -n1 | cut -d'<' -f2 | cut -d'>' -f1;)
+	if [ "$jobid" -eq "$jobid" ] 2>/dev/null; then
+	  	echo "Job submitted" 
+	else
+	  	exit 1
+	fi
 else
-  	exit 1
+	bash $tfile
 fi
-
 
 if [ "$submit_combine" == "True" ]; then
 
@@ -108,6 +116,10 @@ EOF
 
 rm -f ${STDOUT}_combine
 
-bsub < $tfile
+if [ "$lsf" == "True" ]; then
+	bsub < $tfile
+else 
+	bash $tfile
+fi
 
 fi

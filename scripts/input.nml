@@ -11,14 +11,13 @@
 /
 
 &atmos_nml
-	trunc=62
+	trunc = 62
 	num_lat = 94
   	nlev = 64
+	layout = 2,4
+	!layout = 8,32
 	packed = .true.
 	reduced = .true.
-	!layout = 8,16
-	layout = 8,32
-	!do_phys=.true.
 /
 
 &spectral_dynamics_nml
