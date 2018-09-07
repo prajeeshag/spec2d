@@ -613,8 +613,8 @@ subroutine grid_to_fourier(Gp, sFp, id_in)
             call mpp_error(FATAL,'grid_to_fourier: if sFp or Gp is not present then id_in '//&
                             'must be present and should be positive value')
         endif
-        howmany2 = size(sFp,1)
-        howmany = howmany2/npack()
+        howmany = size(Gp,1)
+        howmany2 = howmany*npack()
 
         do i = 1, nplang2f
             if (howmany==g2fp(i)%howmany) then
@@ -801,8 +801,8 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
             call mpp_error(FATAL,'fourier_to_grid: if sFp or Gp is not present then id_in '//&
                             'must be present and should be positive value')
         endif
-        howmany2 = size(sFp,1)
-        howmany = howmany2/npack()
+        howmany = size(Gp,1)
+        howmany2 = howmany*npack()
 
         do i = 1, nplanf2g
             if (howmany==f2gp(i)%howmany) then
