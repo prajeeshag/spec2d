@@ -10,7 +10,8 @@
       integer :: i, j, k, m, n, nd, nwords, lpos, rpos, ioff, joff, from_pe, root_pe, tile_id
       integer :: ke, isc, iec, jsc, jec, is, ie, js, je, nword_me
       integer :: ipos, jpos, ig, iec2
-      logical :: xonly, yonly, root_only, global_on_this_pe, kxy, ishuff
+      logical :: xonly, yonly, root_only, global_on_this_pe
+	  integer :: kxy, ishuff
       MPP_TYPE_ :: clocal ((domain%x(1)%compute%size+ishift) * (domain%y(1)%compute%size+jshift) * size(local,domain%kxy))
       MPP_TYPE_ :: cremote((domain%x(1)%compute%max_size+ishift) * (domain%y(1)%compute%max_size+jshift) * size(local,domain%kxy))
       integer :: stackuse
@@ -141,7 +142,11 @@
       m = 0
       if(global_on_this_pe) then
          !z1l: initialize global = 0 to support mask domain
+#ifdef LOGICAL_KIND
+		 global = .false.
+#else
          global = 0
+#endif
 
          do j = jsc, jec
          	do i = isc, iec
@@ -333,8 +338,11 @@
       m = 0
       if(global_on_this_pe) then
          !z1l: initialize global = 0 to support mask domain
+#ifdef LOGICAL_KIND
+		 global = .false.
+#else
          global = 0
-
+#endif
          do k = 1, ke
             do j = jsc, jec
                do i = isc, iec

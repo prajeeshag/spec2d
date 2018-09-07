@@ -806,7 +806,7 @@ subroutine finish_spectral_dynamics(Time, tem, tr, u, v)
 
     real :: pcorr, plvl1(nlev+1)
     integer :: k, j, ntr
-    integer :: used
+    logical :: used
 
     call calc_mass_corr(exp(gatm(2)%prs(1,:,:)), tr, moist_ind, pcorr)
 

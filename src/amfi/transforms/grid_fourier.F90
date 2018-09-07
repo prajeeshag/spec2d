@@ -240,7 +240,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     howmany = 1
     n0=[NX,howmany]
 
-    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, ONE, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
@@ -252,7 +252,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
 
     n0=[howmany,NFOUR]
 
-    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, TWO, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
@@ -306,13 +306,13 @@ function plan_grid_to_fourier(howmany,grid,four)
     g2fp(n)%howmany = howmany
  
     n0=[howmany,NFOUR2]
-    alloc_local1 = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+    alloc_local1 = fftw_mpi_local_size_many_transposed(rank, n0, two, &
                    block0, FBLOCK2, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
     !Transpose
     n0=[NX,howmany]
 
-    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, one, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
@@ -331,7 +331,7 @@ function plan_grid_to_fourier(howmany,grid,four)
 
     if (present(grid)) call c_f_pointer(g2fp(n)%t1dat, grid, [howmany, local_n0])
 
-    g2fp(n)%tplan1 = fftw_mpi_plan_many_transpose(NX, howmany, 1, &
+    g2fp(n)%tplan1 = fftw_mpi_plan_many_transpose(NX, howmany, one, &
                             block0, block0, g2fp(n)%G, g2fp(n)%GT, &
                             COMM_FFT, flags)
     
@@ -348,7 +348,7 @@ function plan_grid_to_fourier(howmany,grid,four)
 
     n0=[howmany,NFOUR2]
 
-    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, two, &
                    block0, FBLOCK2, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
@@ -361,7 +361,7 @@ function plan_grid_to_fourier(howmany,grid,four)
     call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%rsFT, [TWO,NFOUR2,local_n0])
     call c_f_pointer(g2fp(n)%t1dat, g2fp(n)%rsF, [TWO,howmany,local_n1])
 
-    g2fp(n)%tplan2 = fftw_mpi_plan_many_transpose(howmany, NFOUR2, 2, &
+    g2fp(n)%tplan2 = fftw_mpi_plan_many_transpose(howmany, NFOUR2, two, &
                             block0, FBLOCK2, g2fp(n)%rsFT, g2fp(n)%rsF, &
                             COMM_FFT, flags) 
 
@@ -507,7 +507,7 @@ subroutine set_ocplan_g2f(hlen, sh, howmany, np)
 
             !if(mpp_pe()==mpp_root_pe()) print '(10(I5,1x))', nk, j, h, hmny, hh, hh + hmny - 1
 
-            g2fp(np)%fp(i,n)%plan = fftw_plan_many_dft_r2c(ONE, nn, hmny, &
+            g2fp(np)%fp(i,n)%plan = fftw_plan_many_dft_r2c(1, nn, hmny, &
                             g2fp(np)%fp(i,n)%oG, inembed, istride, idist, &
                             g2fp(np)%fp(i,n)%oF, onembed, ostride, odist, flags) 
 
@@ -576,7 +576,7 @@ subroutine set_ocplan_f2g(hlen, sh, howmany, np)
             f2gp(np)%fp(i,n)%sh0 = hh 
             f2gp(np)%fp(i,n)%eh0 = hh + hmny - 1
 
-            f2gp(np)%fp(i,n)%plan = fftw_plan_many_dft_c2r(ONE, nn, hmny, &
+            f2gp(np)%fp(i,n)%plan = fftw_plan_many_dft_c2r(1, nn, hmny, &
                             f2gp(np)%fp(i,n)%oF, onembed, ostride, odist, & 
                             f2gp(np)%fp(i,n)%oG, inembed, istride, idist, flags)
 
@@ -613,8 +613,8 @@ subroutine grid_to_fourier(Gp, sFp, id_in)
             call mpp_error(FATAL,'grid_to_fourier: if sFp or Gp is not present then id_in '//&
                             'must be present and should be positive value')
         endif
-        howmany2 = size(sFp,1)
-        howmany = howmany2/npack()
+        howmany = size(Gp,1)
+        howmany2 = howmany*npack()
 
         do i = 1, nplang2f
             if (howmany==g2fp(i)%howmany) then
@@ -711,12 +711,12 @@ function plan_fourier_to_grid(howmany,four,grid)
    
     !Transpose
     n0=[NFOUR2,howmany]
-    alloc_local1 = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+    alloc_local1 = fftw_mpi_local_size_many_transposed(rank, n0, two, &
                    FBLOCK2, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     n0=[howmany,NX]
-    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 1, &
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, one, &
                    block0, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
@@ -734,7 +734,7 @@ function plan_fourier_to_grid(howmany,four,grid)
 
     flags = plan_flags
 
-    f2gp(n)%tplan1 = fftw_mpi_plan_many_transpose(howmany, NX, 1, &
+    f2gp(n)%tplan1 = fftw_mpi_plan_many_transpose(howmany, NX, one, &
                             block0, block0, f2gp(n)%GT, f2gp(n)%G, &
                             COMM_FFT, flags)
     if (.not.c_associated(f2gp(n)%tplan1)) &
@@ -749,7 +749,7 @@ function plan_fourier_to_grid(howmany,four,grid)
 
     !Transpose back
     n0=[NFOUR2,howmany]
-    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, 2, &
+    alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, two, &
                    FBLOCK2, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
@@ -763,7 +763,7 @@ function plan_fourier_to_grid(howmany,four,grid)
     call c_f_pointer(f2gp(n)%t1dat, f2gp(n)%rsF, [TWO,howmany,FLOCAL2])
     
     
-    f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, 2, &
+    f2gp(n)%tplan2 = fftw_mpi_plan_many_transpose(NFOUR2, howmany, two, &
                             FBLOCK2, block0, f2gp(n)%rsF, f2gp(n)%rsFT, &
                             COMM_FFT, flags) 
 
@@ -801,8 +801,8 @@ subroutine fourier_to_grid(sFp, Gp, id_in)
             call mpp_error(FATAL,'fourier_to_grid: if sFp or Gp is not present then id_in '//&
                             'must be present and should be positive value')
         endif
-        howmany2 = size(sFp,1)
-        howmany = howmany2/npack()
+        howmany = size(Gp,1)
+        howmany2 = howmany*npack()
 
         do i = 1, nplanf2g
             if (howmany==f2gp(i)%howmany) then

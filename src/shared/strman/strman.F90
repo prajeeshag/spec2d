@@ -7,19 +7,13 @@ public :: int2str
 integer, parameter :: inttype = 1234
 integer, parameter :: iclen = digits(inttype)+1
 
+interface int2str
+	module procedure int2str_4, int2str_8
+end interface int2str 
+
 contains
 
-function int2str(n)
-    integer, intent(in) :: n
-    character(len=iclen) :: int2str
-    character(len=iclen) :: str
-
-    write(str, *) n
-    int2str = adjustl(str)
-
-    return
-
-end function int2str
+#include <strman.inc>
 
 end module strman_mod
 

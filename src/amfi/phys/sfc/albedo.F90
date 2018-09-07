@@ -172,7 +172,8 @@ subroutine setalb_lnd(imax,lmask,snowf,zorlf,coszf,hprif, &
     real, intent(in) :: hi(imax)  ! ice thickness
     real, intent(in) :: ts(imax)  ! surface temperature (K)
     real, intent(out) :: alb(imax,NF_ALBD) ! ice surface albedo (0-1)
-    real :: as, ai, cs, i, ts1, fh
+    real :: as, ai, cs, ts1, fh
+    integer :: i
 
     if(.not.initialized) call mpp_error(FATAL,"Module not initialized: albedo_mod")
     alb(:,:) = 0.0 

@@ -823,6 +823,7 @@
 #define MPP_TYPE_ integer(LONG_KIND)
 #include <mpp_global_field.h>
 
+#define LOGICAL_KIND 1
 #undef MPP_GLOBAL_FIELD_2D_
 #define MPP_GLOBAL_FIELD_2D_ mpp_global_field2D_l8_2d
 #undef MPP_GLOBAL_FIELD_3D_
@@ -834,6 +835,7 @@
 #undef MPP_TYPE_
 #define MPP_TYPE_ logical(LONG_KIND)
 #include <mpp_global_field.h>
+#undef LOGICAL_KIND
 #endif
 
 #ifdef OVERLOAD_R4
@@ -886,7 +888,9 @@
 #define MPP_GLOBAL_FIELD_5D_ mpp_global_field2D_l4_5d
 #undef MPP_TYPE_
 #define MPP_TYPE_ logical(INT_KIND)
+#define LOGICAL_KIND
 #include <mpp_global_field.h>
+#undef LOGICAL_KIND
 
 !****************************************************
 #undef MPP_DO_GLOBAL_FIELD_3D_
@@ -910,11 +914,13 @@
 #define MPP_TYPE_ integer(LONG_KIND)
 #include <mpp_do_global_field.h>                                    
 
+#define LOGICAL_KIND 1
 #undef MPP_DO_GLOBAL_FIELD_3D_
 #define MPP_DO_GLOBAL_FIELD_3D_ mpp_do_global_field2D_l8_3d
 #undef MPP_TYPE_
 #define MPP_TYPE_ logical(LONG_KIND)
 #include <mpp_do_global_field.h>                                    
+#undef LOGICAL_KIND
 #endif
 
 #ifdef OVERLOAD_R4
@@ -943,5 +949,7 @@
 #define MPP_DO_GLOBAL_FIELD_3D_ mpp_do_global_field2D_l4_3d
 #undef MPP_TYPE_
 #define MPP_TYPE_ logical(INT_KIND)
+#define LOGICAL_KIND
 #include <mpp_do_global_field.h>
+#undef LOGICAL_KIND
 
