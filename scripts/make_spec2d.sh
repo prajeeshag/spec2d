@@ -113,7 +113,7 @@ cppDef=""
 export LD=$FC
 if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
 	cd $srcdir/shared/fftw-3.3.8
-	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads
+	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads --disable-doc
 	make clean
 	make -j $numproc
 	make install
