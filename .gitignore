@@ -7,3 +7,9 @@
 exec*
 reinit.sh
 .deps
+*.deps
+*.aux
+*.log
+*.pdf
+*.out
+*.synctex.gz
