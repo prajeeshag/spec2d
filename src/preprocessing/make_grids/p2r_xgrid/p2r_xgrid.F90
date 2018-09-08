@@ -48,7 +48,7 @@ subroutine make_xgrid_oc2rg(nlat)
     integer :: rxi_id, rxj_id, rxf_id, xf_id
     integer :: londim_id, latdim_id, lon_id, lat_id
 
-    call init_ocpack(nlat,nlat/2,1)
+    call init_ocpack(nlat,nlat/2,[1,1])
     
     allocate(latb(nlat+1))
     allocate(xi(2,nlat*oc_maxlon()*2))

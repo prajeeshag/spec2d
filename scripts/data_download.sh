@@ -3,10 +3,10 @@ set -e
 
 datapath=https://www.dropbox.com/s/593vig1attxezbt/data_spec2d.tar.gz?dl=0 
 
-if [ -d "_ROOTDIR_" ]; then
-	cd _ROOTDIR_
+if [ -d "/moes/home/prajeesh/spec2d" ]; then
+	cd /moes/home/prajeesh/spec2d
 	if [ -d "data" ]; then
-		echo data directory already exist in _ROOTDIR_
+		echo data directory already exist in /moes/home/prajeesh/spec2d
 		exit
 	fi
 
@@ -17,7 +17,7 @@ if [ -d "_ROOTDIR_" ]; then
 	fi
 	tar -zxvf data_spec2d.tar.gz
 else
-	echo _ROOTDIR_ does not exist, perhaps you might need to run init.sh first!
+	echo /moes/home/prajeesh/spec2d does not exist, perhaps you might need to run init.sh first!
 	exit 1
 fi
 

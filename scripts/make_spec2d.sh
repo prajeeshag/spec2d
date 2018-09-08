@@ -2,7 +2,7 @@
 set -e
 
 # Path to the root directory.
-rootdir=_ROOTDIR_
+rootdir=/moes/home/prajeesh/spec2d
 
 # Fortran compiler
 export FC=mpiifort

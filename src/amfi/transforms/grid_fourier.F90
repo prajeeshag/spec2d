@@ -18,7 +18,7 @@ use fms_mod, only : open_namelist_file, close_file, mpp_error, FATAL, WARNING, N
                     open_file, close_file, file_exist
 
 use ocpack_mod, only : ocpack_typeP, ocpack_typeF, oc_nx, oc_ny, oc_nlat, oc_maxlon, &
-                       npack=>oc_npack, oc_isreduced, oc_nfour, get_ocpackP
+                       npack=>oc_npack, oc_isreduced, oc_nfour, get_ocpackP, x_block
 
 use spec_comm_mod, only : split_pelist, spec_comm_allgather, spec_comm_pe
 
@@ -55,7 +55,7 @@ endtype plan_type
 
 integer(C_INTPTR_T) :: MXLON, MXLON2, NFOUR, NFOUR2, MXFOUR, MXFOUR2
 integer(C_INTPTR_T) :: NX_LOCAL, FLOCAL, FLOCAL2, NX, FBLOCK, FBLOCK2
-integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK
+integer(C_INTPTR_T) :: block0=FFTW_MPI_DEFAULT_BLOCK, XBLOCK
 integer :: COMM_FFT, COMM_PARENT
 real, allocatable :: RSCALE(:,:)
 
@@ -135,12 +135,16 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
 
     call mpp_get_current_pelist(commid=COMM_PARENT)
 
+    if (debug) print *, 'grid_fourier: before comm_split'
+
     COMM_FFT = 0    
     jee = 0
     do j = 1, size(extent)
         jee = jee + extent(j)
         call split_pelist(jee==jep, pes, npes, COMM_FFT)
     end do
+
+    if (debug) print *, 'grid_fourier: after comm_split'
 
     allocate(ocP(npack(),oc_ny()))
     call get_ocpackP(ocP)
@@ -161,11 +165,21 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     MXFOUR   = MXLON/2+1
     NX_LOCAL = ilenp
     FBLOCK = ceiling(real(NFOUR)/layout(2))
+    XBLOCK = x_block()
 
     NFOUR2  = NFOUR  * npack()
     MXLON2  = MXLON  * npack()
     MXFOUR2 = MXFOUR * npack() 
     FBLOCK2 = FBLOCK * npack()    
+
+    if (debug) then
+        if (mpp_pe()==mpp_root_pe()) then
+            print *, 'from grid_fourier:', 'MXLON=', MXLON, 'NX=', NX, &
+                     'NFOUR=', NFOUR, 'MXFOUR=', MXFOUR, 'NX_LOCAL=', NX_LOCAL, &
+                     'FBLOCK=', FBLOCK, 'XBLOCK=', XBLOCK, 'NFOUR2=', NFOUR2, &
+                     'MXLON2=',MXLON2, 'MXFOUR2=', MXFOUR2, 'FBLOCK2=', FBLOCK2
+        endif
+    endif
 
     flen = 0
     isf = 0
@@ -183,9 +197,6 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
         call mpp_error('init_grid_fourier','Wrong option for plan_level, &
         & set plan_level (accepted values are 0-3) in grid_fourier_nml', FATAL)
     end select
-
-    if(mod(NX,layout(2))/=0) &
-        call mpp_error('grid_fourier_mod','npes in x-dir should be a factor of NX='//trim(int2str(NX)), FATAL)
 
     call fftw_mpi_init()
 
@@ -241,7 +252,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     n0=[NX,howmany]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, ONE, &
-                   block0, block0, COMM_FFT, local_n0, &
+                   XBLOCK, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     local_n1_prev = local_n1
@@ -253,7 +264,7 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     n0=[howmany,NFOUR]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, TWO, &
-                   block0, block0, COMM_FFT, local_n0, &
+                   block0, FBLOCK, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     if (local_n1_prev/=local_n0) &
@@ -313,7 +324,7 @@ function plan_grid_to_fourier(howmany,grid,four)
     n0=[NX,howmany]
 
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, one, &
-                   block0, block0, COMM_FFT, local_n0, &
+                   XBLOCK, block0, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     alloc_local = max(alloc_local, alloc_local1)
@@ -332,7 +343,7 @@ function plan_grid_to_fourier(howmany,grid,four)
     if (present(grid)) call c_f_pointer(g2fp(n)%t1dat, grid, [howmany, local_n0])
 
     g2fp(n)%tplan1 = fftw_mpi_plan_many_transpose(NX, howmany, one, &
-                            block0, block0, g2fp(n)%G, g2fp(n)%GT, &
+                            XBLOCK, block0, g2fp(n)%G, g2fp(n)%GT, &
                             COMM_FFT, flags)
     
     if (.not.c_associated(g2fp(n)%tplan1)) &
@@ -717,7 +728,7 @@ function plan_fourier_to_grid(howmany,four,grid)
 
     n0=[howmany,NX]
     alloc_local = fftw_mpi_local_size_many_transposed(rank, n0, one, &
-                   block0, block0, COMM_FFT, local_n0, &
+                   block0, XBLOCK, COMM_FFT, local_n0, &
                    local_0_start, local_n1, local_1_start)
 
     alloc_local = max(alloc_local,alloc_local1)
@@ -735,7 +746,7 @@ function plan_fourier_to_grid(howmany,four,grid)
     flags = plan_flags
 
     f2gp(n)%tplan1 = fftw_mpi_plan_many_transpose(howmany, NX, one, &
-                            block0, block0, f2gp(n)%GT, f2gp(n)%G, &
+                            block0, XBLOCK, f2gp(n)%GT, f2gp(n)%G, &
                             COMM_FFT, flags)
     if (.not.c_associated(f2gp(n)%tplan1)) &
         call mpp_error('plan_fourier_to_grid: transpose1:',trim(null_plan_msg),FATAL)

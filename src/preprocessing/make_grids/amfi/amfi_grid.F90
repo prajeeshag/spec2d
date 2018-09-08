@@ -25,7 +25,7 @@ read(*,*) num_lat
 
 if (num_lat<4.or.mod(num_lat,2)/=0) call mpp_error(FATAL,'num_lat should be >=4, and a even number')
 
-call init_ocpack(num_lat,num_lat/2,1)
+call init_ocpack(num_lat,num_lat/2,[1,1])
 
 call make_grid()
 

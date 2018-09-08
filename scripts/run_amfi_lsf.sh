@@ -7,8 +7,8 @@ STDOUT="stdout"_$JOBNAME
 submit_combine=True
 
 
-EXE=_ROOTDIR_/exec/spec2d/spec2d.exe
-RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
+EXE=/moes/home/prajeesh/spec2d/exec/spec2d/spec2d.exe
+RUNNCCP2R=/moes/home/prajeesh/spec2d/exec/run_mppnccp2r/run_mppnccp2r
 
 
 lsf=True
@@ -46,7 +46,7 @@ done
 
 echo "NPES = "$npes 
 
-STDOUT=${STDOUT}_${npes}
+STDOUT=${STDOUT}
 
 tfile=$(mktemp)
 cat <<EOF > $tfile

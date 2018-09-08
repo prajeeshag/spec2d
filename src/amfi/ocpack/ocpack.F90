@@ -7,14 +7,14 @@ module ocpack_mod
 
 use mpp_mod, only : mpp_error, fatal, warning, note, mpp_init, mpp_npes, mpp_pe, &
         mpp_declare_pelist, mpp_get_current_pelist, mpp_set_current_pelist, mpp_root_pe, &
-        mpp_gather, mpp_broadcast
+        mpp_gather, mpp_broadcast, mpp_sync
 use strman_mod, only : int2str
 
 implicit none
 private
 
 public :: ocpack_typeP, ocpack_typeF, init_ocpack, get_ocpackP, get_ocpackF, oc_npack, &
-          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour, get_hem, hem_type
+          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour, get_hem, hem_type, x_block
 
 type ocpack_typeP
     integer :: is, ie, ilen ! longitude start, end and length
@@ -35,6 +35,16 @@ type hem_type
     integer :: s, n
 end type
 
+type npeblck
+    integer :: npes
+    integer :: blck
+    integer :: rem
+    integer, allocatable :: extent(:)
+end type npeblck
+
+type(npeblck), allocatable, public :: npesx(:), npesy(:)
+integer :: nxpe=0, nype=0, xblock=-1
+
 type(hem_type), allocatable :: jhem(:)
 
 type(ocpack_typeF), dimension(:), allocatable :: ocpkF
@@ -45,8 +55,9 @@ integer :: nplon = 20
 integer :: ocny, ocnx, nlat, maxlon, nfour
 integer :: num_pack = 2
 logical :: reduced=.true.
+character(len=1024) :: msg
 
-logical :: initialized=.false.
+logical :: initialized=.false., debug=.false.
 
 contains
 
@@ -92,6 +103,12 @@ subroutine get_ocpackP(ocpack)
     return
 end subroutine get_ocpackP
 
+integer function x_block()
+    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    x_block = xblock
+    return
+end function x_block
+
 integer function oc_nx()
     if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_nx = ocnx
@@ -134,19 +151,18 @@ logical function oc_isreduced()
 end function oc_isreduced
 
 !--------------------------------------------------------------------------------   
-subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispacked)
+subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispacked)
 !--------------------------------------------------------------------------------   
     integer, intent(in) :: nlat_in
     integer, intent(in) :: trunc
-    integer, intent(in) :: npes_y
-    integer, intent(out), optional :: yextent(npes_y)
-    integer, intent(in), optional :: max_lon
+    integer, intent(in) :: layout(2)
+    integer, intent(out), optional :: yextent(:), xextent(:)
     logical, intent(in), optional :: isreduced
     logical, intent(in), optional :: ispacked
 
     integer :: i, j, nplon_new
     integer, dimension(nlat_in) :: lonsperlat
-    integer, dimension(npes_y) :: ny_lcl, nlat_lcl
+    integer, dimension(:), allocatable :: ny_lcl, nlat_lcl
     integer :: maxpes, ny1, sumny, js, je, n, jj, jlen2, hs
 
     if(initialized) return
@@ -165,64 +181,10 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
     if(present(isreduced)) reduced = isreduced
 
     if (mod(nlat,2).ne.0) then
-        call mpp_error(fatal, 'ocpack_mod: nlat should be a multiple of 2')
+        call mpp_error(fatal, 'ocpack_mod: nlat should be a even number')
     end if
 
     ocny = nlat/num_pack
-
-    if (mod(ocny,2)/=0) then
-        maxpes = (ocny+1)/2
-        if (npes_y>maxpes) call mpp_error(FATAL, 'init_ocpack: maximum pes in Y-direction are: ' &
-                              //trim(int2str(maxpes)))
- 
-        if (mod(ceiling(real(ocny+1)/npes_y),2)/=0) &
-            call mpp_error(FATAL,'ocpack: npes in y-direction not supported')
-
-        ny1 = ceiling(real(ocny+1)/npes_y)
-        
-        ny_lcl = 0
-
-        ny_lcl(1:ocny/ny1) = ny1
-        ny_lcl(ocny/ny1+1) = mod(ocny,ny1)
-
-        if (any(ny_lcl==0)) call mpp_error(FATAL, 'init_ocpack: number of npes ' // &
-                            'in Y-direction causing null pes')
-
-        if (mod(ny_lcl(ocny/ny1+1),2)==0) call mpp_error(FATAL,'init_ocpack: number of pes not supported')
-    else
-        maxpes = ocny/2
-        if (npes_y>maxpes) call mpp_error(FATAL, 'init_ocpack: maximum pes in Y-direction are: ' &
-                              //trim(int2str(maxpes)))
- 
-        if (mod(ceiling(real(ocny)/npes_y),2)/=0) &
-            call mpp_error(FATAL,'ocpack: npes in y-direction not supported')
-
-        ny1 = ceiling(real(ocny)/npes_y)
-        
-        ny_lcl = 0
-
-        ny_lcl(1:ocny/ny1) = ny1
-        ny_lcl(ocny/ny1+1) = mod(ocny,ny1)
-
-        if (any(ny_lcl==0)) call mpp_error(FATAL, 'init_ocpack: number of npes ' // &
-                            'in Y-direction causing null pes')
-
-        if (mod(ny_lcl(ocny/ny1+1),2)/=0) call mpp_error(FATAL,'init_ocpack: number of pes not supported')
-    endif
-
-    if(present(yextent)) yextent = ny_lcl
-
-    nlat_lcl = ny_lcl*2
-
-    if (reduced.and.present(max_lon)) then
-        nplon_new = max_lon-(4*(nlat/2-1))
-        if (nplon_new<8) call mpp_error(FATAL, 'nplon < 8, increase max_lon')
-        if (nplon_new/=nplon) then
-            nplon = nplon_new
-            call mpp_error(warning, 'changing default number of (20) pole '// &
-                      'longitudes (nplon) to: '//int2str(nplon))
-        end if
-    end if
 
     lonsperlat(1) = nplon
     lonsperlat(nlat) = nplon
@@ -235,14 +197,67 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
 
     if (.not.reduced) then
         lonsperlat = maxlon
-        if (present(max_lon)) then
-            lonsperlat = max_lon
-            maxlon = max_lon
-        endif
     end if
  
     ocnx = (num_pack-1)*minval(lonsperlat)+maxlon 
     
+    call set_valid_layout()
+
+    if (allocated(ny_lcl)) deallocate(ny_lcl)
+    if (allocated(nlat_lcl)) deallocate(nlat_lcl)
+
+    do i = 1, nype
+        if (npesy(i)%npes==layout(1)) then
+            allocate(ny_lcl(layout(1)))
+            allocate(nlat_lcl(layout(1)))
+            ny_lcl = npesy(i)%extent
+            nlat_lcl = ny_lcl*2
+            exit
+        endif
+    end do
+
+    if (.not.allocated(ny_lcl)) then
+        write(msg,*) layout(1)
+        msg = trim(adjustl(msg))
+        call mpp_error(NOTE,'ERROR: unsupported layout:: npes_y = '//trim(msg)//' is not supported')
+        if (mpp_root_pe()==mpp_pe()) then
+            write(*,*) 'Supported npes_y for this resolution are:'
+            write(*,*) npesy(1:nype)%npes
+        endif
+        call mpp_error(FATAL,'ERROR: unsupported layout:: npes_y = '//trim(msg)//' is not supported')
+    endif
+        
+    if (present(yextent)) then
+        if (size(yextent)/=layout(1)) call mpp_error(FATAL,'init_ocpack:size(yextent)/=layout(1)')
+        yextent = ny_lcl 
+    endif
+
+    i = 1
+    do while(i <= nxpe)
+        if (npesx(i)%npes==layout(2)) then
+            exit
+        endif
+        i = i + 1
+    end do
+
+    if (i>nxpe) then
+       write(msg,*) layout(2)
+       msg = trim(adjustl(msg))
+       call mpp_error(NOTE,'ERROR: unsupported layout:: npes_x = '//trim(msg)//' is not supported')
+       if (mpp_root_pe()==mpp_pe()) then
+           write(*,*) 'Supported npes_x for this resolution are:'
+           write(*,*) npesx(1:nxpe)%npes
+       endif
+       call mpp_error(FATAL,'ERROR: unsupported layout:: npes_x = '//trim(msg)//' is not supported')
+    endif
+    
+    if (present(xextent)) then
+        if (size(xextent)/=layout(2)) call mpp_error(FATAL,'init_ocpack:size(xextent)/=layout(2)')
+        xextent=npesx(i)%extent
+    endif
+
+    xblock = npesx(i)%blck
+
     allocate(ocpkF(nlat))
     allocate(ocpkP(num_pack,ocny))
 
@@ -296,7 +311,7 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
 
     je = 0
     jj = 0
-    do n = 1, npes_y
+    do n = 1, layout(1)
         js = je + 1
         je = js + ny_lcl(n) - 1
         do i = 1, num_pack
@@ -317,7 +332,7 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
 
     je = 0
     jj = 0
-    do n = 1, npes_y
+    do n = 1, layout(1)
         js = je + 1
         je = js + nlat_lcl(n) -1
         jlen2 = nlat_lcl(n)/2
@@ -336,40 +351,106 @@ subroutine init_ocpack(nlat_in, trunc, npes_y, yextent, max_lon, isreduced, ispa
             j = j + 2
         end do
     end do
-    
+   
+    call mpp_error(NOTE,'ocpack initialized-----') 
     initialized = .true.
 
     return
 end subroutine init_ocpack
 
+!--------------------------------------------------------------------------------   
+subroutine set_valid_layout()
+!--------------------------------------------------------------------------------   
+    integer :: npe, i, tmp, j, ocny1
+    
+    allocate(npesx(ocnx))
+    nxpe = 0
+    do i = 2, ocnx
+        tmp = 0
+        npe = 0
+        do while (tmp<ocnx)
+            npe = npe+1
+            tmp = tmp+i
+        end do
+        nxpe = nxpe + 1
+        npesx(nxpe)%npes = npe
+        npesx(nxpe)%blck = i
+        if ((tmp-ocnx)>0) then
+            npesx(nxpe)%rem  = i-(tmp-ocnx)
+        else
+            npesx(nxpe)%rem = 0
+        endif
+    end do
+    
+    call unique(npesx,nxpe)
+    
+    do i = 1, nxpe
+        allocate(npesx(i)%extent(npesx(i)%npes))
+        npesx(i)%extent = npesx(i)%blck
+        if (npesx(i)%rem>0) npesx(i)%extent(npesx(i)%npes) = npesx(i)%rem
+        !if (mpp_pe()==mpp_root_pe()) then
+        !    print *, 'npesx=', npesx(i)%npes, 'sum(extent)=', sum(npesx(i)%extent), 'extent=', npesx(i)%extent
+        !endif
+    end do
 
-function lpfac(ni) result(maxprime)
-    implicit none
-    integer, intent(in) :: ni
-    integer :: maxprime
-    integer :: n, i
+    ocny1=ocny
+    if (mod(ocny,2)/=0) ocny1=ocny1-1 ! if odd
+    ocny1=ocny1/2
+    allocate(npesy(ocny1))
+    
+    do npe = 1, ocny1
+        allocate(npesy(npe)%extent(npe))
+        npesy(npe)%npes = npe
+        npesy(npe)%extent = ocny1/npe
+        tmp = mod(ocny1,npe)
+        do i = 1, tmp
+            npesy(npe)%extent(i)=npesy(npe)%extent(i)+1
+        end do
+        npesy(npe)%extent = npesy(npe)%extent*2
+        if (mod(ocny,2)/=0) npesy(npe)%extent(npe)=npesy(npe)%extent(npe)+1
+        !if (mpp_pe()==mpp_root_pe()) then
+        !    print *, 'npesy=', npe, 'extent=', npesy(npe)%extent 
+        !endif
+    end do
+    nype = ocny1
 
-    n = ni
+    return
+end subroutine set_valid_layout
 
-    maxprime = -1
+subroutine unique(val,n)
+    type(npeblck) :: val(:)
+    integer :: n, i, j, npes1, nn
+    type(npeblck) :: uniq(size(val))
 
-    do while (mod(n,2) == 0)
-        maxprime = 2
-        n = ishft(n,-1)
+    npes1 = -1
+
+    nn = n
+
+    n = 0
+    do i = 1, nn
+        if (npes1 /= val(i)%npes) then
+            n = n + 1
+            uniq(n)%npes=val(i)%npes
+            npes1=val(i)%npes
+        endif
     enddo
 
-    do i = 3, int(sqrt(real(n))), 2
-        do while (mod(n,i) == 0)
-            maxprime = i
-            n = n / i
+    uniq(:)%blck = ocnx+1
+    uniq(:)%rem = -1
+    do j = 1, n
+        do i = 1, nn
+            if (uniq(j)%npes==val(i)%npes) then
+                if (uniq(j)%blck>val(i)%blck) then
+                    uniq(j)%blck=val(i)%blck
+                    uniq(j)%rem=val(i)%rem
+                endif
+            endif
         enddo
     enddo
 
-    if (n > 2) maxprime = n
-
+    val(1:n) = uniq(1:n)
     return
-end function lpfac
-
+end subroutine unique
 
 end  module ocpack_mod
 
@@ -415,3 +496,4 @@ end do
 
 end program test
 #endif
+

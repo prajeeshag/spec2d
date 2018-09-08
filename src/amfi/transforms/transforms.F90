@@ -165,10 +165,8 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     
     if (present(Tshuffle).and.(.not.Tshuffle)) then
         call init_grid_fourier (domainl, num_fourier, isf, ilenf, fextent)
-        !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm)
     else
         call init_grid_fourier (domainl, num_fourier, isf, ilenf, fextent, Tshuff)
-        !call init_grid_fourier (oc_nx(), ilenp, num_fourier, isf, ilenf, comm, Tshuff)
     endif
 
     call split_pelist(ilenf>0, pelist, npes, f_all_comm)

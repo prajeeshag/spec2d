@@ -43,7 +43,7 @@ integer :: isp, iep, ilenp, ocnx
 integer :: jsp, jep, jlenp, ocny
 integer :: ishuff, ntrac=2
 integer :: unit, trunc=62
-integer :: num_lat=94, maxlon=0
+integer :: num_lat=94
 logical :: reduced=.true.
 logical :: packed=.true.
 
@@ -74,7 +74,7 @@ character(len=8) :: fldnm
 character(len=8) :: moist_tracer_names(10)
 integer :: moist_tracer_ind(10) = 0
 integer :: nmoist_tracers = 0
-logical :: do_phys=.true.
+logical :: do_phys=.true., debug=.false.
 
 contains
 
@@ -88,9 +88,9 @@ subroutine init_atmos(Time,deltim_in)
     integer :: layout(2), tmp, idx
     integer :: num_prog, num_diag, n
     integer :: axis(4)
-    integer, allocatable :: extent(:)
+    integer, allocatable :: yextent(:), xextent(:)
 
-    namelist/atmos_nml/ trunc, maxlon, num_lat, reduced, packed, nlev, layout, do_phys
+    namelist/atmos_nml/ trunc, num_lat, reduced, packed, nlev, layout, do_phys, debug
 
     call mpp_init()
     call fms_init()
@@ -107,25 +107,33 @@ subroutine init_atmos(Time,deltim_in)
         call mpp_error(FATAL,'init_atmos: product of layout should be equal to npes')
     endif
 
-    allocate(extent(layout(1)))
+    allocate(yextent(layout(1)))
+    allocate(xextent(layout(2)))
 
-    if (maxlon>0) then
-        call init_ocpack(num_lat, trunc, layout(1), yextent=extent, &
-                    max_lon=maxlon, isreduced=reduced, ispacked=packed)
-    else
-        call init_ocpack(num_lat, trunc, layout(1), yextent=extent, &
+    call init_ocpack(num_lat, trunc, layout, yextent=yextent, xextent=xextent,&
                     isreduced=reduced, ispacked=packed)
-    end if
 
     ocnx = oc_nx()
     ocny = oc_ny()
 
-    call mpp_define_domains([1,ocny,1,ocnx], layout, domain_g, xextent=extent, kxy=1)
+    if (sum(yextent)/=ocny) then
+        print *, 'ocny=', ocny, 'sum(yextent)=', sum(yextent), 'yextent=', yextent 
+    endif
+    if (sum(xextent)/=ocnx) then
+        print *, 'ocnx=', ocnx, 'sum(xextent)=', sum(xextent), 'xextent=', xextent 
+    endif
+
+    call mpp_define_domains([1,ocny,1,ocnx], layout, domain_g, &
+                            xextent=yextent, yextent=xextent, kxy=1)
+    if(debug) print *, 'after mpp_define_domains'
+
     call mpp_get_compute_domain(domain_g, jsp, jep, isp, iep)
     ilenp = iep - isp + 1
     jlenp = jep - jsp + 1
 
     call tracer_manager_init()
+    if(debug) print *, 'after tracer_manager_init'
+
     call get_number_tracers(MODEL_ATMOS,ntrac,num_prog,num_diag)
 
     call data_override_init(Atm_domain_in=domain_g)
@@ -151,6 +159,7 @@ subroutine init_atmos(Time,deltim_in)
     allocate(lat_deg(ocny, ocnx), lon_deg(ocny,ocnx))
 
     call init_spectral_dynamics(Time, nlev, trunc, domain_g, deltim, axis)
+    if(debug) print *, 'after init_spectral_dynamics'
 
     call get_lonsP(deglon=lon_deg)
     call get_latsP(deglat=lat_deg)

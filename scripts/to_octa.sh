@@ -1,19 +1,19 @@
 
-OCSNF=_ROOTDIR_/octa2reg/octaStackNFold.sh
+OCSNF=/moes/home/prajeesh/spec2d/octa2reg/octaStackNFold.sh
 ocnx=204
 ocny=94
 
-EMIS=_ROOTDIR_/data/global_emis.1x1.nc 
-MTN=_ROOTDIR_/data/global_mtn.nc
-OZONE=_ROOTDIR_/data/o3clim.nc
-TG3=_ROOTDIR_/data/global_tg3clim.nc
-VEGFRAC=_ROOTDIR_/data/global_vegfrac.1x1.nc
-ALBEDO=_ROOTDIR_/data/global_albedo4.1x1.nc
-ZORL=_ROOTDIR_/data/global_zorclim.1x1.nc
-SLMSK=_ROOTDIR_/data/global_slmask.nc
-SLOPETYPE=_ROOTDIR_/data/global_slope.1x1.nc
-SOILTYPE=_ROOTDIR_/data/global_soiltype.1x1.nc
-VEGTYPE=_ROOTDIR_/data/global_vegtype.1x1.nc
+EMIS=/moes/home/prajeesh/spec2d/data/global_emis.1x1.nc 
+MTN=/moes/home/prajeesh/spec2d/data/global_mtn.nc
+OZONE=/moes/home/prajeesh/spec2d/data/o3clim.nc
+TG3=/moes/home/prajeesh/spec2d/data/global_tg3clim.nc
+VEGFRAC=/moes/home/prajeesh/spec2d/data/global_vegfrac.1x1.nc
+ALBEDO=/moes/home/prajeesh/spec2d/data/global_albedo4.1x1.nc
+ZORL=/moes/home/prajeesh/spec2d/data/global_zorclim.1x1.nc
+SLMSK=/moes/home/prajeesh/spec2d/data/global_slmask.nc
+SLOPETYPE=/moes/home/prajeesh/spec2d/data/global_slope.1x1.nc
+SOILTYPE=/moes/home/prajeesh/spec2d/data/global_soiltype.1x1.nc
+VEGTYPE=/moes/home/prajeesh/spec2d/data/global_vegtype.1x1.nc
 
 SST=/iitm2/cccr-res/prajeesh/observations/HadISST/sst_monthly.nc
 ICE=/iitm2/cccr-res/prajeesh/observations/HadISST/ice_monthly.nc
