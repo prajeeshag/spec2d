@@ -74,7 +74,7 @@ subroutine get_aquape_sst(sst, lat)
     do i = 1, size(sst,2)    
         do j = 1, size(sst,1)
             if (abs(lat(j,i)*PI/180.)>=PI/3.) cycle
-            sst(j,i) = 27.*(1-sin((3.*lat(j,i)*PI/180.)/2.))
+            sst(j,i) = 27.*(1-sin((3.*abs(lat(j,i))*PI/180.)/2.))
         end do
     end do
 

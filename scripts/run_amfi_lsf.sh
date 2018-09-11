@@ -112,7 +112,7 @@ else
 		else
 		  	exit 1
 		fi
-		COND="#BSUB -w started($jobid)"
+		COND="BSUB -w started($jobid)"
 	else
 		bash $tfile
 	fi
