@@ -5,11 +5,14 @@ WCLOCK="240"
 JOBNAME="AMFI"
 STDOUT="stdout"_$JOBNAME
 
+# submit_combine - if "False" do not submit postprocessing
 submit_combine=True
-nproc_combine=3
-combine_only=True
-combine_child_run=0
-bypassrunning=True
+# nproc_combine - number of processors for postproc
+nproc_combine=8
+# combine_only - if "True" submit postprocessing only
+combine_only=False
+# combine_child_run - if "1" postprocessing is submitted as child run of model run
+combine_child_run=1
 
 EXE=_EXE_
 RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
@@ -18,6 +21,13 @@ RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 lsf=True
 if ! [ -x "$(command -v bjobs)" ]; then
 	lsf=False
+fi
+
+bypassrunning=False
+if [ "$combine_only" == "True" ]; then
+	if [ "$combine_child_run" -eq "1" ]; then
+		bypassrunning=True
+	fi
 fi
 
 if [ ! "$bypassrunning" == "True" ];then
