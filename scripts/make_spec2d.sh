@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
+AQUAPLANET=True
+
 # Path to the root directory.
-rootdir=/moes/home/prajeesh/spec2d
+rootdir=_ROOTDIR_
 
 # Fortran compiler
 export FC=mpiifort
@@ -16,7 +18,7 @@ export MPICC=mpiicc
 MPI3=True
 
 #netcdf library path
-NETCDF=/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1
+NETCDF=$(nc-config --prefix)
 
 #Fortran compiler options
 FFLAGS="-r8 -O2 -fp-model precise -convert big_endian -align array32byte"
@@ -26,13 +28,11 @@ CFLAGS="-O2"
 LDFLAGS="-mkl -lrt -lstdc++ -lm"
 
 
-
-
 #Fortran compiler debug options [OPTIONAL]
 DFFLAGS="-g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created"
 
 # C compiler debug options [OPTIONAL]
-DCFLAGS="-g -traceback"
+DCFLAGS="-g -traceback -debug all"
 
 
 #--------------------------------------------------------------------------------
@@ -84,16 +84,16 @@ shift $(expr $OPTIND - 1)
 
 cat $mkmftemplate
 
-echo "#--------------------------MAKE MPPNCCOMBINE-----------------------------------"
-cppDef="-Duse_netCDF -Duse_libMPI"
-exe=mppncc
-paths="$srcdir/postprocessing/mppnccombine"
-export LD=$CC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-$mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#--------------------------MAKE MPPNCCOMBINE-----------------------------------"
+#cppDef="-Duse_netCDF -Duse_libMPI"
+#exe=mppncc
+#paths="$srcdir/postprocessing/mppnccombine"
+#export LD=$CC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#$mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 echo "#--------------------------MAKE MPPNCCOMBINEP2R-----------------------------------"
 cppDef=""
@@ -170,18 +170,18 @@ make -j $numproc
 echo "#------------------------------------------------------------------------------"
 
 
-echo "#--------------------------MAKE XREGRID-----------------------------------"
-cppDef="-Duse_netCDF"
-exe=xregrid
-paths="$srcdir/preprocessing/make_grids/regrid"
-export LD=$FC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-OPTS="-I$execdir/lib_fms"
-LIBS="$execdir/lib_fms/lib_fms.a"
-$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#--------------------------MAKE XREGRID-----------------------------------"
+#cppDef="-Duse_netCDF"
+#exe=xregrid
+#paths="$srcdir/preprocessing/make_grids/regrid"
+#export LD=$FC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#OPTS="-I$execdir/lib_fms"
+#LIBS="$execdir/lib_fms/lib_fms.a"
+#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 
 echo "#--------------------------MAKE P2R_XGRID-----------------------------------"
@@ -196,6 +196,18 @@ cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
+
+echo "#--------------------------listlayout-----------------------------------"
+cppDef=""
+exe=listlayout
+paths="$srcdir/preprocessing/listlayout \
+	   $srcdir/amfi/ocpack" 
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
 
@@ -221,12 +233,18 @@ amfi="$srcdir/amfi"
 #paths="$amfi/model $amfi/driver $amfi/radiation $amfi/spec_dyn"
 paths=$(find $amfi -type d)
 
+cppDef="-Duse_netCDF -Duse_libMPI"
+
 if [[ "$MPI3" == True ]]; then
-	cppDef="-Duse_netCDF -Duse_libMPI -DMPI3"
-else
-	cppDef="-Duse_netCDF -Duse_libMPI"
+	cppDef=$cppDef" -DMPI3"
 fi
+
 exe=spec2d
+if [[ "$AQUAPLANET" == True ]]; then
+	cppDef=$cppDef" -DAQUAPLANET"
+	exe=$exe"_AQUAPLANET"
+fi
+
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 
@@ -237,7 +255,6 @@ LIBS="$execdir/lib_fms/lib_fms.a $execdir/fftw/lib/libfftw3_mpi.a $execdir/fftw/
 $mkmf -c "$cppDef" -f -p ${exe}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 
 make -j $numproc
-echo "#------------------------------------------------------------------------------"
-
+echo "#---------------------COMPILATION COMPLETED------------------------------------"
 
 

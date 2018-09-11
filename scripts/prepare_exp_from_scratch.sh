@@ -1,13 +1,16 @@
 #!/bin/bash
 
 # rootdir -  Absolute path to the root directory
-rootdir=/moes/home/prajeesh/spec2d
+rootdir=_ROOTDIR_
 
 # NLAT - number of latitudes (should be a even number)
 NLAT=94
 
 # MAXLON - maximum number of longitudes in octahedral reduced grid, usually MAXLON=20+(NLAT/2-1)*4
 MAXLON=$((20+(NLAT/2-1)*4))
+
+# AQUAPLANET - Whether an aquaplanet experiment?
+AQUAPLANET=False
 
 # ocean_grid - MOM ocean_grid, this required to create grid_spec.nc, for a Atmosphere only run
 # any arbitrary ocean_grid can be used. The land area frac, as a result the land grid points are
@@ -28,6 +31,8 @@ scriptdir=$rootdir/scripts
 p_amfigrid=$rootdir/exec/amfi_grid/amfi_grid
 p_xgrid=$rootdir/exec/xgrid/xgrid
 p_p2rxgrid=$rootdir/exec/p2r_xgrid/p2r_xgrid
+p_listlayout=$rootdir/exec/listlayout/listlayout
+
 stackNfold=$rootdir/src/preprocessing/StackNFold/StackNFold.sh
 
 datadir=$rootdir/data
@@ -84,142 +89,144 @@ if [ ! -f p_xgrd.nc ]; then
 	fi
 fi
 
-if [ ! -f grid_spec.nc ]; then
-	echo "----------Preparing grid_spec------------------------"
-	$p_xgrid -o $ocean_grid -a amfi_grid.nc
-	if [[ $? -ne 0 ]] ; then
-		rm -f grid_spec.nc
-		rm -f *X*.nc
-	    exit 1
+if [ ! "$AQUAPLANET" == "True" ]; then
+	if [ ! -f grid_spec.nc ]; then
+		echo "----------Preparing grid_spec------------------------"
+		$p_xgrid -o $ocean_grid -a amfi_grid.nc
+		if [[ $? -ne 0 ]] ; then
+			rm -f grid_spec.nc
+			rm -f *X*.nc
+		    exit 1
+		fi
 	fi
-fi
-
-
-echo "----------Preparing INPUT files------------------------"
-
-if [ ! -f emis_ref.nc ]; then
-	echo "$EMIS"
-	$stackNfold -x $MAXLON -y $NLAT -i $EMIS     -o emis_ref.nc -p interpmethod=linint
-	if [[ $? -ne 0 ]] ; then
-		rm -f emis_ref.nc
-	    exit 1
+	
+	
+	echo "----------Preparing INPUT files------------------------"
+	
+	if [ ! -f emis_ref.nc ]; then
+		echo "$EMIS"
+		$stackNfold -x $MAXLON -y $NLAT -i $EMIS     -o emis_ref.nc -p interpmethod=linint
+		if [[ $? -ne 0 ]] ; then
+			rm -f emis_ref.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f mtn.nc ]; then
-	echo "$MTN"
-	$stackNfold -x $MAXLON -y $NLAT -i $MTN -o mtn.nc -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f mtn.nc
-	    exit 1
+	
+	if [ ! -f mtn.nc ]; then
+		echo "$MTN"
+		$stackNfold -x $MAXLON -y $NLAT -i $MTN -o mtn.nc -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f mtn.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f ozone.nc ]; then
-	echo "$OZONE"
-	$stackNfold -x $MAXLON -y $NLAT -i $OZONE -o ozone.nc -p interpmethod=linint
-	if [[ $? -ne 0 ]] ; then
-		rm -f ozone.nc
-	    exit 1
+	
+	if [ ! -f ozone.nc ]; then
+		echo "$OZONE"
+		$stackNfold -x $MAXLON -y $NLAT -i $OZONE -o ozone.nc -p interpmethod=linint
+		if [[ $? -ne 0 ]] ; then
+			rm -f ozone.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f tg3.nc ]; then
-	echo "$TG3"
-	$stackNfold -x $MAXLON -y $NLAT -i $TG3 -o tg3.nc -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f tg3.nc
-	    exit 1
+	
+	if [ ! -f tg3.nc ]; then
+		echo "$TG3"
+		$stackNfold -x $MAXLON -y $NLAT -i $TG3 -o tg3.nc -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f tg3.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f vegfrac.nc ]; then
-	echo "$VEGFRAC"
-	$stackNfold -x $MAXLON -y $NLAT -i $VEGFRAC  -o vegfrac.nc -v vegfrac  -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f vegfrac.nc
-	    exit 1
+	
+	if [ ! -f vegfrac.nc ]; then
+		echo "$VEGFRAC"
+		$stackNfold -x $MAXLON -y $NLAT -i $VEGFRAC  -o vegfrac.nc -v vegfrac  -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f vegfrac.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f albedo.nc ]; then
-	echo "$ALBEDO"
-	$stackNfold -x $MAXLON -y $NLAT -i $ALBEDO   -o albedo.nc -v alvwf,alnwf,facwf,facsf,alnsf,alvsf  -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f albedo.nc
-	    exit 1
+	
+	if [ ! -f albedo.nc ]; then
+		echo "$ALBEDO"
+		$stackNfold -x $MAXLON -y $NLAT -i $ALBEDO   -o albedo.nc -v alvwf,alnwf,facwf,facsf,alnsf,alvsf  -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f albedo.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f zorl.nc ]; then
-	echo "$ZORL"
-	$stackNfold -x $MAXLON -y $NLAT -i $ZORL -o zorl.nc  -v $ZORLV   -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f zorl.nc
-	    exit 1
+	
+	if [ ! -f zorl.nc ]; then
+		echo "$ZORL"
+		$stackNfold -x $MAXLON -y $NLAT -i $ZORL -o zorl.nc  -v $ZORLV   -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f zorl.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f topography.nc ]; then
-	echo "$TOPO"
-	$stackNfold -x $MAXLON -y $NLAT -i $TOPO     -o topography.nc  -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f topography.nc
-	    exit 1
+	
+	if [ ! -f topography.nc ]; then
+		echo "$TOPO"
+		$stackNfold -x $MAXLON -y $NLAT -i $TOPO     -o topography.nc  -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f topography.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f temp_pres.nc ]; then
-	echo "$TEMP_PRES"
-	$stackNfold -x $MAXLON -y $NLAT -i $TEMP_PRES     -o temp_pres.nc     -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f temp_pres.nc
-	    exit 1
+	
+	if [ ! -f temp_pres.nc ]; then
+		echo "$TEMP_PRES"
+		$stackNfold -x $MAXLON -y $NLAT -i $TEMP_PRES     -o temp_pres.nc     -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f temp_pres.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f sea_ice_forcing.nc ]; then
-	echo "$ICE"
-	$stackNfold -x $MAXLON -y $NLAT -i $ICE -o sea_ice_forcing.nc  -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f sea_ice_forcing.nc
-	    exit 1
+	
+	if [ ! -f sea_ice_forcing.nc ]; then
+		echo "$ICE"
+		$stackNfold -x $MAXLON -y $NLAT -i $ICE -o sea_ice_forcing.nc  -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f sea_ice_forcing.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f sst_forcing.nc ]; then
-	echo "$SST"
-	$stackNfold -x $MAXLON -y $NLAT -i $SST -o sst_forcing.nc  -p interpmethod=conserve
-	if [[ $? -ne 0 ]] ; then
-		rm -f sst_forcing.nc
-	    exit 1
+	
+	if [ ! -f sst_forcing.nc ]; then
+		echo "$SST"
+		$stackNfold -x $MAXLON -y $NLAT -i $SST -o sst_forcing.nc  -p interpmethod=conserve
+		if [[ $? -ne 0 ]] ; then
+			rm -f sst_forcing.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f vegtype.nc ]; then
-	echo "$VEGTYPE"
-	$stackNfold -x $MAXLON -y $NLAT -i $VEGTYPE -m grid_spec.nc -o vegtype.nc -p interpmethod=dtype:conv2int=T
-	if [[ $? -ne 0 ]] ; then
-		rm -f vegtype.nc
-	    exit 1
+	
+	if [ ! -f vegtype.nc ]; then
+		echo "$VEGTYPE"
+		$stackNfold -x $MAXLON -y $NLAT -i $VEGTYPE -m grid_spec.nc -o vegtype.nc -p interpmethod=dtype:conv2int=T
+		if [[ $? -ne 0 ]] ; then
+			rm -f vegtype.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f soiltype.nc ]; then
-	echo "$SOILTYPE"
-	$stackNfold -x $MAXLON -y $NLAT -i $SOILTYPE -m grid_spec.nc -o soiltype.nc -p interpmethod=dtype:conv2int=T
-	if [[ $? -ne 0 ]] ; then
-		rm -f soiltype.nc
-	    exit 1
+	
+	if [ ! -f soiltype.nc ]; then
+		echo "$SOILTYPE"
+		$stackNfold -x $MAXLON -y $NLAT -i $SOILTYPE -m grid_spec.nc -o soiltype.nc -p interpmethod=dtype:conv2int=T
+		if [[ $? -ne 0 ]] ; then
+			rm -f soiltype.nc
+		    exit 1
+		fi
 	fi
-fi
-
-if [ ! -f slopetype.nc ]; then
-	echo "$SLOPETYPE"
-	$stackNfold -x $MAXLON -y $NLAT -i $SLOPETYPE -m grid_spec.nc -o slopetype.nc -p interpmethod=dtype:conv2int=T
-	if [[ $? -ne 0 ]] ; then
-		rm -f slopetype.nc
-	    exit 1
+	
+	if [ ! -f slopetype.nc ]; then
+		echo "$SLOPETYPE"
+		$stackNfold -x $MAXLON -y $NLAT -i $SLOPETYPE -m grid_spec.nc -o slopetype.nc -p interpmethod=dtype:conv2int=T
+		if [[ $? -ne 0 ]] ; then
+			rm -f slopetype.nc
+		    exit 1
+		fi
 	fi
 fi
 
@@ -260,6 +267,13 @@ cat <<EOF >field_table
 
 EOF
 
+EXENAME=spec2d
+if [ "$AQUAPLANET" == "True" ]; then
+	EXENAME=spec2d_AQUAPLANET
+fi
+
+EXE=$rootdir/exec/$EXENAME/${EXENAME}.exe
+
 #Making Diag Table
 $scriptdir/dflo_to_dtable.sh $scriptdir/diag_field_log.out
 
@@ -272,8 +286,11 @@ mkdir -p RESTART
 mv *.nc INPUT/
 mv atm.res INPUT/
 
-
 cp $scriptdir/run_amfi_lsf.sh .
+
+sed -i "s|_EXE_|$EXE|g" run_amfi_lsf.sh
+
+$p_listlayout <<< $NLAT > valid_pe_layouts_nlat_$NLAT
 
 #sed -i "s/_EXENAME_/$rootdir\/exec\/spec2d\/spec2d.exe/g" run_amfi_lsf.sh
 sed -i "s|_EXENAME_|$rootdir/exec/spec2d/spec2d.exe|g" run_amfi_lsf.sh
@@ -284,6 +301,7 @@ echo "--------------------------------------------------------------------------
 echo "--------------------------------------------------------------------------------"
 echo "You need to edit some informations in the run script run_amfi_lsf.sh"
 echo "As well as, should set namelist values for 'trunc', 'num_lat', 'layout'"
-echo "in input.nml accordingly.."
+echo "in input.nml accordingly."
+echo "All possible valid pe layouts are given in the file valid_pe_layouts_nlat_$NLAT "
 echo "--------------------------------------------------------------------------------"
 echo "--------------------------------------------------------------------------------"

@@ -16,8 +16,6 @@
   	nlev = 64
 	layout = 2,4
 	!layout = 8,32
-	packed = .true.
-	reduced = .true.
 /
 
 &spectral_dynamics_nml

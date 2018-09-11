@@ -61,6 +61,11 @@ double *lonc, *latc, *xf, *rxf;
 
 unsigned char n4=0;
 
+void *varbuf[NC_MAX_VARS];  /* Buffers for decomposed variables */
+void *vbuf[NC_MAX_VARS];  /* Buffers for upacked variables */
+
+static unsigned char first=1;  /* First time reading variables? */
+
 #define ERR(e) {if(e){printf("Error: %s\n", nc_strerror(e)); return 2;}}
 
 /* Information structure for a file */
@@ -93,11 +98,11 @@ struct fileinfo
 /* Auxiliary function prototypes */
 void usage();
 int process_file(char *, unsigned char, struct fileinfo *, char *, int *,
-		int *, int, int, void *[], void *[], int, unsigned char,
+		int *, int, int, int, unsigned char,
 		unsigned char);
 int process_vars(struct fileinfo *, struct fileinfo *, unsigned char, int *,
-		int, int, int, void *[], void *[], unsigned char, unsigned char);
-int flush_decomp(struct fileinfo *, int, int, void *[], void *[], unsigned char);
+		int, int, int, unsigned char, unsigned char);
+int flush_decomp(struct fileinfo *, int, int, unsigned char);
 void print_debug(struct fileinfo *, unsigned char);
 char *nc_type_to_str(nc_type);
 int read_xgrid();
@@ -136,8 +141,6 @@ int nccp2r(int argmntc, char *argmntv[])
 	int a, f, r;  /* Loop variables */
 	int status; /* Return status */
 	int nrecs=1;  /* Number of records in each decomposed file */
-	void *varbuf[NC_MAX_VARS];  /* Buffers for decomposed variables */
-	void *vbuf[NC_MAX_VARS];  /* Buffers for upacked variables */
 	size_t blksz=65536; /* netCDF block size */
 
 	verbose=0; appendnc=0; removein=0;  
@@ -145,7 +148,7 @@ int nccp2r(int argmntc, char *argmntv[])
 	format=NC_NOCLOBBER;  missing=0;  outputarg=(-1);  
 	inputarg=(-1);  infileerror=0;  infileerrors=0;  
 	nfiles=(-1); nrecs=1; blksz=65536; 
-	n4=0;
+	n4=0; first=1;
 	
 	if (argmntc < 2)
 	{
@@ -155,7 +158,7 @@ int nccp2r(int argmntc, char *argmntv[])
 	{
 		if (!strcmp(argmntv[a],"-v")) verbose=1;
 		else if (!strcmp(argmntv[a],"-vv")) verbose=2;  /* Hidden debug mode */
-		else if (!strcmp(argmntv[a],"-a")) appendnc=1;
+		else if (!strcmp(argmntv[a],"-a")) appendnc=0;
 		else if (!strcmp(argmntv[a],"-r")) removein=1;
 		else if (!strcmp(argmntv[a],"-n"))
 		{
@@ -294,15 +297,14 @@ int nccp2r(int argmntc, char *argmntv[])
 					}
 					if (stat(infilename,&statbuf)!=0) continue;
 					infileerror=process_file(infilename,appendnc,ncoutfile,
-							outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
-							headerpad,verbose,missing);
+							outfilename,&nfiles,&nrecs,r,f,headerpad,verbose,missing);
 					if (infileerror) infileerrors=1;
 					appendnc=1; f++;
 					if (f==nfiles || a==nend)
 					{
 						if (verbose > 1)
 							printf("  Write variables from previous %d files\n",f);
-						if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
+						if (flush_decomp(ncoutfile,nfiles,r,verbose)!=0) {
 							fprintf(stderr,"Error while writing to disk.."); return(1);}
 						break;
 					}
@@ -325,7 +327,7 @@ int nccp2r(int argmntc, char *argmntv[])
 						printf("processing \"%s\"\n",infilename);
 					}
 					infileerror=process_file(infilename,appendnc,ncoutfile,
-							outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
+							outfilename,&nfiles,&nrecs,r,f,
 							headerpad,verbose,missing);
 					if (infileerror) infileerrors=1;
 					if (a==nstart && nfiles > 0) nend=nstart+nfiles;
@@ -334,7 +336,7 @@ int nccp2r(int argmntc, char *argmntv[])
 					{
 						if (verbose > 1)
 							printf("  Write variables from previous %d files\n",f);
-						if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
+						if (flush_decomp(ncoutfile,nfiles,r,verbose)!=0) {
 							fprintf(stderr,"Error while writing to disk.."); return(1);}
 						f=0; continue;
 					}
@@ -357,7 +359,7 @@ int nccp2r(int argmntc, char *argmntv[])
 					printf("processing \"%s\"\n",argmntv[a]);
 				}
 				infileerror=process_file(argmntv[a],appendnc,ncoutfile,
-						outfilename,&nfiles,&nrecs,r,f,varbuf,vbuf,
+						outfilename,&nfiles,&nrecs,r,f,
 						headerpad,verbose,missing);
 				if (infileerror) infileerrors=1;
 				appendnc=1; f++;
@@ -365,7 +367,7 @@ int nccp2r(int argmntc, char *argmntv[])
 				{
 					if (verbose > 1)
 						printf("  Write variables from previous %d files\n",f);
-					if (flush_decomp(ncoutfile,nfiles,r,varbuf,vbuf,verbose)!=0) {
+					if (flush_decomp(ncoutfile,nfiles,r,verbose)!=0) {
 						fprintf(stderr,"Error while writing to disk.."); return(1);}
 					f=0; continue;
 				}
@@ -376,16 +378,19 @@ int nccp2r(int argmntc, char *argmntv[])
 	for (f=0; f < NC_MAX_VARS; f++)
 	{
 		if (varbuf[f]!=NULL){ 
-			free(varbuf[f]); 
+			free(varbuf[f]); varbuf[f]=NULL;
 			if (verbose) printf("releasing memory of %d varbuf\n",f);
 		}
 		if (vbuf[f]!=NULL) { 
-			free(vbuf[f]); 
+			free(vbuf[f]); vbuf[f]=NULL;
 			if (verbose) printf("releasing memory of %d vbuf\n",f);
 		}
 	}
 	if (verbose) printf("released memory of ncoutfile\n");
 	ncclose(ncoutfile->ncfid); free(ncoutfile);
+
+	if (verbose) printf(" infileerrors = %d",infileerrors);
+	if (verbose) printf(" removein = %d",removein);
 
 	if (!infileerrors)
 	{
@@ -574,7 +579,7 @@ void usage()
 	printf("Usage:  mppnccombine [-v] [-a] [-r] [-n #] [-e #] [-h #] [-64] [-n4 #] [-m]\n");
 	printf("                     output.nc [input ...]\n\n");
 	printf("  -v    Print some progress information.\n");
-	printf("  -a    Append to an existing netCDF file (not heavily tested...).\n");
+	//printf("  -a    Append to an existing netCDF file (not heavily tested...).\n");
 	printf("  -r    Remove the \".####\" decomposed files after a successful run.\n");
 	printf("  -n #  Input filename extensions start with number #### instead of 0000.\n");
 	printf("  -e #  Ending number #### of a specified range of input filename extensions.\n");
@@ -606,7 +611,7 @@ void usage()
 /* variables at the current record to memory                          */
 int process_file(char *ncname, unsigned char appendnc,
 		struct fileinfo *ncoutfile, char *outncname, int *nfiles,
-		int *nrecs, int r, int f, void *varbuf[], void *vbuf[], int headerpad,
+		int *nrecs, int r, int f, int headerpad,
 		unsigned char verbose, unsigned char missing)
 {
 	struct fileinfo *ncinfile;  /* Information about an input netCDF file */
@@ -835,7 +840,7 @@ int process_file(char *ncname, unsigned char appendnc,
 
 	/* Copy all data values of the dimensions and variables to memory */
 	ncinfileerror=process_vars(ncinfile,ncoutfile,appendnc,nrecs,r,*nfiles,
-			f,varbuf,vbuf,verbose,missing);
+			f,verbose,missing);
 
 	/* Done */
 	ncclose(ncinfile->ncfid); free(ncinfile); return(ncinfileerror);
@@ -845,7 +850,7 @@ int process_file(char *ncname, unsigned char appendnc,
 /* Copy all data values in an input file at the current record to memory */
 int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 		unsigned char appendnc, int *nrecs, int r, int nfiles,
-		int f, void *varbuf[], void *vbuf[], unsigned char verbose,
+		int f, unsigned char verbose,
 		unsigned char missing)
 {
 	int v, d, i, j, k, l, b, s;  /* Loop variables */
@@ -857,7 +862,6 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 	long long recfullsize;  /* Non-decomposed size of one record of a variable */
 	long long recregsize;  /* Non-decomposed regular size of one record of a variable */
 	int varrecdim;  /* Variable's record dimension */
-	static unsigned char first=1;  /* First time reading variables? */
 	int imax, jmax, kmax, lmax;
 	int imaxfull, jmaxfull, kmaxfull, lmaxfull;
 	int imaxjmaxfull, imaxjmaxkmaxfull;
@@ -865,8 +869,6 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 	long long varbufsize, vbufsize;
 
 	/* Check the number of records */
-
-	first=1;
 
 	if (*nrecs==1) *nrecs=ncinfile->dimsize[ncinfile->recdim];
 	else
@@ -1231,11 +1233,11 @@ int process_vars(struct fileinfo *ncinfile, struct fileinfo *ncoutfile,
 		free(values);
 	}
 	first=0; return(0);
-}
+}// end function process_vars
 
 
 int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
-		void *varbuf[], void *vbuf[], unsigned char verbose)
+		unsigned char verbose)
 {
 	int v, d;  /* Loop variable */
 	long outstart[MAX_NC_DIMS];  /* Data array sizes */
@@ -1604,21 +1606,21 @@ double modtimediff (char *filename[]) {
 
 int show_status (double percent)
 {
-    int x;
+	int x;
 	double percent1;
 
 	percent1 = percent;
 	//if (percent1>100.) percent1=100.;
 
-    //for(x = 0; x < percent1; x++)
-    //{
-    //   printf("|");
+	//for(x = 0; x < percent1; x++)
+	//{
+	//   printf("|");
 
-    //}
-       printf("%.2f%%\r", percent1);
-       fflush(stdout);
+	//}
+	printf("%.2f%%\r", percent1);
+	fflush(stdout);
 
-    return(EXIT_SUCCESS);
+	return(EXIT_SUCCESS);
 }
 
 double modtime (char *filename[]) {

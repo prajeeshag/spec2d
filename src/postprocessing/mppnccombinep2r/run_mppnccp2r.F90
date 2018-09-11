@@ -8,9 +8,11 @@ use diag_data_mod, only : files, num_files, mix_snapshot_average_fields, &
 use diag_util_mod, only : sync_file_times, diag_time_inc, get_time_string
 use time_manager_mod
 use mpp_mod, only : mpp_init, mpp_exit, mpp_error, FATAL, WARNING, NOTE, &
-        mpp_pe, mpp_root_pe
+        mpp_pe, mpp_root_pe, mpp_npes
 
 implicit none
+
+include 'mpif.h'
 
 interface 
     integer(C_INT) function nccp2r(narg,args) bind(C,name="nccp2r")
@@ -67,27 +69,22 @@ character(len=8) :: arg_n4="-n4"//char(0)
 character(len=8) :: arg_u="-u"//char(0)
 character(len=8) :: arg_ov="-ov"//char(0)
 
-logical :: removein=.true.
+integer :: removein=0
 integer :: startpe=0, nc4=4, atmpes=1, ocnpes=1, tfile=0
 character(len=32) :: prgrm="nccp2r"//char(0)
 character(len=1024) :: xgrid="INPUT/p_xgrd.nc", run_time_stamp='INPUT/atm.res'
 character(len=64) :: cnc4, cstartpe
 type(time_type) :: lowestfreq
+integer :: lownf=0
 real :: time1, time2, endwaittime=0., minendwaittime=30., maxwait=12*3600.
 real :: mtime1, mtime2
-logical :: next_file_found=.false., end_check=.false., child_run=.false.
-logical :: no_files_found=.true., ov=.true.
-
-namelist/opts_nml/removein, atmpes, ocnpes, nc4, xgrid, startpe, &
-                  minendwaittime, startdate, calendar_type, child_run, &
-                  ov
+logical :: next_file_found=.false., end_check=.false.
+integer :: child_run=0, ov=1, verbose=0
+logical :: no_files_found=.true.
 
 call cpu_time(time1)
-
 call mpp_init()
-
-read(*,nml=opts_nml,iostat=stat)
-if (stat/=0) call mpp_error(FATAL,"run_mppnccp2r: error while reading of options")
+call read_options()
 
 xgrid = trim(xgrid)//char(0)
 
@@ -96,7 +93,7 @@ nargs=1
 args(nargs) = c_loc(prgrm)
 nargs=nargs+1
 
-if (removein) then
+if (removein/=0) then
     call mpp_error(NOTE,"Removein opiton ON")
     args(nargs) = c_loc(arg_r)
     nargs=nargs+1
@@ -146,7 +143,7 @@ starttime=set_date(startdate(1),startdate(2),startdate(3), &
 
 endtime=increment_date(starttime, years = maxrunlength)
 
-lowestfreq = set_time(0) !lowest frequency of output
+lowestfreq = set_time(0,days=VERY_LARGE_FILE_FREQ) !lowest frequency of output
 
 call print_date(starttime,'run_mppnccp2r: STARTTIME')
 call print_date(endtime,'run_mppnccp2r: ENDTIME')
@@ -170,115 +167,214 @@ do n = 1, num_files
     call set_filenames(n)
 end do
 
+if (lownf>0) filenms(lownf)%lowfreq=.true.
+
 args(nargs) = c_loc(fnm)
 end_check = .false.
 
-if (child_run) then !Launched along with the of model run
-    call mpp_error(NOTE,"stage 1")
-    do nf = 1, num_files
-        do n = 1, size(filenms(nf)%nm) 
-            if (all_files_exist(trim(filenms(nf)%nm(n)),0,1)) then
-                filenms(nf)%done=n-1
-                exit
-            endif
-        end do
-    end do
-    
-    call mpp_error(NOTE,"stage 2")
-    no_files_found=.true. 
-    tfile=0
-    mtime1 = 0.
-    mtime2 = 0.
-    do while (.true.) ! Infinite Loop
-
-        next_file_found=.false.
-
-        do nf = 1, num_files
-
-            n = filenms(nf)%done+1
-
-            fnm_next = trim(filenms(nf)%nm(n+1))
-
-            if (.not.all_files_exist(trim(fnm_next),0,atmpes)) cycle
-
-            next_file_found=.true. !Atleast one next file was found
-
-            no_files_found=.false.
-
-            if (filenms(nf)%lowfreq.and.endwaittime<=0.) then
-                !Find the lowest frequency output, set its frequency as
-                !endwaittime in seconds
-                if (mtime1<=0.) then
-                    mtime1 = mod_time(trim(filenms(nf)%nm(n)),0)
-                elseif (mtime2<=0.) then
-                    mtime2 = mod_time(trim(filenms(nf)%nm(n)),0)
-                else
-                    endwaittime = (mtime2-mtime1)*2.
-                    endwaittime=max(endwaittime,minendwaittime) 
-                    write(msg,*) endwaittime
-                    call mpp_error(NOTE,"run_mppnccp2r: end waiting time is " &
-                                   //trim(adjustl(msg)))
-                endif
-            endif
-                
-            fnm = trim(filenms(nf)%nm(n))//char(0)
-            if (ov) then
-                if (rm_file(fnm)==0) then
-                    call mpp_error(NOTE,"Deleted old file "//trim(filenms(nf)%nm(n)))
-                endif
-            endif
-            ierr = nccp2r(nargs,args)
-            if (ierr/=0) call mpp_error(FATAL,"nccpr failed for file "//trim(fnm))
-    
-            call mpp_error(NOTE,trim(fnm)//" done...")
-            filenms(nf)%done=n
-        end do
-    
-        if (end_check) then
-            if (.not.next_file_found) then
-                call mpp_error(NOTE,"No next file found after waiting time, exiting...")
-                exit
-            else
-                end_check=.false.
-            endif
-        endif
-                 
-        if (endwaittime>0.and..not.next_file_found) then
-            call mpp_error(NOTE,"Found no next file for all files, waiting for sometime")
-            call wait_seconds(endwaittime)
-            end_check=.true.
-        endif
-
-        if (no_files_found) then 
-            call cpu_time(time2)
-            if (time2-time1 > maxwait) then
-                exit
-            endif
-        endif
-
-    end do
-    call mpp_error(NOTE,"run_mppnccp2r: Processing last files...")
-endif
-
+call mpp_error(NOTE,"stage 1")
 do nf = 1, num_files
-    do n = filenms(nf)%done+1, filenms(nf)%total
-        if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,atmpes)) exit
-        fnm = trim(filenms(nf)%nm(n))//char(0)
-        if (ov) then
-            if (rm_file(fnm)==0) then
-                call mpp_error(NOTE,"Deleted old file "//trim(filenms(nf)%nm(n)))
-            endif
+    do n = 1, size(filenms(nf)%nm) 
+        if (all_files_exist(trim(filenms(nf)%nm(n)),0,1)) then
+            filenms(nf)%done=n-1
+            exit
         endif
-        ierr = nccp2r(nargs,args)
-        if (ierr/=0) call mpp_error(FATAL,"nccpr failed for file "//trim(fnm))
-        call mpp_error(NOTE,trim(fnm)//" done...")
-        filenms(nf)%done=n
     end do
 end do
 
+if (mpp_pe()==mpp_root_pe()) then
+    if (child_run/=0) then !Launched along with the of model run
+        call mpp_error(NOTE,"stage 2")
+        no_files_found=.true. 
+        tfile=0
+        mtime1 = 0.
+        mtime2 = 0.
+        do while (.true.) ! Infinite Loop
+    
+            next_file_found=.false.
+    
+            do nf = 1, num_files
+    
+                n = filenms(nf)%done+1
+    
+                fnm_next = trim(filenms(nf)%nm(n+1))
+    
+                if (.not.all_files_exist(trim(fnm_next),0,atmpes)) cycle
+    
+                next_file_found=.true. !Atleast one next file was found
+    
+                no_files_found=.false.
+    
+                if (filenms(nf)%lowfreq.and.endwaittime<=0.) then
+                    !Find the lowest frequency output, set its frequency as
+                    !endwaittime in seconds
+                    if (mtime1<=0.) then
+                        mtime1 = mod_time(trim(filenms(nf)%nm(n)),0)
+                    elseif (mtime2<=0.) then
+                        mtime2 = mod_time(trim(filenms(nf)%nm(n)),0)
+                    else
+                        endwaittime = (mtime2-mtime1)*3.
+                        endwaittime=max(endwaittime,minendwaittime) 
+                        write(msg,*) endwaittime
+                        call mpp_error(NOTE,"run_mppnccp2r: end waiting time is " &
+                                       //trim(adjustl(msg))//" seconds")
+                    endif
+                endif
+                call send_jobs(nf,n)
+                filenms(nf)%done=n
+            end do
+        
+            if (end_check) then
+                if (.not.next_file_found) then
+                    call mpp_error(NOTE,"No next file found after waiting time, exiting...")
+                    exit
+                else
+                    end_check=.false.
+                endif
+            endif
+                     
+            if (endwaittime>0.and..not.next_file_found) then
+                call mpp_error(NOTE,"Found no next file for all files, waiting for sometime")
+                call wait_seconds(endwaittime)
+                end_check=.true.
+            endif
+    
+            if (no_files_found) then 
+                call cpu_time(time2)
+                if (time2-time1 > maxwait) then
+                    exit
+                endif
+            endif
+    
+        end do
+        call mpp_error(NOTE,"run_mppnccp2r: Processing last files...")
+    endif
+    
+    do nf = 1, num_files
+        do n = filenms(nf)%done+1, filenms(nf)%total
+            if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,atmpes)) exit
+            call send_jobs(nf,n)
+            filenms(nf)%done=n
+        end do
+    end do
+
+    call all_done()
+else
+    call do_jobs()
+endif
+
 call mpp_error(NOTE,"run_mppnccp2r: DONE")
 
+call mpp_exit()
+
 contains
+
+subroutine read_options()
+    integer :: ierr, stat
+
+    namelist/opts_nml/removein, atmpes, ocnpes, nc4, startpe, &
+                      minendwaittime, startdate, calendar_type, child_run, &
+                      ov, verbose
+    if (mpp_pe()==mpp_root_pe()) then
+        read(*,nml=opts_nml,iostat=stat)
+        if (stat/=0) call mpp_error(FATAL,"run_mppnccp2r: error while reading of options")
+    end if
+    
+    call mpi_bcast(removein, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(atmpes, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(nc4, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(ov, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(verbose, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(child_run, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(calendar_type, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(startdate, size(startdate), MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+
+return
+end subroutine read_options
+
+
+subroutine submit_processing(nf,n)
+    integer, intent(in) :: nf, n
+    integer :: ierr
+
+    fnm = trim(filenms(nf)%nm(n))//char(0)
+    if (ov/=0) then
+        if (rm_file(fnm)==0) then
+            print *, "Deleted old file "//trim(filenms(nf)%nm(n))
+        endif
+    endif
+    ierr = nccp2r(nargs,args)
+    if (ierr/=0) call mpp_error(FATAL,"nccpr failed for file "//trim(fnm))
+    
+    print *, trim(fnm)//" done..."
+
+end subroutine submit_processing
+
+subroutine do_jobs()
+    integer :: jobids(2), done, tag
+    INTEGER :: stat(MPI_STATUS_SIZE)
+    integer :: nf, n
+
+    tag = 0
+
+    done = mpp_pe()
+    do while (.true.)
+        call MPI_SEND(done, 1, MPI_INTEGER, 0, tag, MPI_COMM_WORLD, ierr)
+        call MPI_RECV(jobids, 2, MPI_INTEGER, 0, tag, MPI_COMM_WORLD, stat, ierr)
+        nf = jobids(1); n = jobids(2)
+        if (nf==0) exit
+        if(verbose>0)print *, "recieved file "//trim(filenms(nf)%nm(n))//" for processing" 
+        call submit_processing(nf,n)
+    end do
+
+end subroutine do_jobs
+
+subroutine send_jobs(nf,n)
+    integer, intent(in) :: nf, n
+    integer :: jobids(2), free_pe, tag, ierr
+    INTEGER :: stat(MPI_STATUS_SIZE)
+    character(len=512) :: msg, fnm
+
+    tag = 0
+
+    if (nf>0) then
+        fnm = trim(filenms(nf)%nm(n))//char(0)
+        if (ov/=0) then
+            if (rm_file(fnm)==0) then
+                print *, "Deleted old file "//trim(filenms(nf)%nm(n))
+            endif
+        endif
+    endif
+
+    if (mpp_npes()>1) then
+        if (mpp_pe()==mpp_root_pe()) then
+            jobids(1) = nf
+            jobids(2) = n
+            call MPI_RECV(free_pe, 1, MPI_INTEGER, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, stat, ierr)
+            write(msg,*) free_pe
+            if(nf>0) then
+                if(verbose>0) print *, "sending file "//trim(filenms(nf)%nm(n))//" for processing to pe "//trim(adjustl(msg))
+            else
+                print *, "sending end job msg to pe "//trim(adjustl(msg))
+            endif
+            call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
+        endif
+    else
+        call submit_processing(nf,n)
+    endif
+   
+    return 
+end subroutine send_jobs
+
+subroutine all_done()
+    integer :: n
+    
+    if (mpp_pe()/=mpp_root_pe()) return
+    do n = 1, mpp_npes()-1
+       call send_jobs(0,0) 
+    end do
+    return
+end subroutine all_done
 
 logical function all_files_exist(fnm,strt,cnt)
     character(len=*), intent(in) :: fnm
@@ -312,8 +408,6 @@ subroutine set_filenames(n)
 
     mid = .false.
 
-    filenms(n)%lowfreq=.false.
-
     base_name=files(n)%name
 
     dt = set_time(0)
@@ -327,7 +421,9 @@ subroutine set_filenames(n)
     nfilesr = (endtime-starttime)/dt
     nfiles = ceiling(nfilesr)
 
-    if (child_run) then
+    filenms(n)%lowfreq=.false.
+
+    if (child_run/=0) then
         if (nfiles<3) then
             call mpp_error(NOTE,trim(base_name)//" does not satisfy minimum 3 file criteria, "// &
                                                    "won't process this file")
@@ -336,9 +432,9 @@ subroutine set_filenames(n)
             return
         endif
 
-        if (dt>lowestfreq.and.files(n)%new_file_freq<VERY_LARGE_FILE_FREQ) then
-            filenms(n)%lowfreq=.true.
+        if (dt<lowestfreq) then
             lowestfreq = dt
+            lownf = n
         endif
     endif
         
@@ -440,12 +536,6 @@ subroutine wait_seconds(seconds)
         call system_clock(iNew,count_rate)
         rDT = float(iNew - iStart)/count_rate
         percent2 = (rDT/rWait)*100
-        if (percent1/=percent2) then
-            if (mpp_pe()==mpp_root_pe()) then
-                stat = show_status(real(percent2))
-                percent1 = percent2
-            endif
-        endif
     enddo
 end subroutine wait_seconds
 

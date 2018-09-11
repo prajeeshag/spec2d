@@ -27,6 +27,10 @@ use module_radlw_main, only : init_lwrad, lwrad, NBDLW=>nbands
 
 use set_aerosols_mod, only : init_set_aerosols, set_aerosols
 
+#ifdef AQUAPLANET
+use aqua_planet_mod, only : aquape_o3
+#endif
+
 implicit none
 private
 
@@ -76,9 +80,9 @@ integer :: id_htlw, id_rlut, id_rlutc, id_rlds, id_rldsc, id_rlus, id_rlusc, &
 
 integer :: clck_swrad, clck_lwrad
 
-logical :: initialized=.true.
+logical :: initialized=.false., debug=.false.
 
-namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm
+namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm, debug
 
 contains
 
@@ -296,7 +300,7 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
     real :: tem2db(nlevp1,js:je,is:ie), tem2da(nlev,js:je,is:ie)
 
     logical :: used
-    integer :: k, i
+    integer :: k, i, j
 
     if(.not.initialized) call mpp_error(FATAL,'radiation_mod: module not initialized')
     
@@ -324,11 +328,21 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
 
     if (ind_q>0) qlyr = tr(:,:,:,ind_q)
 
+    !olyr in mass mixing ratio
     if (ind_oz>0) then
         olyr = tr(:,:,:,ind_oz)
     else
+#ifndef AQUAPLANET
         call get_ozone(time,plyr,olyr) 
+#else
+        do i = is, ie
+            do j = js, je
+                call aquape_o3(lat_deg(j,i),plyr(:,j,i),olyr(:,j,i))
+            end do
+        end do
+#endif
     endif
+    if (debug) call mpp_error(NOTE,"radiation: after get_ozone")
         
     if (ind_clw>0) clw = tr(:,:,:,ind_clw)
 
@@ -336,6 +350,7 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
     faerlw = 0.
 
     call set_aerosols(Time, prsi, prsl, tlyr, phil, oro, faersw, faerlw)
+    if (debug) call mpp_error(NOTE,"radiation: after set_aerosols")
 
     if (id_aod>0) used = send_data(id_aod, faersw(:,10,1,:,:), Time)
     if (id_ssa>0) used = send_data(id_ssa, faersw(:,10,2,:,:), Time)
@@ -344,15 +359,18 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
     call get_gases(Time,gasvmr)
 
     call get_clouds(plyr,plvl,tlyr,qlyr,clw,clouds,Time)
+    if (debug) call mpp_error(NOTE,"radiation: after get_clouds")
 
     if (isubc==2) call get_icseed(Time,icseed) 
 
     call swrad_drv(plyr, plvl, tlyr, tlvl, qlyr, olyr, gasvmr, clouds, icseed(:,:,1), faersw, &
                    sfcalb, coszen, solcon, htsw, rsdt, rsut, rsutc, rsds, rsdsc, rsus, rsusc, &
                    ruvds, ruvdsc, rnirdsbm, rnirdsdf, rvisdsbm, rvisdsdf)
+    if (debug) call mpp_error(NOTE,"radiation: after swrad_drv")
 
     call lwrad_drv(plyr, plvl, tlyr, tlvl, qlyr, olyr, gasvmr, clouds, icseed(:,:,2), faerlw, &
                    sfcemis, tskin, htlw, rlut, rlutc, rlds, rldsc, rlus, rlusc)
+    if (debug) call mpp_error(NOTE,"radiation: after lwrad_drv")
 
     used = send_data(id_ozone,   olyr, Time)
     used = send_data(id_tlvl,    tlvl, Time)

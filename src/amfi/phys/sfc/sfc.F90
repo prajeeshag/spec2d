@@ -36,6 +36,10 @@ use sfc_ocean_mod, only : sfc_ocean
 
 use sfc_diff_mod, only : sfc_diff
 
+#ifdef AQUAPLANET
+use aqua_planet_mod, only : get_aquape_sst
+#endif
+
 implicit none
 private
 
@@ -48,7 +52,7 @@ real, allocatable, dimension(:,:,:) :: smc, stc, slc
 real, allocatable, dimension(:,:)   :: tg3, sheleg, snwdph
 real, allocatable, dimension(:,:)   :: canopy, trans, sncovr, zorl, zorlocn
 real, allocatable, dimension(:,:)   :: alvsf, alvwf, alnsf, alnwf, facsf, facwf
-real, allocatable, dimension(:,:)   :: hprif, emis_ref
+real, allocatable, dimension(:,:)   :: hprif, emis_ref, deg_lat
 
 real, allocatable, dimension(:,:)   :: hsnow_sice, hice, tsice, fice
 real, allocatable, dimension(:,:,:)   :: tice
@@ -99,11 +103,11 @@ logical :: initialized=.false.
 contains
 
 !--------------------------------------------------------------------------------   
-subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
+subroutine init_sfc(Time,deltim_in,domain_in,axes_in,lat_deg_in)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     type(domain2D), target :: domain_in
-    real, intent(in) :: deltim_in
+    real, intent(in) :: deltim_in, lat_deg_in(:,:)
     integer, intent(in) :: axes_in(:)
     
     integer :: indx, k
@@ -116,25 +120,29 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in)
     ilen = ie-is+1
     jlen = je-js+1
 
-    allocate( cellarea(js:je,is:ie) )
-    allocate( fland(js:je,is:ie) )
-    allocate( focn(js:je,is:ie) )
-    allocate( fice(js:je,is:ie) )
-    allocate( tslnd(js:je,is:ie) )
-    allocate( sst(js:je,is:ie) )
-    allocate( tsice(js:je,is:ie) )
-    allocate( tice(kmi,js:je,is:ie) )
-    allocate( smc(lsoil,js:je,is:ie) )
-    allocate( stc(lsoil,js:je,is:ie) )
-    allocate( slc(lsoil,js:je,is:ie) )
-    allocate( tg3(js:je,is:ie) )
-    allocate( sheleg(js:je,is:ie) )
-    allocate( snwdph(js:je,is:ie) )
-    allocate( canopy(js:je,is:ie) )
-    allocate( trans(js:je,is:ie) )
-    allocate( sncovr(js:je,is:ie) )
-    allocate( zorl(js:je,is:ie) )
-    allocate( zorlocn(js:je,is:ie) )
+    allocate(deg_lat(js:je,is:ie))
+
+    deg_lat = lat_deg_in(js:je,is:ie)
+
+    allocate( cellarea(js:je,is:ie) ); cellarea = 1.
+    allocate( fland(js:je,is:ie) ); fland = 0.
+    allocate( focn(js:je,is:ie) ); focn = 0.
+    allocate( fice(js:je,is:ie) ); fice = 0.
+    allocate( tslnd(js:je,is:ie) ); tslnd = 0.
+    allocate( sst(js:je,is:ie) ); sst = 0.
+    allocate( tsice(js:je,is:ie) ); tsice = 0.
+    allocate( tice(kmi,js:je,is:ie) ); tice = 0.
+    allocate( smc(lsoil,js:je,is:ie) ); smc = 0.
+    allocate( stc(lsoil,js:je,is:ie) ); stc = 0.
+    allocate( slc(lsoil,js:je,is:ie) ); slc = 0.
+    allocate( tg3(js:je,is:ie) ); tg3 = 0.
+    allocate( sheleg(js:je,is:ie) ); sheleg = 0.
+    allocate( snwdph(js:je,is:ie) ); snwdph = 0.
+    allocate( canopy(js:je,is:ie) ); canopy = 0.
+    allocate( trans(js:je,is:ie) ); trans = 0.
+    allocate( sncovr(js:je,is:ie) ); sncovr = 0.
+    allocate( zorl(js:je,is:ie) ); zorl = zorl_min
+    allocate( zorlocn(js:je,is:ie) ); zorlocn = zorl_min
     allocate( alvsf(js:je,is:ie) )
     allocate( alvwf(js:je,is:ie) )
     allocate( alnsf(js:je,is:ie) )
@@ -356,6 +364,7 @@ subroutine init_land(Time)
     me = 1
     if (mpp_pe()==mpp_root_pe()) me = 0
 
+#ifndef AQUAPLANET
     call set_soilveg(me)
 
     sldpth(1) = - zsoil(1)
@@ -375,6 +384,10 @@ subroutine init_land(Time)
     call read_data(gridfile,'AREA_LND_CELL',tmpt)
     cellarea(js:je,is:ie) = tmpt(js:je,is:ie)
     fland = fland/cellarea
+#else
+    fland = 0.
+    aquaplanet = .true.
+#endif
 
     lland = .false.
     locn = .false.
@@ -386,30 +399,29 @@ subroutine init_land(Time)
     forall(k=1:lsoil) lland3d(k,:,:) = lland
     locn = focn>0.
 
-    if (.not.aquaplanet) then
-        call read_data('INPUT/soiltype','soiltype',tmpt)
-        soiltype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
+#ifndef AQUAPLANET
+    call read_data('INPUT/soiltype','soiltype',tmpt)
+    soiltype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
 
-        call read_data('INPUT/vegtype','vegtype',tmpt)
-        vegtype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
+    call read_data('INPUT/vegtype','vegtype',tmpt)
+    vegtype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
 
-        call read_data('INPUT/slopetype','slopetype',tmpt)
-        slopetype(js:je,is:ie) = int(tmpt(js:je,is:ie))
+    call read_data('INPUT/slopetype','slopetype',tmpt)
+    slopetype(js:je,is:ie) = int(tmpt(js:je,is:ie))
 
-        call read_data('INPUT/tg3','tg3',tmpt)
-        tg3(js:je,is:ie) = tmpt(js:je,is:ie)
+    call read_data('INPUT/tg3','tg3',tmpt)
+    tg3(js:je,is:ie) = tmpt(js:je,is:ie)
 
-        call read_data('INPUT/mtn.nc','mtn0',tmpt)
-        hprif(js:je,is:ie) = tmpt(js:je,is:ie)
+    call read_data('INPUT/mtn.nc','mtn0',tmpt)
+    hprif(js:je,is:ie) = tmpt(js:je,is:ie)
 
-        call data_override('ATM','facsf',facsf,Time,ov)
-        if (.not.ov) call mpp_error(FATAL,'init_land: data_override failed for facsf !')
-        used = send_data(id_facsf,facsf)
+    call data_override('ATM','facsf',facsf,Time,ov)
+    if (.not.ov) call mpp_error(FATAL,'init_land: data_override failed for facsf !')
+    used = send_data(id_facsf,facsf)
 
-        call data_override('ATM','facwf',facwf,Time,ov)
-        if(.not.ov) facwf = 1. - facsf
-        used = send_data(id_facwf,facwf)
-    endif
+    call data_override('ATM','facwf',facwf,Time,ov)
+    if(.not.ov) facwf = 1. - facsf
+    used = send_data(id_facwf,facwf)
 
     if (file_exist('INPUT/emis_ref.nc')) then
         call read_data('INPUT/emis_ref.nc','emis',tmpt)
@@ -419,7 +431,8 @@ subroutine init_land(Time)
         emis_ref = 0.95
         call mpp_error(NOTE,'Using constant land emissivity = 0.95')
     endif
-
+    deallocate(tmpt)
+#endif
 
     return
 
@@ -593,6 +606,10 @@ subroutine do_seaice(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
 
     integer :: im
 
+#ifdef AQUAPLANET
+    return
+#endif
+
     im = size(pgr,1)*size(pgr,2)
 
     mask = .false.
@@ -644,7 +661,9 @@ subroutine do_land(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
     integer :: im, iter, i, j
     logical :: ov, used
 
-    if (aquaplanet) return
+#ifdef AQUAPLANET
+    return
+#endif
 
     ddvel=0.; sfcems=0.; vegfrac=0.; slimsk=0.; eta=0.; sheat=0.; 
     ec=0.; edir=0.; et=0.; esnow=0.; drip=0.; dew=0.; beta=0.; etp=0.; 
@@ -886,10 +905,10 @@ subroutine set_surface(Time,tskin,coszen,sfcalb,sfcemis)
     logical :: ov
     integer :: k
 
-    if (.not.aquaplanet) then
-        call data_override('ATM','zorl',zorl,Time,ov)
-        if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for zorl !')
-    endif
+#ifndef AQUAPLANET 
+    call data_override('ATM','zorl',zorl,Time,ov)
+    if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for zorl !')
+    
     where(zorl<zorl_min) zorl = zorl_min
 
     call data_override('ATM','sst',sst,Time,ov)
@@ -898,6 +917,11 @@ subroutine set_surface(Time,tskin,coszen,sfcalb,sfcemis)
     call data_override('ATM','fice',fice,Time,ov)
     if (.not.ov) call mpp_error(FATAL,'set_surface: data_override failed for fice !')
     if (ov) where(fice<fice_min) fice = 0.
+#else
+    if (all(sst==0.)) call get_aquape_sst(sst,deg_lat(js:je,is:ie))
+    fice = 0.
+    zorl = zorl_min
+#endif
 
     call get_tskin(tskin)
     
@@ -946,7 +970,7 @@ subroutine get_albedo(Time,coszen,sfcalb)
     albsice = 0.
     albocn = 0.
 
-    if (.not.aquaplanet) then 
+#ifndef AQUAPLANET
         call data_override('ATM','alvsf',alvsf,Time,ov)
         if (.not.ov) call mpp_error(FATAL,'get_albedo: data_override failed for alvsf !')
 
@@ -962,7 +986,7 @@ subroutine get_albedo(Time,coszen,sfcalb)
         call setalb_lnd(imax,lland,sheleg,zorl,coszen,hprif, &
                         alvsf,alnsf,alvwf,alnwf,facsf,facwf,  &
                         alblnd)
-    endif
+#endif
 
     mask = .false.
     mask = fice > 0.
@@ -994,11 +1018,9 @@ subroutine get_emis(sfcemis)
     fsno1 = 1.0 - sncovr
     sfcemis = emis_ref*fsno1 + emsref(8)*sncovr ! land
 
-    fsno1 = 1.0 - fland
-
     sfcemis = sfcemis * fland  &
-            + fsno1 * (1.-fice) * emsref(1) & ! sea point
-            + fsno1 * fice * emsref(7) ! sea-ice
+            + focn * (1.-fice) * emsref(1) & ! sea point
+            + focn * fice * emsref(7) ! sea-ice
 
     return
 end subroutine get_emis

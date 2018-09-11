@@ -183,7 +183,7 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
         call split_pelist(jee==jep.and.ilenf>0, fpesy, npes, f_y_comm)
     end do
 
-    fpe_write=fpe.and.jep==0
+    fpe_write=fpe.and.jsp==0
 
     allocate(spextent(npes))
     
@@ -360,7 +360,7 @@ subroutine save_spec_restart(tstamp)
 
     if(.not.fpe_write) return
 
-    call mpp_set_current_pelist(fpesall,no_sync=.true.)
+    call mpp_set_current_pelist(fpesy,no_sync=.true.)
     call save_restart(specres,tstamp)
     call mpp_set_current_pelist(no_sync=.true.)
 

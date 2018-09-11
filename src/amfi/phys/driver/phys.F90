@@ -11,7 +11,8 @@ use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
 use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_init, file_exist
 
-use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field, restore_state, save_restart
+use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field, restore_state, save_restart, &
+    fms_io_exit
 
 use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS
 
@@ -189,7 +190,7 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     lprcp = 0.
     indx = reg_rf(rstrt, resfnm, 'lprcp', lprcp, domain, mandatory=.false.)
 
-    call init_sfc(Time,dt_atmos,domain,axes(1:2))
+    call init_sfc(Time,dt_atmos,domain,axes(1:2),lat_deg_in)
     allocate(fland(js:je,is:ie))
     allocate(slmsk(js:je,is:ie))
     call get_land_frac(fland)
@@ -437,14 +438,10 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
     real :: solcon, rrsun
     integer :: k, imax, n
     logical :: used, chck(js:je,is:ie)
+    character(len=32) :: fnm
 
 
     call mpp_clock_begin(clck_phys)
-
-    if (debug) then
-        call mpp_sync()
-        call mpp_error(NOTE,'------begin phys-----')
-    endif
 
     imax = size(p1,1)*size(p1,2)
 
@@ -454,6 +451,23 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
 
     topo1 = 0.
     if(present(topo)) topo1 = topo
+
+    if (id_ua>0) used = send_data(id_ua, u1, Time)
+    if (id_va>0) used = send_data(id_va, v1, Time)
+    if (id_ta>0) used = send_data(id_ta, tlyr1, Time)
+
+    if (debug) then
+        call mpp_sync()
+        call mpp_error(NOTE,'------begin phys-----')
+        if (any(tlyr1<173.15).or.any(tlyr1>373.15)) then
+            fnm=""
+            write(fnm,*)mpp_pe()
+            fnm="debug_"//trim(adjustl(fnm))
+            call write_data(fnm,'tlyr1',tlyr1)
+            call fms_io_exit()
+            call mpp_error(FATAL,"temperature out of range")
+        endif
+    endif
 
     call get_pressure_at_levels(p1,plvl,plyr,plvlk,plyrk)
     prslki = plvlk(1:nlev,:,:)/plyrk
@@ -718,9 +732,6 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
     if (id_dtphy>0) used = send_data(id_dtphy, rdt_phys*(dtdt-tlyr1), Time)
     if (id_duphy>0) used = send_data(id_duphy, rdt_phys*(dudt-u1), Time)
     if (id_dvphy>0) used = send_data(id_dvphy, rdt_phys*(dvdt-v1), Time)
-    if (id_ua>0) used = send_data(id_ua, u1, Time)
-    if (id_va>0) used = send_data(id_va, v1, Time)
-    if (id_ta>0) used = send_data(id_ta, tlyr1, Time)
     do n = 1, ntrac
         if (id_dtrphy(n)>0) used = send_data(id_dtrphy(n), rdt_phys*(dqdt(:,:,:,n) &
                                                  - tr1(:,:,:,n)), Time)

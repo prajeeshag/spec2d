@@ -4,7 +4,7 @@ use constants_mod, only : GRAV, CP_AIR, RDGAS, RVGAS
 
 use mpp_domains_mod, only : domain2D, mpp_get_compute_domain, mpp_get_global_domain
 
-use fms_mod, only : read_data, mpp_error, FATAL, mpp_pe, mpp_root_pe, file_exist, WARNING
+use fms_mod, only : read_data, mpp_error, FATAL, mpp_pe, mpp_root_pe, file_exist, WARNING, NOTE
 
 use gwdps_mod, only : gwdps
 
@@ -42,6 +42,7 @@ subroutine init_gwdrag(domain)
     gamma = 0.; elvmax = 0.; elvmax = 0.; oc = 0.
     hprime = 0.
 
+#ifndef AQUAPLANET
     if (file_exist('INPUT/mtn.nc')) then
         allocate(tmp(latf,lonf,nmtvr))   
         do i = 1, nmtvr
@@ -65,8 +66,11 @@ subroutine init_gwdrag(domain)
 
         deallocate(tmp)
     else
-        call mpp_error(WARNING,'file INPUT/mtn.nc does not exist, assuming Aquaplanet!!')
+        call mpp_error(FATAL,'gwdrag_mod: file INPUT/mtn.nc does not exist')
     endif
+#else
+    call mpp_error(NOTE,'gwdrag_mod: AQUAPLANET MODE') 
+#endif
  
     initialized = .true.
  

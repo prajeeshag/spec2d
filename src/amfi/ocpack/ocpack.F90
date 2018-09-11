@@ -4,11 +4,11 @@ module ocpack_mod
 ! ocpkP is the grid domain in (packed or unpacked)
 ! ocpkF is the fourier domain (always unpacked)
 !
-
+#ifdef use_libMPI
 use mpp_mod, only : mpp_error, fatal, warning, note, mpp_init, mpp_npes, mpp_pe, &
         mpp_declare_pelist, mpp_get_current_pelist, mpp_set_current_pelist, mpp_root_pe, &
         mpp_gather, mpp_broadcast, mpp_sync
-use strman_mod, only : int2str
+#endif
 
 implicit none
 private
@@ -43,7 +43,8 @@ type npeblck
 end type npeblck
 
 type(npeblck), allocatable, public :: npesx(:), npesy(:)
-integer :: nxpe=0, nype=0, xblock=-1
+integer, public :: nxpe=0, nype=0
+integer :: xblock=-1
 
 type(hem_type), allocatable :: jhem(:)
 
@@ -59,17 +60,21 @@ character(len=1024) :: msg
 
 logical :: initialized=.false., debug=.false.
 
+#ifndef use_libMPI
+integer, parameter :: FATAL=-1, NOTE=0, WARNING=1
+#endif
+
 contains
 
 subroutine get_hem(hem) 
     type(hem_type), intent(out) :: hem(:)
 
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
 
     if(size(hem,1)==size(jhem,1)) then
         hem = jhem
     else
-        call mpp_error(fatal, 'get_jhem: invalid size for argument "hem"!!!!') 
+        call handle_error(fatal, 'get_jhem: invalid size for argument "hem"!!!!') 
     end if
 
     return
@@ -78,12 +83,12 @@ end subroutine get_hem
 subroutine get_ocpackF(ocpack) 
     type(ocpack_typeF), intent(out) :: ocpack(:)
 
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
 
     if(size(ocpack,1)==size(ocpkF,1)) then
         ocpack = ocpkF(:)
     else
-        call mpp_error(fatal, 'get_ocpack: invalid size for argument "ocpack"!!!!') 
+        call handle_error(fatal, 'get_ocpack: invalid size for argument "ocpack"!!!!') 
     end if
 
     return
@@ -92,55 +97,55 @@ end subroutine get_ocpackF
 subroutine get_ocpackP(ocpack) 
     type(ocpack_typeP), intent(out) :: ocpack(:,:)
 
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
 
     if(size(ocpack,1)==size(ocpkP,1).and.size(ocpack,2)==size(ocpkP,2)) then
         ocpack = ocpkP
     else
-        call mpp_error(fatal, 'get_ocpack: invalid size for argument "ocpack"!!!!') 
+        call handle_error(fatal, 'get_ocpack: invalid size for argument "ocpack"!!!!') 
     end if
 
     return
 end subroutine get_ocpackP
 
 integer function x_block()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     x_block = xblock
     return
 end function x_block
 
 integer function oc_nx()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_nx = ocnx
     return
 end function oc_nx
 
 integer function oc_nfour()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_nfour = nfour
     return
 end function oc_nfour
 
 integer function oc_ny()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_ny = ocny
     return
 end function oc_ny
 
 integer function oc_nlat()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_nlat = nlat
     return
 end function oc_nlat
 
 integer function oc_maxlon()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_maxlon = maxlon
     return
 end function oc_maxlon
 
 integer function oc_npack()
-    if(.not.initialized) call mpp_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
     oc_npack = num_pack
     return
 end function oc_npack
@@ -167,7 +172,9 @@ subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispa
 
     if(initialized) return
 
+#ifdef use_libMPI
     call mpp_init()
+#endif
 
     reduced = .true.
     num_pack = 2
@@ -181,7 +188,7 @@ subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispa
     if(present(isreduced)) reduced = isreduced
 
     if (mod(nlat,2).ne.0) then
-        call mpp_error(fatal, 'ocpack_mod: nlat should be a even number')
+        call handle_error(fatal, 'ocpack_mod: nlat should be a even number')
     end if
 
     ocny = nlat/num_pack
@@ -219,16 +226,18 @@ subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispa
     if (.not.allocated(ny_lcl)) then
         write(msg,*) layout(1)
         msg = trim(adjustl(msg))
-        call mpp_error(NOTE,'ERROR: unsupported layout:: npes_y = '//trim(msg)//' is not supported')
+        call handle_error(NOTE,'ERROR: unsupported layout:: npes_y = '//trim(msg)//' is not supported')
+#ifdef use_libMPI
         if (mpp_root_pe()==mpp_pe()) then
             write(*,*) 'Supported npes_y for this resolution are:'
             write(*,*) npesy(1:nype)%npes
         endif
-        call mpp_error(FATAL,'ERROR: unsupported layout:: npes_y = '//trim(msg)//' is not supported')
+#endif
+        call handle_error(FATAL,'ERROR: unsupported layout:: npes_y = '//trim(msg)//' is not supported')
     endif
         
     if (present(yextent)) then
-        if (size(yextent)/=layout(1)) call mpp_error(FATAL,'init_ocpack:size(yextent)/=layout(1)')
+        if (size(yextent)/=layout(1)) call handle_error(FATAL,'init_ocpack:size(yextent)/=layout(1)')
         yextent = ny_lcl 
     endif
 
@@ -243,16 +252,18 @@ subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispa
     if (i>nxpe) then
        write(msg,*) layout(2)
        msg = trim(adjustl(msg))
-       call mpp_error(NOTE,'ERROR: unsupported layout:: npes_x = '//trim(msg)//' is not supported')
+       call handle_error(NOTE,'ERROR: unsupported layout:: npes_x = '//trim(msg)//' is not supported')
+#ifdef use_libMPI
        if (mpp_root_pe()==mpp_pe()) then
            write(*,*) 'Supported npes_x for this resolution are:'
            write(*,*) npesx(1:nxpe)%npes
        endif
-       call mpp_error(FATAL,'ERROR: unsupported layout:: npes_x = '//trim(msg)//' is not supported')
+#endif
+       call handle_error(FATAL,'ERROR: unsupported layout:: npes_x = '//trim(msg)//' is not supported')
     endif
     
     if (present(xextent)) then
-        if (size(xextent)/=layout(2)) call mpp_error(FATAL,'init_ocpack:size(xextent)/=layout(2)')
+        if (size(xextent)/=layout(2)) call handle_error(FATAL,'init_ocpack:size(xextent)/=layout(2)')
         xextent=npesx(i)%extent
     endif
 
@@ -352,11 +363,25 @@ subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispa
         end do
     end do
    
-    call mpp_error(NOTE,'ocpack initialized-----') 
+    call handle_error(NOTE,'ocpack initialized-----') 
     initialized = .true.
 
     return
 end subroutine init_ocpack
+
+subroutine handle_error(stat,msg)
+    integer, intent(in) :: stat
+    character(len=*) :: msg
+
+#ifdef use_libMPI
+    call mpp_error(stat,msg)
+#else
+    print *, trim(msg)
+    if (stat==FATAL) stop
+#endif
+
+end subroutine handle_error
+
 
 !--------------------------------------------------------------------------------   
 subroutine set_valid_layout()
@@ -451,6 +476,7 @@ subroutine unique(val,n)
     val(1:n) = uniq(1:n)
     return
 end subroutine unique
+
 
 end  module ocpack_mod
 

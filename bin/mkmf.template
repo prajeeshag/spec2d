@@ -1,3 +1,3 @@
-FFLAGS = -r8 -O2 -fp-model precise -convert big_endian -align array32byte -I/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/include
-CFLAGS = -O2 -I/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/include
-LDFLAGS = -L/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.2.1/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm
+FFLAGS = -g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created -r8 -O2 -fp-model precise -convert big_endian -align array32byte -I/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.1.3/include
+CFLAGS = -g -traceback -debug all -O2 -I/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.1.3/include
+LDFLAGS = -L/gpfs1/home/Libs/INTEL/NETCDF4/netcdf-4.1.3/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm

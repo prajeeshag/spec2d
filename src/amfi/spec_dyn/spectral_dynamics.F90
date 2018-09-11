@@ -46,6 +46,10 @@ use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, ge
 
 use spec_comm_mod, only : spec_comm_max, spec_comm_min
 
+#ifdef AQUAPLANET
+use aqua_planet_mod, only : aquape_init_temp
+#endif
+
 implicit none
 private
 
@@ -110,7 +114,7 @@ integer :: i0 = -1
 type(domain2d), pointer :: domain_g => NULL()
 
 real, allocatable :: sin_latP(:,:), cosm2_latP(:,:), cosm_latP(:,:), wts_latP(:,:), &
-                     cos_latP(:,:)
+                     cos_latP(:,:), deg_latP(:,:)
 real, allocatable :: typdel(:)
 
 integer, allocatable :: sph_wave(:,:), nnp1(:,:)
@@ -205,6 +209,7 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, ga
     allocate(tmpg(ocny,ocnx)) 
     allocate(sin_latP(jsp:jep,isp:iep), cosm2_latP(jsp:jep,isp:iep))
     allocate(cosm_latP(jsp:jep,isp:iep))
+    allocate(deg_latP(jsp:jep,isp:iep))
     allocate(wts_latP(jsp:jep,isp:iep), cos_latP(jsp:jep,isp:iep))
     allocate(wtsbynlon(jsp:jep,isp:iep))
     
@@ -223,6 +228,8 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, ga
     call get_latsP(coslat = tmpg)
     cos_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
 
+    call get_latsP(deglat = tmpg)
+    deg_latP(jsp:jep,isp:iep) = tmpg(jsp:jep,isp:iep)
     deallocate(tmpg)
 
     do j = jsp, jep
@@ -275,9 +282,11 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, ga
     call restore_spec_restart()
 
     gtopo = 0.; stopo = 0.; soro = 0.
+#ifndef AQUAPLANET
     if (.not.zero_topo) then
         call read_topo()
     endif
+#endif
 
     used = send_data(id_topo, gtopo(1,:,:))
     
@@ -290,7 +299,6 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, ga
         call mpp_error(WARNING,'-------------------COLD START-------------------------')
         call mpp_error(NOTE,'All tracers set to Zero')
         satm(1)%tr = 0.; satm(2)%tr = 0.
-        
         call set_prs_temp_prof()
     end if
         
@@ -305,6 +313,7 @@ subroutine set_prs_temp_prof()
     integer :: i, siz(4), j
     logical :: used
 
+#ifndef AQUAPLANET
     if (.not.file_exist(temp_file)) call mpp_error(FATAL,trim(temp_file)//' does not exist')
     if (.not.field_exist(temp_file,'temp')) call mpp_error(FATAL,'field temp does not exist in file '&
                                           //trim(temp_file))
@@ -314,49 +323,55 @@ subroutine set_prs_temp_prof()
     allocate(tmp2d(oc_ny(),oc_nx()))
     call read_data(temp_file,'pres',tmp2d)
     gatm(1)%prs(1,:,:) = tmp2d(jsp:jep,isp:iep) * 0.001 !->pascals to centibar
-    gatm(1)%prs(1,:,:) = log(gatm(1)%prs(1,:,:))
-
-    do i = 1, size(satm)
-        call grid_to_spherical(gatm(1)%prs, satm(i)%prs, do_trunc=.true.)
-    end do
-   
+    deallocate(tmp2d)
+    allocate(prsl(nlev,jsp:jep,isp:iep))
+    call get_pressure_at_levels(gatm(1)%prs(1,:,:), prsl=prsl)
     call mpp_error(NOTE,'Surface pressure is set from file '//trim(temp_file))
 
-    call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs)
-
-    gatm(1)%prs = exp(gatm(1)%prs)
-    used =  send_data(id_prs_ini,gatm(1)%prs(1,:,:))
-
-    deallocate(tmp2d)
 
     call field_size(temp_file,'level',siz)
-
     allocate(axin(siz(1)), tmp3d(siz(1),oc_ny(),oc_nx()))
     allocate(prsl(nlev,jsp:jep,isp:iep))
-
     call read_data(temp_file,'level',axin)
     call read_data(temp_file,'temp',tmp3d)
-    call get_pressure_at_levels(gatm(1)%prs(1,:,:), prsl=prsl)
-    
     axin = axin * 0.1 !-> mb to cb
-
     do i = isp, iep
         do j = jsp, jep
             call interp_vert(tmp3d(:,j,i), gatm(1)%tem(:,j,i), axin, prsl(:,j,i))
         end do
     end do
+    call mpp_error(NOTE,'Temperature profiles are set from file '//trim(temp_file))
+    deallocate(axin, tmp3d, prsl)
+#else
+    call mpp_error(NOTE,'-----AQUAPLANET RUN--------')
+
+    call mpp_error(NOTE,'Setting up a constant initial Surface Pressure')
+    gatm(1)%prs(1,:,:) = pdryini 
+    allocate(prsl(nlev,jsp:jep,isp:iep))
+    call get_pressure_at_levels(gatm(1)%prs(1,:,:), prsl=prsl)
+
+    call mpp_error(NOTE,'Setting up AQUAPLANET Temperature profiles')
+    do i = isp, iep
+        do j = jsp, jep
+            call aquape_init_temp(deg_latP(j,i), prsl(:,j,i)*10., gatm(1)%tem(:,j,i))
+        end do
+    end do
+    deallocate(prsl)
+#endif
 
     do i = 1, size(satm)
         call grid_to_spherical(gatm(1)%tem, satm(i)%tem, do_trunc=.true.)
     end do
-
     call spherical_to_grid(satm(2)%tem,grid=gatm(1)%tem)
-
     used =  send_data(id_tem_ini,gatm(1)%tem)
 
-    call mpp_error(NOTE,'Temperature profiles are set from file '//trim(temp_file))
-
-    deallocate(axin, tmp3d, prsl)
+    gatm(1)%prs(1,:,:) = log(gatm(1)%prs(1,:,:))
+    do i = 1, size(satm)
+        call grid_to_spherical(gatm(1)%prs, satm(i)%prs, do_trunc=.true.)
+    end do
+    call spherical_to_grid(satm(2)%prs,grid=gatm(1)%prs)
+    gatm(1)%prs = exp(gatm(1)%prs)
+    used =  send_data(id_prs_ini,gatm(1)%prs(1,:,:))
 
     return
 end subroutine set_prs_temp_prof
