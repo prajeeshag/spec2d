@@ -13,3 +13,4 @@ reinit.sh
 *.pdf
 *.out
 *.synctex.gz
+*.tar.gz

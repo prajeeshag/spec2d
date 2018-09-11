@@ -1,0 +1,50 @@
+program main
+
+implicit none
+
+integer, parameter :: nlat=64, nlev=59
+integer, parameter :: nsiz = nlat*nlev
+real :: tmp(nsiz), lat(nlat), lev(nlev)
+real :: o3(nlat,nlev), mino3, maxo3, scale_factor, add_offset 
+integer :: o3p(nlat,nlev), ndrv=65534, o3p2(nlat/2,nlev), j
+
+open(15,file="apeo3_dat")
+
+read(15,'(10(1pe12.5))') (lat(j), j=1, nlat)
+read(15,'(10(1pe12.5))') (lev(j), j=1, nlev)
+read(15,'(10(1pe12.5))') (tmp(j), j=1, nsiz)
+
+o3 = reshape(tmp,[nlat,nlev])
+
+o3 = o3 * 1e-6  !ppmv
+
+mino3=minval(o3)
+maxo3=maxval(o3)
+
+scale_factor=(maxo3-mino3)/ndrv
+add_offset=0.5*(mino3+maxo3)
+o3p=int((o3-add_offset)/scale_factor)
+
+print *, abs(lat(1:nlat/2))
+
+print *, " "
+print *, " "
+
+print *, lev
+
+print *, " "
+print *, " "
+
+o3p2=o3p(1:nlat/2,:)
+print *, 'real :: o3(32,59) = ', add_offset, '+', scale_factor, '* &'
+print '(15(I6," ")" &")', o3p2
+!print *, o3
+
+print *, " "
+print *, " "
+print *, " "
+print *, " "
+
+!print *, o3(1:nlat/2,:)
+
+end program main
