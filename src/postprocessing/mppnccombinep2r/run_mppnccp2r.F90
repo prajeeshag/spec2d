@@ -158,10 +158,10 @@ end if
 
 allocate(filenms(num_files))
 
-print*,'num_files=', num_files
+if (mpp_pe()==mpp_root_pe()) print*,'num_files=', num_files
 
 do n = 1, num_files
-    print *, trim(files(n)%name)
+    if (mpp_pe()==mpp_root_pe()) print *, trim(files(n)%name)
     CALL sync_file_times(n, starttime, err_msg=msg)
     if (trim(msg)/='') call mpp_error(FATAL,trim(msg))
     call set_filenames(n)

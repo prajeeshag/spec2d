@@ -91,6 +91,8 @@ type(restart_file_type) :: specres
 character(len=32) :: resnm='spec_res'
 !----------------------------------------
 
+integer :: debug=1
+
 integer :: clck_g2s, clck_s2g
 
 logical :: initialized=.false.
@@ -131,9 +133,15 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     logical, optional :: Tshuffle
     integer :: comm, i, k, j, is, ie, layout(2), npes, jee, tmp1(1)
     integer, allocatable :: pelist(:), yextent(:), xextent(:)
+    integer :: unit, stat
+    namelist/transforms_nml/debug
 
     call mpp_init() 
     call fms_init()
+
+    unit = open_namelist_file()
+    read(unit,nml=transforms_nml,iostat=stat)
+    call close_file(unit)
 
     num_fourier = trunc_in
 
@@ -168,13 +176,23 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
     else
         call init_grid_fourier (domainl, num_fourier, isf, ilenf, fextent, Tshuff)
     endif
+    if(debug>0) call mpp_error(NOTE,'After init_grid_fourier')
 
+    pelist = -1
     call split_pelist(ilenf>0, pelist, npes, f_all_comm)
+    if(debug>0) then
+        call mpp_error(NOTE,'After split_pelist 1')
+        if (mpp_pe()==mpp_root_pe()) then
+            print *, "--> fourier domain npes: ", npes
+            print *, "--> fourier domain pelist: ", pelist(1:npes)
+            print *, "--> fourier domain comm id: ", f_all_comm
+        endif
+    endif
+
     allocate(fpesall(npes))
     fpesall = pelist(1:npes)
 
     fpe = any(fpesall==mpp_pe())
-
     allocate(fpesy(npes/layout(1)))
 
     jee = 0
@@ -183,7 +201,18 @@ subroutine init_transforms(domainl,trunc_in,nwaves,Tshuffle)
         call split_pelist(jee==jep.and.ilenf>0, fpesy, npes, f_y_comm)
     end do
 
-    fpe_write=fpe.and.jsp==0
+    if(debug>0) then
+        call mpp_error(NOTE,'After split_pelist 2')
+        if (mpp_pe()==mpp_root_pe()) then
+            print *, "--> fourier y npes: ", npes
+            print *, "--> fourier y pelist: ", fpesy
+            print *, "--> fourier y comm id: ", f_y_comm
+        endif
+    endif
+
+    fpe_write=fpe.and.jsp==1
+
+    if (debug>0.and.fpe_write) print *, "I am going to write spec_restart:", mpp_pe()
 
     allocate(spextent(npes))
     

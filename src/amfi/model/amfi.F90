@@ -14,18 +14,19 @@ use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_i
 use fms_mod, only : file_exist
 use fms_io_mod, only : fms_io_exit
 
-use time_manager_mod, only : time_type, set_calendar_type, operator(-)
-use time_manager_mod, only : operator(+), set_date, set_time, days_in_month
-use time_manager_mod, only : operator(/), operator(>), print_date
+use time_manager_mod, only : time_type, set_calendar_type, operator(-), &
+    operator(+), set_date, set_time, days_in_month, operator(/), operator(>), & 
+    print_date, increment_date, date_to_string, operator(>=), get_date
 
 use diag_manager_mod, only: diag_manager_init, diag_manager_end
 use diag_manager_mod, only: get_base_date, DIAG_OTHER
 
-use atmos_mod, only : init_atmos, update_atmos, end_atmos
+use atmos_mod, only : init_atmos, update_atmos, end_atmos, save_restart_atmos
 
 implicit none
 
-type(time_type) :: Time_init, Time, Time_start, Time_end, Run_length, time_step
+type(time_type) :: Time_init, Time, Time_start, Time_end, &
+        Run_length, time_step, time_restart
 integer :: months=0, days=0, hours=0, minutes=0, seconds=0
 integer :: num_atmos_calls
 character(len=32) :: resfile='INPUT/atm.res'
@@ -33,6 +34,7 @@ character(len=512) :: err_msg
 integer :: date_init(6), date(6), calendar_type
 integer :: restart_interval(6) = 0
 integer :: dt_atmos=0, unit, m, n
+character(len=32) :: timestamp
 
 integer :: clck_atmos
 
@@ -84,6 +86,13 @@ end do
 
 Time_end   = Time_end + set_time(hours*3600+minutes*60+seconds, days)
 
+if (all(restart_interval<=0)) then
+    time_restart = increment_date(Time_end,1,0,0,0,0,0)
+else
+    time_restart = increment_date(Time, restart_interval(1), restart_interval(2), &
+    restart_interval(3), restart_interval(4), restart_interval(5), restart_interval(6) )
+endif 
+
 Run_length = Time_end - Time
 
 time_step = set_time(dt_atmos,0)
@@ -98,15 +107,58 @@ call mpp_clock_begin(clck_atmos)
 do n = 1, num_atmos_calls
     call update_atmos(Time)
     Time = Time + time_step
+    if (Time >= time_restart) then
+        timestamp = date_to_string(Time)
+        time_restart = increment_date(Time, restart_interval(1), restart_interval(2), &
+        restart_interval(3), restart_interval(4), restart_interval(5), restart_interval(6) )
+        call mpp_error(NOTE,'Intermediate restart file is written and '&
+            //trim(timestamp)//' is appended as prefix to each restart file name')
+        call save_restart_atmos(timestamp)
+        call atm_restart(Time,timestamp) 
+    endif
 enddo
+
 call mpp_clock_end(clck_atmos)
 
 call diag_manager_end(Time)
 
 call end_atmos(Time)
 
+call atm_restart(Time)
+
 call fms_io_exit()
 
 call mpp_exit()
+
+
+contains
+
+subroutine atm_restart(Time_run, time_stamp)
+    type(time_type),   intent(in)           :: Time_run
+    character(len=*), intent(in),  optional :: time_stamp
+    character(len=128)                      :: file_run
+    integer :: yr, mon, day, hr, min, sec, date(6), unit
+
+    if (present(time_stamp)) then   
+        file_run = 'RESTART/'//trim(time_stamp)//'.atm.res'
+    else
+        file_run = 'RESTART/atm.res'
+    endif
+
+    call get_date(Time_run, date(1), date(2), date(3),  &
+                   date(4), date(5), date(6))
+    if (mpp_pe()==mpp_root_pe()) then
+        call mpp_open(unit, file_run, nohdrs=.True.)
+
+        write( unit, '(i6,8x,a)' )calendar_type, &
+             '(Calendar: no_calendar=0, thirty_day_months=1, julian=2, gregorian=3, noleap=4)'
+        write( unit, '(6i6,8x,a)' )date_init, &
+             'Model start time:   year, month, day, hour, minute, second'
+        write( unit, '(6i6,8x,a)' )date, &
+             'Current model time: year, month, day, hour, minute, second'
+    end if
+
+    return
+end subroutine atm_restart
 
 end program amfi

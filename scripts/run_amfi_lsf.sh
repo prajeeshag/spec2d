@@ -90,8 +90,6 @@ mpirun -env OMP_NUM_THREADS 1 -n $npes $EXE
 
 EOF
 
-rm -f $STDOUT
-
 if [ "$submit_combine" == "True" ]; then
 	if [ ! "$combine_only" == "True" ]; then
 		echo "Removing any previous unprocessed output files."
@@ -103,6 +101,7 @@ if [ "$combine_only" == "True" ]; then
 	echo "Only combine"
 	COND=""
 else
+	rm -f $STDOUT
   	cat $tfile
 	if [ "$lsf" == "True" ]; then
 		output=$(bsub < $tfile)

@@ -278,7 +278,14 @@ EXE=$rootdir/exec/$EXENAME/${EXENAME}.exe
 $scriptdir/dflo_to_dtable.sh $scriptdir/diag_field_log.out
 
 cp $scriptdir/input.nml .
+TRUNC=$(((NLAT-1)*2/3))
 
+echo " "
+echo "valid spherical truncations for NLAT = "$NLAT" is TRUNC = "$TRUNC 
+echo " "
+
+sed -i "s|_TRUNC_|$TRUNC|g" input.nml
+sed -i "s|_NLAT_|$NLAT|g" input.nml  
 
 mkdir -p INPUT
 mkdir -p RESTART
@@ -292,8 +299,6 @@ sed -i "s|_EXE_|$EXE|g" run_amfi_lsf.sh
 
 $p_listlayout <<< $NLAT > valid_pe_layouts_nlat_$NLAT
 
-#sed -i "s/_EXENAME_/$rootdir\/exec\/spec2d\/spec2d.exe/g" run_amfi_lsf.sh
-sed -i "s|_EXENAME_|$rootdir/exec/spec2d/spec2d.exe|g" run_amfi_lsf.sh
 echo " "
 echo " "
 echo "--------------------------------------------------------------------------------"

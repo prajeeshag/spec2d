@@ -3,6 +3,7 @@
 	months=12
 	!days=0
 	dt_atmos=600
+	restart_interval=0,3,0,0,0,0
 /
 
 &phys_nml
@@ -11,8 +12,8 @@
 /
 
 &atmos_nml
-	trunc = 62
-	num_lat = 94
+	trunc = _TRUNC_
+	num_lat = _NLAT_
   	nlev = 64
 	layout = 2,4
 	!layout = 8,32

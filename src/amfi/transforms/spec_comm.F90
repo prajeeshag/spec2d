@@ -79,15 +79,18 @@ subroutine split_pelist(iamin, spes, snpes, commid)
 
     call mpp_declare_pelist(pes(1:npes))
 
+    snpes = npes
+
     if (any(mpp_pe()==pes(1:npes))) then
         call mpp_set_current_pelist(pes,no_sync=.true.)
         call mpp_get_current_pelist(pelist=pes, commid=commidd)
         if (size(spes)<npes) call mpp_error(FATAL,'split_pelist: size of spes < the required size.')
         if (present(commid)) commid = commidd
         snpes = npes
-        spes(1:npes) = pes(:) 
-        call mpp_set_current_pelist(pelist=parentpes, no_sync=.true.)
+        spes(1:npes) = pes(1:npes) 
     end if
+
+    call mpp_set_current_pelist(pelist=parentpes)
 
     deallocate(allpes,parentpes)
 

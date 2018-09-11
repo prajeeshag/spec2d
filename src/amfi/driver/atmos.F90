@@ -29,14 +29,14 @@ use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
 use spectral_dynamics_mod, only : get_latsP, get_lonsP, finish_spectral_dynamics, &
     save_spec_restart, end_spectral_dynamics
   
-use phys_mod, only : init_phys, phys, end_phys
+use phys_mod, only : init_phys, phys, end_phys, save_restart_phys
 
 use ocpack_mod, only : oc_nx, oc_ny, npack=>oc_npack, init_ocpack 
 
 implicit none
 private
 
-public :: init_atmos, update_atmos, end_atmos
+public :: init_atmos, update_atmos, end_atmos, save_restart_atmos 
 
 integer :: nlev=64
 integer :: isp, iep, ilenp, ocnx
@@ -168,6 +168,14 @@ subroutine init_atmos(Time,deltim_in)
 
 end subroutine init_atmos
 
+subroutine save_restart_atmos(tstamp)
+    character(len=*), intent(in), optional :: tstamp
+
+    call save_spec_restart(tstamp)
+    call save_restart_phys(tstamp)
+
+    return
+end subroutine save_restart_atmos
 
 !--------------------------------------------------------------------------------   
 subroutine update_atmos(Time)

@@ -143,22 +143,22 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in,lat_deg_in)
     allocate( sncovr(js:je,is:ie) ); sncovr = 0.
     allocate( zorl(js:je,is:ie) ); zorl = zorl_min
     allocate( zorlocn(js:je,is:ie) ); zorlocn = zorl_min
-    allocate( alvsf(js:je,is:ie) )
-    allocate( alvwf(js:je,is:ie) )
-    allocate( alnsf(js:je,is:ie) )
-    allocate( alnwf(js:je,is:ie) )
-    allocate( facsf(js:je,is:ie) )
-    allocate( facwf(js:je,is:ie) )
-    allocate( soiltype(js:je,is:ie) )
-    allocate( vegtype(js:je,is:ie) )
-    allocate( slopetype(js:je,is:ie) )
+    allocate( alvsf(js:je,is:ie) ); alvsf = 0.
+    allocate( alvwf(js:je,is:ie) ); alvwf = 0.
+    allocate( alnsf(js:je,is:ie) ); alnsf = 0.
+    allocate( alnwf(js:je,is:ie) ); alnwf = 0.
+    allocate( facsf(js:je,is:ie) ); facsf = 0.
+    allocate( facwf(js:je,is:ie) ); facwf = 0.
+    allocate( soiltype(js:je,is:ie) ); soiltype = 0
+    allocate( vegtype(js:je,is:ie) ); vegtype = 0 
+    allocate( slopetype(js:je,is:ie) ); slopetype = 0
     allocate( lland(js:je,is:ie) )
     allocate( locn(js:je,is:ie) )
     allocate( lland3d(lsoil,js:je,is:ie) )
-    allocate( hprif(js:je,is:ie) )
-    allocate( hsnow_sice(js:je,is:ie) )
-    allocate( hice(js:je,is:ie) )
-    allocate( emis_ref(js:je,is:ie) )
+    allocate( hprif(js:je,is:ie) ); hprif = 0.
+    allocate( hsnow_sice(js:je,is:ie) ); hsnow_sice = 0.
+    allocate( hice(js:je,is:ie) ); hice = 0.
+    allocate( emis_ref(js:je,is:ie) ); emis_ref=0.
    
     call init_land(Time)
 
@@ -1021,7 +1021,6 @@ subroutine get_emis(sfcemis)
     sfcemis = sfcemis * fland  &
             + focn * (1.-fice) * emsref(1) & ! sea point
             + focn * fice * emsref(7) ! sea-ice
-
     return
 end subroutine get_emis
 

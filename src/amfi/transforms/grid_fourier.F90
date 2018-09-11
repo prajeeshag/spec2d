@@ -107,11 +107,11 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     integer(C_INTPTR_T) :: howmany
     real :: rnlon
     integer :: jee, pe, ierr, npes
-    integer, allocatable :: allpes(:), extent(:), xextent(:)
+    integer, allocatable :: extent(:), xextent(:), pes1(:)
 
     unit = open_namelist_file()
 
-    read(unit, nml=grid_fourier_nml,iostat=stat)
+    read(unit, nml=grid_fourier_nml)
 
     call close_file(unit)
 
@@ -130,8 +130,8 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     jlenp = jep - jsp + 1
     ilenp = iep - isp + 1
 
-    allocate(allpes(mpp_npes()))
     allocate(pes(layout(2)))
+    allocate(pes1(layout(2)))
 
     call mpp_get_current_pelist(commid=COMM_PARENT)
 
@@ -141,9 +141,12 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     jee = 0
     do j = 1, size(extent)
         jee = jee + extent(j)
-        call split_pelist(jee==jep, pes, npes, COMM_FFT)
+        call split_pelist(jee==jep, pes1, npes, COMM_FFT)
+        if (any(pes1==mpp_pe())) then
+            pes(1:npes) = pes1(1:npes)
+        endif
     end do
-
+    deallocate(pes1)
     if (debug) print *, 'grid_fourier: after comm_split'
 
     allocate(ocP(npack(),oc_ny()))
@@ -274,6 +277,10 @@ subroutine init_grid_fourier (domain, trunc, isf, flen, fextent, Tshuff)
     flen    = local_n1
     FLOCAL  = local_n1 
     FLOCAL2 = FLOCAL * npack()
+
+    if (debug) then
+        print *, pes
+    endif 
 
     call mpp_set_current_pelist(pes,no_sync=.true.)
     call spec_comm_allgather([flen], fextent)

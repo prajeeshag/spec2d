@@ -21,7 +21,7 @@ MPI3=True
 NETCDF=$(nc-config --prefix)
 
 #Fortran compiler options
-FFLAGS="-r8 -O2 -fp-model precise -convert big_endian -align array32byte"
+FFLAGS=" -g -traceback -r8 -O2 -fp-model precise -convert big_endian -align array32byte"
 # C compiler options
 CFLAGS="-O2"
 #Linker options

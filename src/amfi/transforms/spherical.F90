@@ -216,9 +216,19 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
  
     mee = -1
     do m = 1, layout(2)
-        mee = mee + xextent(m)
+        mee  = mee + xextent(m)
         call split_pelist(mee==me,pes,npes,f_x_comm)
     end do
+
+    if (debug) then
+        call mpp_error(NOTE,"after comm split f_x_comm")
+        if (mpp_pe()==mpp_root_pe()) then
+            print *, "--> spherical x npes: ", npes
+            print *, "--> spherical x pelist: ", pes
+            print *, "--> spherical x comm id: ", f_x_comm
+        endif
+    end if
+ 
 
     allocate(wsf4m(0:num_fourier,2))
     allocate(wef4m(0:num_fourier,2))
