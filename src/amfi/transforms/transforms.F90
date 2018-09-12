@@ -20,8 +20,8 @@ use fms_io_mod, only : fms_io_exit
 
 use constants_mod, only : RADIUS
 
-use grid_fourier_mod, only : init_grid_fourier
-use grid_fourier_mod, only : end_grid_fourier, grid_to_fourier, fourier_to_grid
+use grid_fourier_mod, only : init_grid_fourier, end_grid_fourier, grid_to_fourier, &
+        fourier_to_grid, save_wisdom
 
 use spherical_mod, only : init_spherical, fourier_to_spherical
 use spherical_mod, only : spherical_to_fourier
@@ -43,7 +43,7 @@ public :: compute_ucos_vcos, compute_vor_div, get_latsF, get_latsP, &
          get_wdecomp, get_spherical_wave, get_lonsP, get_wdecompa, &
          spherical_to_grid, grid_to_spherical, init_transforms, &
          register_spec_restart, save_spec_restart, restore_spec_restart, &
-         comm_f_y, comm_f_all, isfpe, end_transforms
+         comm_f_y, comm_f_all, isfpe, end_transforms, save_wisdom
 
 !--> tranforms_mod operates both on P-grid and F-grid, so it need grid
 ! parameters in both the grids. F-grid is for fourier. 
@@ -91,7 +91,7 @@ type(restart_file_type) :: specres
 character(len=32) :: resnm='spec_res'
 !----------------------------------------
 
-integer :: debug=1
+integer :: debug=0
 
 integer :: clck_g2s, clck_s2g
 

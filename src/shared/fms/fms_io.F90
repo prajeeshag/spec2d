@@ -117,7 +117,7 @@ integer, parameter, private :: max_atts=20
 integer, parameter, private :: max_domains = 10
 integer, parameter, private :: MAX_TIME_LEVEL_REGISTER = 2
 integer, parameter, private :: MAX_TIME_LEVEL_WRITE = 20
-integer, parameter          :: max_axis_size=10000
+integer, parameter          :: max_axis_size=40000
 
 type var_type
    private

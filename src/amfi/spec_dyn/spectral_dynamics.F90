@@ -31,7 +31,7 @@ use field_manager_mod, only : MODEL_ATMOS
 use transforms_mod, only : get_spherical_wave, get_lonsP, compute_ucos_vcos, compute_vor_div, &
                            spherical_to_grid, grid_to_spherical, init_transforms, get_latsF, &
                            register_spec_restart, save_spec_restart, get_latsP, &
-                           restore_spec_restart, end_transforms
+                           restore_spec_restart, end_transforms, save_wisdom
 
 use vertical_levels_mod, only: init_vertical_levels, get_ak_bk, get_vertical_vel, &
                                get_pressure_at_levels
@@ -121,7 +121,7 @@ integer, allocatable :: sph_wave(:,:), nnp1(:,:)
 
 character(len=8) :: moist_tracer_names(10)
 integer, allocatable :: moist_ind(:)
-integer :: nmoist_tracers = 0
+integer :: nmoist_tracers = 0, twotimes=0
 
 integer :: id_dtadv, id_dttot, id_dtdyn, id_topo, id_prs_ini, id_tem_ini
 integer, allocatable, dimension(:) :: id_dtradv, id_dtrtot, id_dtrdyn
@@ -664,6 +664,11 @@ subroutine spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
     real :: val
     integer :: i, j, k, ntr
     logical :: used
+
+    twotimes = twotimes + 1
+    if (twotimes==2) then
+        call save_wisdom()
+    endif
 
     stmp3d = satm(2)%tem
     stmp3d1 = satm(2)%tr

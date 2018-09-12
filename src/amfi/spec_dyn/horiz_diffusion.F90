@@ -90,7 +90,8 @@ subroutine init_horiz_diffusion(jcap,deltim,sl,sph_wave,bk5)
       fshk=2.2 ! extra height-dependent diffusion factor per scale height
       rtnp=4*3.e15/(rerth**4)*float(80*81)**2 
     else
-      rtnp=1*3.e15/(rerth**4)*float(80*81)**2
+      fshk=2.2 ! extra height-dependent diffusion factor per scale height
+      rtnp=4*3.e15/(rerth**4)*float(80*81)**2
     endif
 
     slrd0=0.002        ! sigma level at which to begin rayleigh damping

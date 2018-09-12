@@ -82,7 +82,7 @@ integer, allocatable :: pes(:)
 type(ocpack_typeP), allocatable :: ocP(:,:)
 
 public :: init_grid_fourier, end_grid_fourier, grid_to_fourier, fourier_to_grid, &
-          plan_grid_to_fourier, plan_fourier_to_grid
+          plan_grid_to_fourier, plan_fourier_to_grid, save_wisdom
 
 namelist/grid_fourier_nml/plan_level, debug
 

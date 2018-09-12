@@ -220,7 +220,8 @@ if (mpp_pe()==mpp_root_pe()) then
                                        //trim(adjustl(msg))//" seconds")
                     endif
                 endif
-                call send_jobs(nf,n)
+                ierr = send_jobs(nf,n)
+                if (ierr/=0) call quit_jobs()
                 filenms(nf)%done=n
             end do
         
@@ -253,7 +254,8 @@ if (mpp_pe()==mpp_root_pe()) then
     do nf = 1, num_files
         do n = filenms(nf)%done+1, filenms(nf)%total
             if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,atmpes)) exit
-            call send_jobs(nf,n)
+            ierr = send_jobs(nf,n)
+            if (ierr/=0) call quit_jobs()
             filenms(nf)%done=n
         end do
     end do
@@ -293,7 +295,7 @@ return
 end subroutine read_options
 
 
-subroutine submit_processing(nf,n)
+integer function submit_processing(nf,n)
     integer, intent(in) :: nf, n
     integer :: ierr
 
@@ -304,16 +306,22 @@ subroutine submit_processing(nf,n)
         endif
     endif
     ierr = nccp2r(nargs,args)
-    if (ierr/=0) call mpp_error(FATAL,"nccpr failed for file "//trim(fnm))
-    
+    if (ierr/=0) then
+        print *, "ERROR: nccpr failed for file "//trim(fnm)
+        submit_processing=-1
+        return
+    endif
+     
     print *, trim(fnm)//" done..."
+    submit_processing = 0
+    return
 
-end subroutine submit_processing
+end function submit_processing
 
 subroutine do_jobs()
     integer :: jobids(2), done, tag
     INTEGER :: stat(MPI_STATUS_SIZE)
-    integer :: nf, n
+    integer :: nf, n, ierr
 
     tag = 0
 
@@ -324,12 +332,15 @@ subroutine do_jobs()
         nf = jobids(1); n = jobids(2)
         if (nf==0) exit
         if(verbose>0)print *, "recieved file "//trim(filenms(nf)%nm(n))//" for processing" 
-        call submit_processing(nf,n)
+        ierr = submit_processing(nf,n)
+        if (ierr/=0) then
+            done = done * -1
+        endif
     end do
 
 end subroutine do_jobs
 
-subroutine send_jobs(nf,n)
+integer function send_jobs(nf,n)
     integer, intent(in) :: nf, n
     integer :: jobids(2), free_pe, tag, ierr
     INTEGER :: stat(MPI_STATUS_SIZE)
@@ -351,7 +362,14 @@ subroutine send_jobs(nf,n)
             jobids(1) = nf
             jobids(2) = n
             call MPI_RECV(free_pe, 1, MPI_INTEGER, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, stat, ierr)
-            write(msg,*) free_pe
+            write(msg,*) abs(free_pe)
+            if (free_pe<0) then
+                jobids = 0
+                free_pe=abs(free_pe)
+                call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
+                send_jobs = -1
+                return
+            endif
             if(nf>0) then
                 if(verbose>0) print *, "sending file "//trim(filenms(nf)%nm(n))//" for processing to pe "//trim(adjustl(msg))
             else
@@ -360,18 +378,36 @@ subroutine send_jobs(nf,n)
             call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
         endif
     else
-        call submit_processing(nf,n)
+        ierr = submit_processing(nf,n)
+        if (ierr/=0) then
+            send_jobs = -1
+            return
+        endif
     endif
+
+    send_jobs = 0
    
     return 
-end subroutine send_jobs
+end function send_jobs
+
+subroutine quit_jobs()
+    integer :: n, ierr
+    
+    if (mpp_pe()/=mpp_root_pe()) return
+    do n = 1, mpp_npes()-2
+       ierr = send_jobs(0,0) 
+    end do
+
+    call mpp_error(FATAL,"ERROR")
+    return
+end subroutine quit_jobs
 
 subroutine all_done()
     integer :: n
     
     if (mpp_pe()/=mpp_root_pe()) return
     do n = 1, mpp_npes()-1
-       call send_jobs(0,0) 
+       ierr = send_jobs(0,0) 
     end do
     return
 end subroutine all_done
