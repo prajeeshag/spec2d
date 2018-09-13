@@ -279,6 +279,9 @@ $scriptdir/dflo_to_dtable.sh $scriptdir/diag_field_log.out
 
 cp $scriptdir/input.nml .
 TRUNC=$(((NLAT-1)*2/3))
+if [ "$(($TRUNC%2))" -ne "0" ]; then
+	TRUNC=$((TRUNC-1))
+fi
 
 echo " "
 echo "valid spherical truncations for NLAT = "$NLAT" is TRUNC = "$TRUNC 
@@ -297,7 +300,7 @@ cp $scriptdir/run_amfi_lsf.sh .
 
 sed -i "s|_EXE_|$EXE|g" run_amfi_lsf.sh
 
-$p_listlayout <<< $NLAT > valid_pe_layouts_nlat_$NLAT
+$p_listlayout <<< "$NLAT $TRUNC" > valid_pe_layouts_${NLAT}_T$TRUNC
 
 echo " "
 echo " "
@@ -307,6 +310,6 @@ echo "--------------------------------------------------------------------------
 echo "You need to edit some informations in the run script run_amfi_lsf.sh"
 echo "As well as, should set namelist values for 'trunc', 'num_lat', 'layout'"
 echo "in input.nml accordingly."
-echo "All possible valid pe layouts are given in the file valid_pe_layouts_nlat_$NLAT "
+echo "All possible valid pe layouts are given in the file valid_pe_layouts_${NLAT}_T$TRUNC "
 echo "--------------------------------------------------------------------------------"
 echo "--------------------------------------------------------------------------------"

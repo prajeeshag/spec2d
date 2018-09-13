@@ -41,6 +41,11 @@
 ozone_fnm="INPUT/ozone.nc"
 /
 
+&astronomy_nml
+!!!ecc = 0.
+!!!obliq = 0.
+/
+
 &set_aerosols_nml
 use_this_module=.false.
 /

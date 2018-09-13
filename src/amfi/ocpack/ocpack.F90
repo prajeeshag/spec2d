@@ -387,7 +387,8 @@ end subroutine handle_error
 subroutine set_valid_layout()
 !--------------------------------------------------------------------------------   
     integer :: npe, i, tmp, j, ocny1
-    
+    integer :: nfour1
+
     allocate(npesx(ocnx))
     nxpe = 0
     do i = 2, ocnx
@@ -397,6 +398,7 @@ subroutine set_valid_layout()
             npe = npe+1
             tmp = tmp+i
         end do
+        if (npe/=1.and.mod(ceiling(float(nfour)/npe),2)/=0) cycle
         nxpe = nxpe + 1
         npesx(nxpe)%npes = npe
         npesx(nxpe)%blck = i

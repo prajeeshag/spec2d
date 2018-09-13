@@ -84,17 +84,6 @@ shift $(expr $OPTIND - 1)
 
 cat $mkmftemplate
 
-#echo "#--------------------------MAKE MPPNCCOMBINE-----------------------------------"
-#cppDef="-Duse_netCDF -Duse_libMPI"
-#exe=mppncc
-#paths="$srcdir/postprocessing/mppnccombine"
-#export LD=$CC
-#mkdir -p $execdir/$exe
-#cd $execdir/$exe
-#$mkmf -c "$cppDef" -f -p $exe -t $mkmftemplate $paths
-#make -j $numproc
-#echo "#------------------------------------------------------------------------------"
-
 echo "#--------------------------MAKE MPPNCCOMBINEP2R-----------------------------------"
 cppDef=""
 exe=mppnccp2r

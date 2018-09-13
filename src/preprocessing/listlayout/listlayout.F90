@@ -10,18 +10,26 @@ type lstlay_type
     integer :: npair=0
 end type lstlay_type
 
-integer :: nlat, i, npes, j
+integer :: nlat, i, npes, j, trunc
 character(len=1024) :: msg
 type(lstlay_type), allocatable :: lstlay(:)
 integer :: nlstlay=0, n
 
 nlstlay=0
 
-write(*,*) "enter number of latitudes: "
-read(*,*) nlat
-write(*,*) nlat
+write(*,*) "enter number of latitudes, truncation : "
+read(*,*) nlat, trunc
+write(*,*) nlat, trunc
 
-call init_ocpack(nlat,nlat/2,[1,1])
+if (nlat<=0) then
+    stop "Error in number of latitudes"
+endif
+
+if (trunc<=0) then
+    stop "Error in truncation"
+endif
+
+call init_ocpack(nlat,trunc,[1,1])
 
 allocate(lstlay(nxpe*nype))
 
