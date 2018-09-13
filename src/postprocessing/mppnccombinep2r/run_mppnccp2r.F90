@@ -70,7 +70,7 @@ character(len=8) :: arg_u="-u"//char(0)
 character(len=8) :: arg_ov="-ov"//char(0)
 
 integer :: removein=0
-integer :: startpe=0, nc4=4, atmpes=1, ocnpes=1, tfile=0
+integer :: startpe=0, nc4=0, atmpes=1, ocnpes=1, tfile=0
 character(len=32) :: prgrm="nccp2r"//char(0)
 character(len=1024) :: xgrid="INPUT/p_xgrd.nc", run_time_stamp='INPUT/atm.res'
 character(len=64) :: cnc4, cstartpe
