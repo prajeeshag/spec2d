@@ -4,12 +4,12 @@
 \usepackage[english]{babel}
 \usepackage{graphicx}
 \usepackage{physics}
+\usepackage{amsmath}
+\usepackage{float}
 
+\graphicspath{{Figures/}}
 \author{Prajeesh A Gopinathan}
 \title{Spectral Transforms}
-
-\bibliographystyle{unsrt}
-\bibliography{reference.bib}
 
 \begin{document}
 \maketitle
@@ -67,9 +67,9 @@ For a cubic Gaussian grid, the relationship is $N \leq NLAT/2 -1 $
 To save memory and computation time (in particular in the physical parametrizations) and to maintain a quasi-isotropic grid the number of longitudes per latitude circle is reduced as we move towards the poles from equator. 
 The method used to reduce the number of grid points towards pole is inspired by a regular triangular mapping onto an octahedron, which corresponds to a reduction of 4 points per latitude circle, one per face of the octahedron \cite{malardel_new_2016}. The resulting grid is called the "octahedral reduced gaussian grid". The octahedral reduced Gaussian grid can be generated using the formula: $NLON_j = NLON_{pole} + 4*(jj-1)$, where $jj=j$, if $j \leq NLAT/2$, else $jj=NLAT-j+1$, $j$ is latitude index, $NLON_{pole}$ is the number of grid points at first latitude near to pole, $NLON_j$ is the number of grid points at $j$th latitude. In general, $NLON_{pole}$ is taken as 20. Figure \ref{figone} gives an example of octahedral reduced grid with $NLON_{pole} = 4$ and $NLAT=16$.
 
-\begin{figure}
-	\centerline{\includegraphics{grid2}}
-	\caption{A typical figure}
+\begin{figure}[H]
+	\includegraphics[angle=90,width=\linewidth]{grid2}
+	\caption{A schematic representation of octahedral reduced grid with 16 number of latitude ($NLAT=16$) circles and number of nearest to pole longitude points as 4 ($NLON_{pole}=4$). The colors represent the latitude indices }
 	\label{figone}
 \end{figure}
 
@@ -98,13 +98,13 @@ Figure and table references must be composed by the chapter number and
 a sequence number beginning in one (see the examples of
 Figure~\ref{figone}, Figure~\ref{figtwo} and Table~\ref{tabone}).
 
-\begin{figure}[h!]
-	\centerline{\includegraphics{fig2}}
-	\caption{This figure is an example of a figure caption taking
-		more than one line and justified considering margins
-		mentioned in Section~\ref{sec:captionmargins}}
-	\label{figtwo}
-\end{figure}
+%\begin{figure}[h!]
+%	\centerline{\includegraphics{fig2}}
+%	\caption{This figure is an example of a figure caption taking
+%		more than one line and justified considering margins
+%		mentioned in Section~\ref{sec:captionmargins}}
+%	\label{figtwo}
+%\end{figure}
 
 
 

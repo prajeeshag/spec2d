@@ -1,0 +1,14 @@
+#!/bin/bash
+set -xe
+
+for i in $@; do
+
+epstopdf $i _temp.pdf
+
+pdfcrop _temp.pdf _temp2.pdf
+
+pdftops -eps _temp2.pdf $i
+
+rm -f _temp.pdf _temp2.pdf
+
+done
