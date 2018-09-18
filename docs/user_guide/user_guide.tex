@@ -27,13 +27,12 @@ Required external libraries:
 \section{Downloading the source code and input data}
 The source code of AMFI is available through git repository. To download the code run the following command from your terminal.
 
-\textbf{git clone \url{git@github.com:prajeeshag/spec2d.git}}
+\textbf{git clone \url{https://prajeeshag@bitbucket.org/prajeeshag/spec2d.git}}
 
 This will create a directory named "spec2d". [NOTE: You can rename (or mv) this to any other name you want; henceforth referred as ROOTDIR]\newline
 Change directory to ROOTDIR and execute \textbf{./init.sh}. [NOTE: \textbf{init.sh} should be run whenever the ROOTDIR is moved to a new location, or any new updates are pulled from git repository.]\newline
 \textbf{cd spec2d} \newline
-\textbf{./init.sh}
-
+\textbf{./init.sh} \newline
 Download the input data by running:
 \textbf{./scripts/data\_download.sh}
 
@@ -49,6 +48,7 @@ The Following are required fields to be set in ROOTDIR/scripts/make\_spec.sh.
     \item \textbf{CFLAGS - C compiler options}
     \item \textbf{LDFLAGS - Linker options}
     \item \textbf{MPI3} - set to True if \textbf{MPI library version is $>=$ 3} or else set to False. [NOTE: While compiling if you get an error saying something about \textbf{missing MPI\_IALLREDUCE} then set this option to False]
+    \item \textbf{AQUAPLANET} - if set True, AQUAPLANET configuration will be compiled.
 \end{itemize}
 Execute ROOTDIR/\textbf{scripts/make\_spec.sh} to compile the model.\newline
 A successful compilation should produce following executables in ROOTDIR/exec directory.
@@ -64,7 +64,7 @@ A successful compilation should produce following executables in ROOTDIR/exec di
 Create a new directory for the experiment [NOTE: henceforth refered as \textbf{EXPDIR}].\newline Change directory to EXPDIR \newline
 copy ROOTDIR/\textbf{scripts/prepare\_exp\_from\_scratch.sh} to EXPDIR \newline
 set \textbf{NLAT} (number of latitudes) in prepare\_exp\_from\_scratch.sh file\newline
-run prepare\_exp\_from\_scratch.sh [Note: this might take a while to complete depending upon the NLAT]\newline
+run prepare\_exp\_from\_scratch.sh [Note: this might take a while to complete depending upon the NLAT, set AQUAPLANET=True if a aquaplanet set up is needed]\newline
 
 A successful execution of prepare\_exp\_from\_scratch.sh should produce the following files and folders in EXPDIR.
 
@@ -77,7 +77,7 @@ A successful execution of prepare\_exp\_from\_scratch.sh should produce the foll
     \item \textbf{INPUT} - Input directory
     \item \textbf{run\_amfi\_lsf.sh} - job submission script template (lsf job scheduler)
 \end{itemize}
-And the \textbf{INPUT} directory will contain the following files.
+And the \textbf{INPUT} directory will contain the following files (\textbf{Not applicable for Aquaplanet setup!}).
 \begin{itemize}
     \item \textbf{atm.res} - time stamp file where starting date of model and calendar type are given.
     \item albedo.nc 
@@ -102,14 +102,21 @@ And the \textbf{INPUT} directory will contain the following files.
 \section{Running the model}
 The following parameters should be set accordingly in input.nml before running the model.
 \begin{itemize}
-    \item \textbf{num\_lat - number of latitudes}, should be give same as NLAT from previous section.
-    \item \textbf{trunc - spectral truncation to be used}. Currently AMFI is designed to have a quadratic transform grid. which should satisfy this relation trunc $<=$ 2*num\_lat/3
-    \item \textbf{layout -[npes\_y,npes\_x]} processor layout. npes\_y is number of decomposition in y-direction, which can have a maximum value of num\_lat/2. npes\_x is number of decomposition in x-direction, which can have a maximum value of trunc/2. npes\_x should also be a factor of MAXLON+20, where $ MAXLON=20+(NLAT/2-1)*4$. Total number of cores used by the model will be equal to $npes\_y*npes\_x$.
-    
+    \item \textbf{layout - [npes\_y,npes\_x]} processor layout. npes\_y is number of decomposition in y-direction and npes\_x is number of decomposition in x-direction. All valid npes\_x and npes\_y values for a particular number of latitude (NLAT) and spectral truncation (TRUNC) will be given in a file valid\_pe\_layouts\_NLAT\_TRUNC.
 \end{itemize}
+
 Once the above parameters are set, execute \textbf{./run\_amfi\_lsf.sh} to run the model. 
-If LSF job scheduler is available \textbf{run\_amfi\_lsf.sh} will submit the model run along with the post-processing run to job scheduler. In that case one should provide proper "queue name", "wall clock time", etc in run\_amfi\_lsf.sh. For any other job scheduler this script should be modified accordingly.
+If LSF job scheduler is available \textbf{run\_amfi\_lsf.sh} will submit the model run along with the post-processing run to job scheduler. In that case one should provide proper "\textbf{queue name}", "\textbf{wall clock time}", etc in run\_amfi\_lsf.sh. For any other job scheduler this script should be modified accordingly.
 
 If no job scheduler is available run\_amfi\_lsf.sh will submit the run as usual on bash shell.
+
+run\_amfi\_lsf.sh can also be used to submit the combining and P-grid to regular grid post-processing job. These are controlled by the following options inside run\_amfi\_lsf.sh:
+\begin{itemize}
+	\item \textbf{submit\_combine} - if set to "False" do not submit postprocessing, if set to "True" submit postprocessing
+	\item \textbf{nproc\_combine} - number of processors for postprocessing 
+	\item \textbf{combine\_only} - if "True" submit postprocessing only
+	\item \textbf{combine\_child\_run} - if "1" postprocessing is submitted as child run of model run, if "0" then submit as an independent run.
+\end{itemize}
+
 
 \end{document}

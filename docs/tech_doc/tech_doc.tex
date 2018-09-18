@@ -32,7 +32,14 @@ followed by a integral over latitudes using a Gaussian quadrature to obtain the 
 \begin{equation}
 A_{n}^{m} = \sum_{j=1}^{J} A^{m}(\mu_j)P_{n}^{m}(\mu_j) \omega_j
 \end{equation}
-where, $A^m$ is the mth Fourier coefficient, $\omega_j$ is the Gaussian quadrature weight corresponding to Gaussian latitude $\mu_j$ and $J$ total number of latitudes.
+where, $A^m$ is the mth Fourier coefficient, $\omega_j$ is the Gaussian quadrature weight corresponding to Gaussian latitude $\mu_j$ and $J$ total number of latitudes. The operation count this integral can be halved by making use of the symmetry properties of the Legendre polynomials about the equator:
+
+\begin{align}
+\left\{ P_n^m(-\mu) = P_n^m(\mu) \\
+P_n^m(-\mu) = P_n^m(\mu) \right\}
+\end{align}
+
+
 The fourier transforms performed numerically by using Fast Fourier Transfroms.
 
 \section{Horizontal Derivatives}
@@ -64,17 +71,23 @@ In a semi-Lagrangian scheme as the advective quadratic terms disappear, it is po
 For a cubic Gaussian grid, the relationship is $N \leq NLAT/2 -1 $
 
 \section{Octahedral reduced Gaussian grid}
-To save memory and computation time (in particular in the physical parametrizations) and to maintain a quasi-isotropic grid the number of longitudes per latitude circle is reduced as we move towards the poles from equator. 
-The method used to reduce the number of grid points towards pole is inspired by a regular triangular mapping onto an octahedron, which corresponds to a reduction of 4 points per latitude circle, one per face of the octahedron \cite{malardel_new_2016}. The resulting grid is called the "octahedral reduced gaussian grid". The octahedral reduced Gaussian grid can be generated using the formula: $NLON_j = NLON_{pole} + 4*(jj-1)$, where $jj=j$, if $j \leq NLAT/2$, else $jj=NLAT-j+1$, $j$ is latitude index, $NLON_{pole}$ is the number of grid points at first latitude near to pole, $NLON_j$ is the number of grid points at $j$th latitude. In general, $NLON_{pole}$ is taken as 20. Figure \ref{figone} gives an example of octahedral reduced grid with $NLON_{pole} = 4$ and $NLAT=16$.
+To save memory and computation time (in particular in the physical parameterizations) and to maintain a quasi-isotropic grid the number of longitudes per latitude circle is reduced as we move towards the poles from equator. 
+The method used to reduce the number of grid points towards pole is inspired by a regular triangular mapping onto an octahedron, which corresponds to a reduction of 4 points per latitude circle, one per face of the octahedron \cite{malardel_new_2016}. The resulting grid is called the "octahedral reduced gaussian grid". A octahedral reduced Gaussian grid can be generated using the formula: $NLON_j = NLON_{pole} + 4*(jj-1)$, where $jj=j$, if $j \leq NLAT/2$, else $jj=NLAT-j+1$, $j$ is latitude index, $NLON_{pole}$ is the number of grid points at first latitude near to pole, $NLON_j$ is the number of grid points at $j$th latitude. In general, $NLON_{pole}$ is taken as 20. Figure \ref{fig1} gives an example of octahedral reduced grid.
 
 \begin{figure}[H]
-	\includegraphics[angle=90,width=\linewidth]{grid2}
-	\caption{A schematic representation of octahedral reduced grid with 16 number of latitude ($NLAT=16$) circles and the no: of longitude points at the latitude circle nearest to the pole is 4 ($NLON_{pole}=4$). The colors represent latitude index, a negative index is southern hemisphere and positive is northern hemisphere. Numbers inside the grid boxes are longitude index.}
-	\label{figone}
+	\includegraphics[width=\linewidth]{red_sphere.eps}
+	\caption{A schematic representation of octahedral reduced grid having 64 latitude circles ($NLAT=64$). The color shading is grid resolution in kilometers.}
+	\label{fig1}
 \end{figure}
 
 \section{Packed-grid}
-The subsection titles must be in boldface, 12pt, flush left.
+One of the disadvantage of using reduced Gaussian grid is that a 2 dimensional domain decomposition will have a large load imbalance between the processors. This is shown in figure \ref{fig2}. To overcome this issue the reduced Gaussian grid points are re-arranged in a way to ensure a even distribution of grid points when doing a domain decomposition and this new grid is called as Packed-grid (or P-grid). Figure \ref{fig3} shows the corresponding P-grid of the reduced Gaussian grid shown in figure \ref{fig2}.  
+\begin{itemize}
+	\item Assume that the indexing of the latitude circle is follows: $S_1$ to $S_{n}$ for the latitudes in southern hemisphere starting from pole to equator and $N_1$ to $N_{n}$ for northern hemisphere, $n=NLAT/2$, where $NLAT$ is total number of latitudes.
+	\item Then, $i^{th}$ row of P-grid of southern hemisphere ($PS_{i}$) is formed by joining $S_{i}$ and $S_{n-i+1}$, where $i$ is from $1$ to $n/2$, similarly for northern hemisphere ($PN_{i}$).
+	\item The final P-grid is formed by shuffling the rows of P-grid of southern hemisphere and northern hemisphere. i.e, $P_1$ will be $PS_1$, $P_2$ will be $PN_1$, so on and so forth.
+\end{itemize}
+The last step of hemispheric shuffling is done to ensure that 
 
 \section{Figures and Captions}
 \label{sec:captionmargins}
