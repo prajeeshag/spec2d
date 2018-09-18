@@ -300,7 +300,7 @@ cp $scriptdir/run_amfi_lsf.sh .
 
 sed -i "s|_EXE_|$EXE|g" run_amfi_lsf.sh
 
-$p_listlayout <<< "$NLAT $TRUNC" > valid_pe_layouts_${NLAT}_T$TRUNC
+$p_listlayout <<< "$NLAT $TRUNC" > valid_pe_layouts_${NLAT}_$TRUNC
 
 echo " "
 echo " "

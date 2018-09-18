@@ -1,18 +1,30 @@
 #!/bin/bash
 
+#USER DEFINED PARAMETERS
+
+# queue - Queue name
 queue="cccr-res"
+
+# WCLOCK - Wall clock limit (in hours)
 WCLOCK="240"
+
+# JOBNAME - Name of the Job
 JOBNAME="AMFI"
-STDOUT="stdout"_$JOBNAME
 
 # submit_combine - if "False" do not submit postprocessing
 submit_combine=True
+
 # nproc_combine - number of processors for postproc
 nproc_combine=8
+
 # combine_only - if "True" submit postprocessing only
 combine_only=False
-# combine_child_run - if "1" postprocessing is submitted as child run of model run
+
+# combine_child_run - if "1" postprocessing is submitted as child run of model run, 
+#                     else as independent run
 combine_child_run=1
+
+
 
 EXE=_EXE_
 RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
@@ -24,9 +36,7 @@ RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 
 
 
-
-
-
+# END OF USER DEFINED PARAMETERS
 
 #--------------------------------------------------------------------------------   
 #--------------------------------------------------------------------------------   
@@ -35,6 +45,8 @@ RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 #--------------------------------------------------------------------------------   
 #-------------------------------------------------------------------------------- 
 
+
+STDOUT="stdout"_$JOBNAME
 
 if [ ! "$submit_combine" == "True" ]; then
     combine_only=False
