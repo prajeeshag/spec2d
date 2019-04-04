@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-AQUAPLANET=True
+AQUAPLANET=False
 
 # Path to the root directory.
 rootdir=_ROOTDIR_

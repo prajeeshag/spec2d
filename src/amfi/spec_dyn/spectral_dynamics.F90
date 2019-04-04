@@ -331,7 +331,6 @@ subroutine set_prs_temp_prof()
 
     call field_size(temp_file,'level',siz)
     allocate(axin(siz(1)), tmp3d(siz(1),oc_ny(),oc_nx()))
-    allocate(prsl(nlev,jsp:jep,isp:iep))
     call read_data(temp_file,'level',axin)
     call read_data(temp_file,'temp',tmp3d)
     axin = axin * 0.1 !-> mb to cb
