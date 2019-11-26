@@ -1,0 +1,4 @@
+
+FFLAGS =  -g -traceback -r8 -O2 -xAVX -fp-model precise -convert big_endian -align array32byte -I$NETCDF/include
+CFLAGS = -O2 -I$NETCDF/include
+LDFLAGS = -L$NETCDF/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm
