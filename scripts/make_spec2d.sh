@@ -91,7 +91,7 @@ paths="$srcdir/shared/mpp $srcdir/shared/include \
 	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
 	   $srcdir/shared/strman"
 
-cppDef="-Duse_netCDF -Duse_libMPI"
+cppDef="-Duse_netCDF -Duse_libMPI -DOVERLOAD_C8"
 mkdir -p $execdir/lib_fms
 cd $execdir/lib_fms
 $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $paths
@@ -182,6 +182,27 @@ LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 make -j $numproc
 echo "#--------------------------------------------------------------------------------"
+
+
+
+echo "#----------------------------MAKE AMFI-----------------------------------------"
+paths="$srcdir/preprocessing/topo_regularization $srcdir/shared/fft"
+
+cppDef="-Duse_netCDF -Duse_libMPI"
+
+exe=topo_regularization
+
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+
+OPTS="-I$execdir/lib_fms"
+
+LIBS="$execdir/lib_fms/lib_fms.a"
+
+$mkmf -c "$cppDef" -f -p ${exe}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
+
+make -j $numproc
+echo "#-------------------------------------------------------------------------------"
 
 
 echo "#----------------------------MAKE AMFI-----------------------------------------"
