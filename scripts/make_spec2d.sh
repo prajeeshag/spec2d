@@ -1,38 +1,8 @@
 #!/bin/bash
 set -e
+machine=pratyush_intel
 
 AQUAPLANET=False
-
-# Path to the root directory.
-rootdir=_ROOTDIR_
-
-# Fortran compiler
-export FC=mpiifort
-export F77=mpiifort
-
-# C compiler
-export CC=mpiicc
-export MPICC=mpiicc
-
-# if mpi library version is 3 or above
-MPI3=True
-
-#netcdf library path
-NETCDF=$(nc-config --prefix)
-
-#Fortran compiler options
-FFLAGS=" -g -traceback -r8 -O2 -fp-model precise -convert big_endian -align array32byte"
-# C compiler options
-CFLAGS="-O2"
-#Linker options
-LDFLAGS="-mkl -lrt -lstdc++ -lm"
-
-
-#Fortran compiler debug options [OPTIONAL]
-DFFLAGS="-g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created"
-
-# C compiler debug options [OPTIONAL]
-DCFLAGS="-g -traceback -debug all"
 
 
 #--------------------------------------------------------------------------------
@@ -41,16 +11,17 @@ DCFLAGS="-g -traceback -debug all"
 #--------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------
 
-
-FFLAGS=$FFLAGS" -I$NETCDF/include"
-CFLAGS=$CFLAGS" -I$NETCDF/include"
-LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff "$LDFLAGS
+# Path to the root directory.
+rootdir=_ROOTDIR_
 
 execdir="$rootdir/exec"
 srcdir="$rootdir/src"
 mkmf="$rootdir/bin/mkmf"
 
-mkmftemplate="$rootdir/bin/mkmf.template"
+mkmftemp="$rootdir/bin/mkmf.template"
+envir="$rootdir/bin/env.$machine"
+
+source $envir
 
 numproc=16
 
@@ -67,17 +38,9 @@ while getopts 'gj:' flag; do
 done
 
 if [[ "$debug" == True ]]; then
-cat<<EOF > $mkmftemplate
-FFLAGS = $DFFLAGS $FFLAGS
-CFLAGS = $DCFLAGS $CFLAGS
-LDFLAGS = $LDFLAGS
-EOF
+	mkmftemplate=${mkmftemp}_debug.$machine
 else
-cat<<EOF > $mkmftemplate
-FFLAGS = $FFLAGS
-CFLAGS = $CFLAGS
-LDFLAGS = $LDFLAGS
-EOF
+	mkmftemplate=${mkmftemp}.$machine
 fi
 
 shift $(expr $OPTIND - 1)
@@ -97,18 +60,22 @@ echo "#-------------------------------------------------------------------------
 
 
 # MAKE FFTW
-echo "#-------------------------------MAKE FFTW--------------------------------------"
-cppDef=""
-export LD=$FC
-if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
-	cd $srcdir/shared/fftw-3.3.8
-	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads --disable-doc
-	make clean
-	make -j $numproc
-	make install
-	make clean
+
+if [ -z "$FFTW_DIR" ]; then
+	echo "#-------------------------------MAKE FFTW--------------------------------------"
+	cppDef=""
+	export LD=$FC
+	if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
+		cd $srcdir/shared/fftw-3.3.8
+		./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads --disable-doc
+		make clean
+		make -j $numproc
+		make install
+		make clean
+	fi
+	export FFTW_DIR=$execdir/fftw
+	echo "#------------------------------------------------------------------------------"
 fi
-echo "#------------------------------------------------------------------------------"
 
 
 echo "#-----------------------------MAKE FMS LIBRARY---------------------------------"
@@ -237,9 +204,13 @@ fi
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 
-OPTS="-I$execdir/lib_fms -I$execdir/fftw/include"
+OPTS="-I$execdir/lib_fms 
+LIBS="$execdir/lib_fms/lib_fms.a 
 
-LIBS="$execdir/lib_fms/lib_fms.a $execdir/fftw/lib/libfftw3_mpi.a $execdir/fftw/lib/libfftw3.a"
+if [ ! -z "$FFTW_DIR" ]; then
+	OPTS="$OPTS -I$FFTW_DIR/include"
+	LIBS="$LIBS $FFTW_DIR/lib/libfftw3_mpi.a $FFTW_DIR/lib/libfftw3.a"
+fi
 
 $mkmf -c "$cppDef" -f -p ${exe}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 
