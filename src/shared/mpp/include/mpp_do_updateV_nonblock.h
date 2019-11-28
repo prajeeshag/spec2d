@@ -12,7 +12,7 @@ subroutine MPP_START_DO_UPDATE_3D_V_(id_update, f_addrsx, f_addrsy, domain, upda
   logical,             intent(in) :: reuse_id_update
   character(len=*),    intent(in) :: name
   integer,             intent(in) :: flags
-
+#ifdef use_libMPI
   !---local variable ------------------------------------------
   integer            :: i, j, k, l, is, ie, js, je, n
   integer            :: pos, nlist, msgsize, tile, l_size
@@ -805,7 +805,7 @@ subroutine MPP_START_DO_UPDATE_3D_V_(id_update, f_addrsx, f_addrsy, domain, upda
      nonblock_buffer_pos = nonblock_buffer_pos + msgsize
      nonblock_data(id_update)%send_msgsize = msgsize
   endif
-
+#endif
 
 end subroutine MPP_START_DO_UPDATE_3D_V_
 
@@ -825,6 +825,7 @@ subroutine MPP_COMPLETE_DO_UPDATE_3D_V_(id_update, f_addrsx, f_addrsy, domain, u
   integer,             intent(in) :: gridtype
   integer,             intent(in) :: flags
 
+#ifdef use_libMPI
 
   !--- local variables
   MPP_TYPE_ :: fieldx(update_x%xbegin:update_x%xend, update_x%ybegin:update_x%yend,ke_max)
@@ -1484,7 +1485,7 @@ subroutine MPP_COMPLETE_DO_UPDATE_3D_V_(id_update, f_addrsx, f_addrsy, domain, u
      nonblock_data(id_update)%request_send_count = 0
      nonblock_data(id_update)%request_send(:)    = MPI_REQUEST_NULL
   endif 
-
+#endif
   return
 
 end subroutine MPP_COMPLETE_DO_UPDATE_3D_V_

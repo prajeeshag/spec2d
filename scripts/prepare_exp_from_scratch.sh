@@ -20,11 +20,10 @@ AQUAPLANET=False
 ocean_grid=$rootdir/data/ocean_grid_360x200x50.nc
 
 
-# JOBSCDLR - [OPTIONAL] Name of job scheduler (Currently only lsf supported).  
-
-JOBSCDLR=lsf
-
 #------------------------------------No need to edit beyond this---------------------------------
+
+machine=$(cat $rootdir/bin/._machine_)
+source $rootdir/bin/env.$machine
 
 scriptdir=$rootdir/scripts
 
@@ -296,9 +295,9 @@ mkdir -p RESTART
 mv *.nc INPUT/
 mv atm.res INPUT/
 
-cp $scriptdir/run_amfi_lsf.sh .
+cp $scriptdir/run_amfi_${JOBSCDLR}.sh .
 
-sed -i "s|_EXE_|$EXE|g" run_amfi_lsf.sh
+sed -i "s|_EXE_|$EXE|g" run_amfi_${JOBSCDLR}.sh
 
 $p_listlayout <<< "$NLAT $TRUNC" > valid_pe_layouts_${NLAT}_$TRUNC
 

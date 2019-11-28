@@ -16,7 +16,7 @@ rootdir=$(pwd)
 
 if [ "$reinit" == True ]; then
 	if [ -f ._init_ ]; then
-		rootdir1=$(cat ._init_)
+		rootdir1=$(sed -n 1p ._init_)
 		sed -i "s|$rootdir1|_ROOTDIR_|g" scripts/*.sh
 	else
 		sed -i "s|$rootdir|_ROOTDIR_|g" scripts/*.sh
@@ -27,7 +27,7 @@ if [ "$reinit" == True ]; then
 	echo "Re-Initialized---"
 else
 	if [ -f ._init_ ]; then
-		rootdir1=$(cat ._init_)
+		rootdir1=$(sed -n 1p ._init_)
 		sed -i "s|$rootdir1|$rootdir|g" scripts/*.sh
 	else
 		sed -i "s|_ROOTDIR_|$rootdir|g" scripts/*.sh

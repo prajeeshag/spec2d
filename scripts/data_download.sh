@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-datapath=https://www.dropbox.com/s/593vig1attxezbt/data_spec2d.tar.gz?dl=0 
+datapath=ftp://10.5.2.3/spec2d/data_spec2d.tar.gz
 
 if [ -d "_ROOTDIR_" ]; then
 	cd _ROOTDIR_
