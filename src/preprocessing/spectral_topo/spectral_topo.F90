@@ -24,11 +24,13 @@ program main
   
   implicit none
 
-  integer :: layout(2) = [1,1], yextent(1), xextent(1)
-  logical :: reduced=.True., ispacked=.True.
+  integer :: layout(2) = [1,1]
+  integer, allocatable :: yextent(:), xextent(:), sph_wave(:,:)
+  logical :: reduced=.True., packed=.True.
   integer :: num_lat=94, trunc=62
   type(domain2d) :: domain_g
   integer :: jsp, jep, isp, iep, ilenp, jlenp
+  integer :: ocnx, ocny, nwaves_oe
 
   call mpp_init()
   call fms_init()
@@ -57,7 +59,6 @@ program main
 
   call mpp_define_domains([1,ocny,1,ocnx], layout, domain_g, &
                           xextent=yextent, yextent=xextent, kxy=1)
-  if(debug) print *, 'after mpp_define_domains'
 
   call mpp_get_compute_domain(domain_g, jsp, jep, isp, iep)
   ilenp = iep - isp + 1
