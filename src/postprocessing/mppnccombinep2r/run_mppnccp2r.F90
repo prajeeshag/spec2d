@@ -12,7 +12,9 @@ use mpp_mod, only : mpp_init, mpp_exit, mpp_error, FATAL, WARNING, NOTE, &
 
 implicit none
 
+#ifdef use_libMPI
 include 'mpif.h'
+#endif
 
 interface 
     integer(C_INT) function nccp2r(narg,args) bind(C,name="nccp2r")
