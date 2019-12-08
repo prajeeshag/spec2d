@@ -281,7 +281,8 @@ subroutine read_options()
         read(*,nml=opts_nml,iostat=stat)
         if (stat/=0) call mpp_error(FATAL,"run_mppnccp2r: error while reading of options")
     end if
-    
+   
+#ifdef use_libMPI 
     call mpi_bcast(removein, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(atmpes, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(nc4, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
@@ -290,7 +291,7 @@ subroutine read_options()
     call mpi_bcast(child_run, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(calendar_type, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(startdate, size(startdate), MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
-
+#endif
 return
 end subroutine read_options
 
