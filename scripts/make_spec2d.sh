@@ -1,6 +1,5 @@
-#!/bin/bash
+#!/bin/bash --login
 set -e
-machine=pratyush_intel
 
 AQUAPLANET=False
 
@@ -11,9 +10,12 @@ AQUAPLANET=False
 #--------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------
 
+
+
 # Path to the root directory.
 rootdir=_ROOTDIR_
 
+machine=$(cat $rootdir/bin/._machine_)
 execdir="$rootdir/exec"
 srcdir="$rootdir/src"
 mkmf="$rootdir/bin/mkmf"
@@ -22,8 +24,6 @@ mkmftemp="$rootdir/bin/mkmf.template"
 envir="$rootdir/bin/env.$machine"
 
 source $envir
-
-echo $machine > $rootdir/bin/._machine_
 
 numproc=16
 
@@ -177,6 +177,22 @@ LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
+
+
+echo "#--------------------------MAKE spectral_topo-----------------------------------"
+cppDef="-Duse_netCDF"
+exe=spectral_topo
+paths="$srcdir/preprocessing/spectral_topo \
+		$srcdir/amfi/ocpack $srcdir/amfi/transforms/"
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+OPTS="-I$execdir/lib_fms_nompi"
+LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
+
 
 echo "#--------------------------listlayout-----------------------------------"
 cppDef=""

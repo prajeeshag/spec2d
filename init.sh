@@ -1,10 +1,13 @@
 #!/bin/bash
 set -e
 
+mach=none
+
 reinit=False
-while getopts 'r' flag; do
+while getopts 'rm:' flag; do
     case "${flag}" in
     r) reinit=True ;;
+    m) mach="$OPTARG" ;;
     *)
         echo "error"
         exit 1
@@ -35,5 +38,14 @@ else
 	
 	echo $rootdir > ._init_
 	
-	echo "Initialized---"
+	echo "RootDir Initialized---"
 fi
+
+if [ "$mach" != "none" ]; then
+	echo $mach > $rootdir/bin/._machine_
+	echo "Setting Machine as : $mach"
+elif [ ! -z $rootdir/bin/._machine_ ]; then
+	echo generic > $rootdir/bin/._machine_
+	echo "Setting Machine as : generic"
+fi
+
