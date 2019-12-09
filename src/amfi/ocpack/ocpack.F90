@@ -14,7 +14,8 @@ implicit none
 private
 
 public :: ocpack_typeP, ocpack_typeF, init_ocpack, get_ocpackP, get_ocpackF, oc_npack, &
-          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour, get_hem, hem_type, x_block
+          oc_isreduced, oc_ny, oc_nx, oc_maxlon, oc_nlat, oc_nfour, get_hem, hem_type, x_block, &
+          end_ocpack
 
 type ocpack_typeP
     integer :: is, ie, ilen ! longitude start, end and length
@@ -69,7 +70,7 @@ contains
 subroutine get_hem(hem) 
     type(hem_type), intent(out) :: hem(:)
 
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
 
     if(size(hem,1)==size(jhem,1)) then
         hem = jhem
@@ -83,7 +84,7 @@ end subroutine get_hem
 subroutine get_ocpackF(ocpack) 
     type(ocpack_typeF), intent(out) :: ocpack(:)
 
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
 
     if(size(ocpack,1)==size(ocpkF,1)) then
         ocpack = ocpkF(:)
@@ -97,7 +98,7 @@ end subroutine get_ocpackF
 subroutine get_ocpackP(ocpack) 
     type(ocpack_typeP), intent(out) :: ocpack(:,:)
 
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
 
     if(size(ocpack,1)==size(ocpkP,1).and.size(ocpack,2)==size(ocpkP,2)) then
         ocpack = ocpkP
@@ -109,43 +110,43 @@ subroutine get_ocpackP(ocpack)
 end subroutine get_ocpackP
 
 integer function x_block()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     x_block = xblock
     return
 end function x_block
 
 integer function oc_nx()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     oc_nx = ocnx
     return
 end function oc_nx
 
 integer function oc_nfour()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     oc_nfour = nfour
     return
 end function oc_nfour
 
 integer function oc_ny()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     oc_ny = ocny
     return
 end function oc_ny
 
 integer function oc_nlat()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     oc_nlat = nlat
     return
 end function oc_nlat
 
 integer function oc_maxlon()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     oc_maxlon = maxlon
     return
 end function oc_maxlon
 
 integer function oc_npack()
-    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initiliazed!!!')
+    if(.not.initialized) call handle_error(fatal,'ocpack_mod: module not initialized!!!')
     oc_npack = num_pack
     return
 end function oc_npack
@@ -368,6 +369,30 @@ subroutine init_ocpack(nlat_in, trunc, layout, yextent, xextent, isreduced, ispa
 
     return
 end subroutine init_ocpack
+
+subroutine end_ocpack()
+
+  integer :: i
+
+  do i = 1, size(npesx(:))
+    if (allocated (npesx(i)%extent)) deallocate(npesx(i)%extent)
+  end do
+  do i = 1, size(npesy(:))
+    if (allocated (npesy(i)%extent)) deallocate(npesy(i)%extent)
+  end do
+
+  if (allocated (npesy)) deallocate (npesy)
+  if (allocated (npesx)) deallocate (npesx)
+  if (allocated (jhem)) deallocate (jhem)
+  if (allocated (ocpkF)) deallocate(ocpkF)
+  if (allocated (ocpkP)) deallocate(ocpkP)
+
+  nxpe=0
+  nype=0
+  xblock=-1
+  initialized = .false.
+
+end subroutine end_ocpack
 
 subroutine handle_error(stat,msg)
     integer, intent(in) :: stat

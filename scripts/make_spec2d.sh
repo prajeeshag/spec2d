@@ -123,7 +123,7 @@ echo "#-------------------------------------------------------------------------
 
 
 echo "#--------------------------MAKE AMFI_GRID-----------------------------------"
-cppDef="-Duse_netCDF -Duse_libMPI"
+cppDef="-Duse_netCDF "
 exe=amfi_grid
 paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
 		$srcdir/amfi/transforms/gauss_and_legendre.F90"
@@ -180,15 +180,15 @@ echo "#-------------------------------------------------------------------------
 
 
 echo "#--------------------------MAKE spectral_topo-----------------------------------"
-cppDef="-Duse_netCDF"
+cppDef="-Duse_netCDF -Duse_libMPI"
 exe=spectral_topo
 paths="$srcdir/preprocessing/spectral_topo \
 		$srcdir/amfi/ocpack $srcdir/amfi/transforms/"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms_nompi"
-LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
@@ -207,7 +207,7 @@ make -j $numproc
 echo "#------------------------------------------------------------------------------"
 
 echo "#-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------"
-cppDef="-Dlib_mppnccp2r"
+cppDef="-Dlib_mppnccp2r -Duse_libMPI"
 exe=run_mppnccp2r
 paths="$srcdir/postprocessing/mppnccombinep2r"
 export LD=$FC

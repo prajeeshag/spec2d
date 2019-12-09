@@ -18,19 +18,31 @@ program main
   use transforms_mod, only : get_spherical_wave, get_lonsP, compute_ucos_vcos, compute_vor_div, &
                              spherical_to_grid, grid_to_spherical, init_transforms, get_latsF, &
                              register_spec_restart, save_spec_restart, get_latsP, &
-                             restore_spec_restart, end_transforms, save_wisdom
+                             restore_spec_restart, end_transforms, save_wisdom, get_fourier_wave
   
-  use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, get_ocpackP, init_ocpack
+  use ocpack_mod, only : oc_ny, oc_nx, oc_nfour, ocpack_typeP, npack=>oc_npack, get_ocpackP, init_ocpack, &
+                         end_ocpack
   
   implicit none
 
   integer :: layout(2) = [1,1]
-  integer, allocatable :: yextent(:), xextent(:), sph_wave(:,:)
   logical :: reduced=.True., packed=.True.
-  integer :: num_lat=94, trunc=62
-  type(domain2d) :: domain_g
-  integer :: jsp, jep, isp, iep, ilenp, jlenp
-  integer :: ocnx, ocny, nwaves_oe
+
+  type(domain2d) :: domain_g1, domain_g2
+
+  integer, allocatable :: yextent1(:), xextent1(:), sph_wave1(:,:), f_wave1(:,:)
+  integer :: num_lat1=8000, trunc1=7999
+  integer :: jsp1, jep1, isp1, iep1, ilenp1, jlenp1
+  integer :: ocnx1, ocny1, nwaves_oe1
+
+  integer, allocatable :: yextent2(:), xextent2(:), sph_wave2(:,:), f_wave2(:,:)
+  integer :: num_lat2=94, trunc2=62
+  integer :: jsp2, jep2, isp2, iep2, ilenp2, jlenp2
+  integer :: ocnx2, ocny2, nwaves_oe2
+
+  real, allocatable :: topog1(:,:), topog2(:,:), gtopo1(:,:,:), gtopo2(:,:,:)
+  complex, allocatable :: stopo1(:,:,:), stopo2(:,:,:)
+  integer :: i,j,l,m,j1
 
   call mpp_init()
   call fms_init()
@@ -41,40 +53,100 @@ program main
       call mpp_error(FATAL,'init_atmos: product of layout should be equal to npes')
   endif
 
-  allocate(yextent(layout(1)))
-  allocate(xextent(layout(2)))
+  allocate(yextent1(layout(1)))
+  allocate(xextent1(layout(2)))
 
-  call init_ocpack(num_lat, trunc, layout, yextent=yextent, xextent=xextent,&
+  allocate(yextent2(layout(1)))
+  allocate(xextent2(layout(2)))
+
+  call init_ocpack(num_lat1, trunc1, layout, yextent=yextent1, xextent=xextent1,&
                   isreduced=reduced, ispacked=packed)
 
-  ocnx = oc_nx()
-  ocny = oc_ny()
+  ocnx1 = oc_nx()
+  ocny1 = oc_ny()
 
-  if (sum(yextent)/=ocny) then
-      print *, 'ocny=', ocny, 'sum(yextent)=', sum(yextent), 'yextent=', yextent
+  if (sum(yextent1)/=ocny1) then
+      print *, 'ocny=', ocny1, 'sum(yextent)=', sum(yextent1), 'yextent=', yextent1
   endif
-  if (sum(xextent)/=ocnx) then
-      print *, 'ocnx=', ocnx, 'sum(xextent)=', sum(xextent), 'xextent=', xextent
+  if (sum(xextent1)/=ocnx1) then
+      print *, 'ocnx=', ocnx1, 'sum(xextent)=', sum(xextent1), 'xextent=', xextent1
   endif
 
-  call mpp_define_domains([1,ocny,1,ocnx], layout, domain_g, &
-                          xextent=yextent, yextent=xextent, kxy=1)
+  call mpp_define_domains([1,ocny1,1,ocnx1], layout, domain_g1, &
+                          xextent=yextent1, yextent=xextent1, kxy=1)
 
-  call mpp_get_compute_domain(domain_g, jsp, jep, isp, iep)
-  ilenp = iep - isp + 1
-  jlenp = jep - jsp + 1
+  call mpp_get_compute_domain(domain_g1, jsp1, jep1, isp1, iep1)
+  ilenp1 = iep1 - isp1 + 1
+  jlenp1 = jep1 - jsp1 + 1
 
-  call init_transforms(domain_g,trunc,nwaves_oe)
+  call init_transforms(domain_g1,trunc1,nwaves_oe1)
 
-  allocate(sph_wave(nwaves_oe,2))
+  allocate(sph_wave1(nwaves_oe1,2))
+  allocate(f_wave1(nwaves_oe1,2))
 
-  call get_spherical_wave(sph_wave)
+  call get_spherical_wave(sph_wave1)
+  call get_fourier_wave(f_wave1)
 
-  print *, sph_wave
+  allocate(topog1(ocny1,ocnx1))
+  allocate(stopo1(1,nwaves_oe1,2))
+  allocate(gtopo1(1,jsp1:jep1,isp1:iep1))
 
-  !allocate(topog(ocny,ocnx))
+  call read_data('data/topo_16016x8000_Octa.nc','topo',topog1)
+  gtopo1(1,:,:) = topog1(jsp1:jep1,isp1:iep1)
+  call grid_to_spherical(gtopo1,stopo1,do_trunc=.true.)
 
-  !allocate(stopo(1,nwaves_oe,2))
+  call end_transforms()
+  call end_ocpack()
+
+
+  call init_ocpack(num_lat2, trunc2, layout, yextent=yextent2, xextent=xextent2,&
+                  isreduced=reduced, ispacked=packed)
+
+  ocnx2 = oc_nx()
+  ocny2 = oc_ny()
+
+  if (sum(yextent2)/=ocny2) then
+      print *, 'ocny=', ocny2, 'sum(yextent)=', sum(yextent2), 'yextent=', yextent2
+  endif
+  if (sum(xextent2)/=ocnx2) then
+      print *, 'ocnx=', ocnx2, 'sum(xextent)=', sum(xextent2), 'xextent=', xextent2
+  endif
+
+  call mpp_define_domains([1,ocny2,1,ocnx2], layout, domain_g2, &
+                          xextent=yextent2, yextent=xextent2, kxy=1)
+
+  call mpp_get_compute_domain(domain_g2, jsp2, jep2, isp2, iep2)
+  ilenp2 = iep2 - isp2 + 1
+  jlenp2 = jep2 - jsp2 + 1
+
+  call init_transforms(domain_g2,trunc2,nwaves_oe2)
+
+  allocate(sph_wave2(nwaves_oe2,2))
+  allocate(f_wave2(nwaves_oe2,2))
+
+  allocate(topog2(ocny2,ocnx2))
+  allocate(gtopo2(1,jsp2:jep2,isp2:iep2))
+  allocate(stopo2(1,nwaves_oe2,2))
+
+  call get_spherical_wave(sph_wave2)
+  call get_fourier_wave(f_wave2)
+
+  do i = 1, 2
+    do j = 1, nwaves_oe2
+      l = sph_wave2(j,i)
+      m = f_wave1(j,i)
+      j1 = maxloc(sph_wave1(:,i), 1, mask=(sph_wave1(:,i)==l.and.f_wave1(:,i)==m))
+      print *, j1, count(sph_wave1(:,i)==l.and.f_wave1(:,i)==m)
+      stopo2(1,j,i) = stopo1(1,j1,i)
+    end do
+  end do
+
+  call spherical_to_grid(stopo2, grid=gtopo2)
+
+  call write_data("out.nc","topo",gtopo2(1,:,:))
+
+  call fms_io_exit()
+  call mpp_exit()
 
 end program main
 

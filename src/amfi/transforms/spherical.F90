@@ -46,6 +46,7 @@ public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: compute_ucos_vcos, compute_vor_div, compute_vor
 public :: compute_div, do_truncation, get_spherical_wave
 public :: fourier_to_spherical, spherical_to_fourier
+public :: end_spherical, get_fourier_wave
 
 real, dimension(:,:), allocatable :: eigen_laplacian
 real, dimension(:,:), allocatable :: epsilon
@@ -648,6 +649,21 @@ subroutine get_spherical_wave(spherical_wave_out,nnp1_out)
     if(present(nnp1_out)) nnp1_out = nnp1
 
 end subroutine get_spherical_wave
+
+!--------------------------------------------------------------------------------   
+subroutine get_fourier_wave(fourier_wave_out)
+!--------------------------------------------------------------------------------   
+    integer, intent(out) :: fourier_wave_out(:,:)
+
+    if (notfpe) return
+
+    if(.not.initialized) &
+        call mpp_error('get_fourier_wave', 'module not initialized', FATAL)
+
+    fourier_wave_out = fourier_wave
+
+end subroutine get_fourier_wave
+
 
 
 !--------------------------------------------------------------------------
@@ -1428,6 +1444,74 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
     call mpp_clock_end(clck_f2s)
     return 
 end subroutine fourier_to_spherical
+
+
+subroutine end_spherical()
+    
+  if (allocated(eigen_laplacian)) deallocate(eigen_laplacian) 
+  if (allocated(epsilon)       )  deallocate(epsilon)
+  if (allocated(r_epsilon)     )  deallocate(r_epsilon)
+  if (allocated(coef_uvm)      )  deallocate(coef_uvm)
+  if (allocated(coef_uvc)      )  deallocate(coef_uvc)
+  if (allocated(coef_uvp)      )  deallocate(coef_uvp)
+  if (allocated(coef_alpm)     )  deallocate(coef_alpm)
+  if (allocated(coef_alpp)     )  deallocate(coef_alpp)
+  if (allocated(coef_dym)      )  deallocate(coef_dym)
+  if (allocated(coef_dx)       )  deallocate(coef_dx)
+  if (allocated(coef_dyp)      )  deallocate(coef_dyp)
+  if (allocated(triangle_mask) ) deallocate(triangle_mask)  
+  if (allocated(triangle_mask1)) deallocate(triangle_mask1)
+  if (allocated(fourier_wave)  ) deallocate(fourier_wave)
+  if (allocated(spherical_wave)) deallocate(spherical_wave)
+  if (allocated(nnp1)          ) deallocate(nnp1)
+  if (allocated(sin_latF)      ) deallocate(sin_latF)
+  if (allocated(cos_latF)      ) deallocate(cos_latF)
+  if (allocated(cosm_latF)     ) deallocate(cosm_latF)
+  if (allocated(cosm2_latF)    ) deallocate(cosm2_latF)
+  if (allocated(deg_latF)      ) deallocate(deg_latF)
+  if (allocated(wts_latF)      ) deallocate(wts_latF)
+  if (allocated(sin_latP)      ) deallocate(sin_latP)
+  if (allocated(cos_latP)      ) deallocate(cos_latP)
+  if (allocated(cosm_latP)     ) deallocate(cosm_latP)
+  if (allocated(cosm2_latP)    ) deallocate(cosm2_latP)
+  if (allocated(deg_latP)      ) deallocate(deg_latP)
+  if (allocated(wts_latP)      ) deallocate(wts_latP)
+  if (allocated(sin_hem)       ) deallocate(sin_hem)
+  if (allocated(wts_hem)       ) deallocate(wts_hem)
+  if (allocated(Pnm)     )   deallocate(Pnm)        
+  if (allocated(Pnm_wts) )   deallocate(Pnm_wts)
+  if (allocated(Hnm)     )   deallocate(Hnm)
+  if (allocated(Hnm_wts) )   deallocate(Hnm_wts)
+  if (allocated(ns4m)    )   deallocate(ns4m)
+  if (allocated(ne4m)    )   deallocate(ne4m)
+  if (allocated(nlen4m)  )   deallocate(nlen4m)
+  if (allocated(iseven)  )   deallocate(iseven)
+  if (allocated(ws4m)    )   deallocate(ws4m)
+  if (allocated(we4m)    )   deallocate(we4m)
+  if (allocated(wlen4m ) )   deallocate(wlen4m )
+  if (allocated(wdecomp) )   deallocate(wdecomp)
+  if (allocated(wdecompa))   deallocate(wdecompa)
+  if (allocated(tshuffle))   deallocate(tshuffle)
+  if (allocated(ocP)     )   deallocate(ocP)
+  if (allocated(ocF)     )   deallocate(ocF)
+  if (allocated(jh)      )   deallocate(jh)
+
+  num_fourier = 0
+  num_spherical = 0
+  trunc = 0
+  truncadj = 0
+  nwaves = 0 
+  nwaves_oe = 0 
+  noddwaves = 0
+  nevenwaves = 0
+  noddwaves_g = 0
+  nevenwaves_g = 0
+  nwaves_oe_g = 0
+
+  initialized=.false.
+  notfpe=.false.
+
+end subroutine end_spherical
 
 
 !--------------------------------------------------------------------------------   
