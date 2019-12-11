@@ -1110,21 +1110,26 @@ begin
 ;--------------------------------------------------------------------------------	
 
 	ndim = dimsizes(xynm) 
+	xi = fi->\$xynm(ndim-1)\$
+	yi = fi->\$xynm(ndim-2)\$
+
+	rev=1
+	if ((yi(1)-yi(0)).lt.0) then
+		rev=-1
+		print("Input data N->S, converting to S->N")
+	end if
 
 	if (ndim.eq.3) then
-		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:,\$xynm(2)\$|:)
+		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|::rev,\$xynm(2)\$|:)
 	else if (ndim.eq.4) then
-		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:,\$xynm(2)\$|:,\$xynm(3)\$|:)
+		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:,\$xynm(2)\$|::rev,\$xynm(3)\$|:)
 	else if (ndim.eq.2) then
-		dati = fi->\$vnm\$(\$xynm(0)\$|:,\$xynm(1)\$|:)
+		dati = fi->\$vnm\$(\$xynm(0)\$|::rev,\$xynm(1)\$|:)
 	end if
 	end if
 	end if
 
 	siz = dimsizes(dati)
-	xi = fi->\$xynm(ndim-1)\$
-	yi = fi->\$xynm(ndim-2)\$
-
 	if (intmethd.eq."unstruct") then
 		dato=stack_and_fold_unstrct(dati,xi,yi,ongrid)
 	else if (intmethd.eq."dtype") then

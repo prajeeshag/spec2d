@@ -12,16 +12,17 @@ program main
   integer :: lat_max, num_lon
   real, allocatable :: topo_uf(:,:), topo_re(:,:)
   real :: lambda, actual_fraction_smoothed
-  character(len=256) :: fname
+  character(len=256) :: fname="topo.nc",fldnm="topo"
   integer :: siz(4)
   real :: fact=0.95
 
   call fms_init()
   call fms_io_init()
   
-  read(*,*) fname, fact
+  write(*,*) "Enter : fname, fldnm, fact"
+  read(*,*) fname, fldnm, fact
 
-  call field_size(fname,'topo',siz)
+  call field_size(trim(fname),trim(fldnm),siz)
 
   print *, siz
 
@@ -33,7 +34,7 @@ program main
 
   topo_uf = 0.
 
-  call read_data(fname, 'topo', topo_uf)
+  call read_data(trim(fname),trim(fldnm),topo_uf)
 
   where(topo_uf<0.) topo_uf=0.
 

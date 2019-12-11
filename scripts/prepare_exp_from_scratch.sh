@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash --login
 
 # rootdir -  Absolute path to the root directory
 rootdir=_ROOTDIR_
@@ -112,11 +112,19 @@ if [ ! "$AQUAPLANET" == "True" ]; then
 	fi
 	
 	if [ ! -f mtn.nc ]; then
-		echo "$MTN"
-		$stackNfold -x $MAXLON -y $NLAT -i $MTN -o mtn.nc -p interpmethod=conserve
-		if [[ $? -ne 0 ]] ; then
-			rm -f mtn.nc
-		    exit 1
+		if [ -f $datadir/mtn/mtn_${MAXLON}_${NLAT}.nc ]; then
+		    ln -sf $datadir/mtn/mtn_${MAXLON}_${NLAT}.nc mtn.nc
+			if [[ $? -ne 0 ]] ; then
+				rm -f mtn.nc
+			    exit 1
+			fi
+		else
+			echo "$MTN"
+			$stackNfold -x $MAXLON -y $NLAT -i $MTN -o mtn.nc -p interpmethod=conserve
+			if [[ $? -ne 0 ]] ; then
+				rm -f mtn.nc
+			    exit 1
+			fi
 		fi
 	fi
 	
@@ -166,11 +174,19 @@ if [ ! "$AQUAPLANET" == "True" ]; then
 	fi
 	
 	if [ ! -f topography.nc ]; then
-		echo "$TOPO"
-		$stackNfold -x $MAXLON -y $NLAT -i $TOPO     -o topography.nc  -p interpmethod=conserve
-		if [[ $? -ne 0 ]] ; then
-			rm -f topography.nc
-		    exit 1
+		if [ -f $datadir/topography/topography_t${TRUNC}_${MAXLON}_${NLAT}.nc ]; then
+		    ln -sf $datadir/topography/topography_t${TRUNC}_${MAXLON}_${NLAT}.nc topography.nc
+			if [[ $? -ne 0 ]] ; then
+				rm -f topography.nc
+			    exit 1
+			fi
+		else
+			echo "$TOPO"
+			$stackNfold -x $MAXLON -y $NLAT -i $TOPO     -o topography.nc  -p interpmethod=conserve
+			if [[ $? -ne 0 ]] ; then
+				rm -f topography.nc
+			    exit 1
+			fi
 		fi
 	fi
 	
