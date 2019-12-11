@@ -180,15 +180,21 @@ echo "#-------------------------------------------------------------------------
 
 
 echo "#--------------------------MAKE spectral_topo-----------------------------------"
-cppDef="-Duse_netCDF -Duse_libMPI"
+cppDef="-Duse_netCDF -Duse_libMPI" # -Dtest_gauss_legendre"
 exe=spectral_topo
-paths="$srcdir/preprocessing/spectral_topo \
+paths="$srcdir/preprocessing/spectral_topo/ \
 		$srcdir/amfi/ocpack $srcdir/amfi/transforms/"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
+
+if [ ! -z "$FFTW_DIR" ]; then
+	OPTS="$OPTS -I$FFTW_DIR/include"
+	LIBS="$LIBS $FFTW_DIR/lib/libfftw3_mpi.a $FFTW_DIR/lib/libfftw3.a"
+fi
+
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
@@ -243,8 +249,8 @@ fi
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 
-OPTS="-I$execdir/lib_fms 
-LIBS="$execdir/lib_fms/lib_fms.a 
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
 
 if [ ! -z "$FFTW_DIR" ]; then
 	OPTS="$OPTS -I$FFTW_DIR/include"

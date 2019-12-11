@@ -1,8 +1,8 @@
 
 
-FFLAGS = -g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created  -g -traceback -r8 -xAVX -fp-model precise -convert big_endian -align array32byte -I$NETCDF/include
+FFLAGS = -g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created  -g -traceback -r8 -xAVX -fp-model precise -convert big_endian -align array32byte -I$(NETCDF)/include
 
-CFLAGS = -g -traceback -debug all -I$NETCDF/include
+CFLAGS = -g -traceback -debug all -I$(NETCDF)/include
 
-LDFLAGS = -L$NETCDF/lib -lnetcdf -lnetcdff -mkl -lrt -lstdc++ -lm
+LDFLAGS = -L$(NETCDF)/lib -lnetcdf -lnetcdff -mkl -lrt -lm -heap-arrays
 

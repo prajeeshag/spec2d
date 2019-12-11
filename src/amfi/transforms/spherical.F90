@@ -425,13 +425,13 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     enddo
 
     if (debug) then
-        print *, 'ws4m=', ws4m 
-        print *, 'wlen4m=', wlen4m 
-        write(suffix,'(I4.4)') mpp_pe()
-        print *, 'debug from fourier_spherical, pe= ', trim(suffix)
-        print *, 'pe, noddwaves, nevenwaves =', mpp_pe(), noddwaves, nevenwaves
-        print *, 'pe, ns4m(:)=', ns4m(:)
-        print *, 'pe, ne4m(:)=', ne4m(:)
+        !print *, 'ws4m=', ws4m 
+        !print *, 'wlen4m=', wlen4m 
+        !write(suffix,'(I4.4)') mpp_pe()
+        !print *, 'debug from fourier_spherical, pe= ', trim(suffix)
+        !print *, 'pe, noddwaves, nevenwaves =', mpp_pe(), noddwaves, nevenwaves
+        !print *, 'pe, ns4m(:)=', ns4m(:)
+        !print *, 'pe, ne4m(:)=', ne4m(:)
 
         !print *, 'pe, wdecomp(:,ev)=', wdecomp(:,ev)
         !print *, 'pe, wdecomp(:,od)=', wdecomp(:,od)
@@ -439,10 +439,15 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
 
     deallocate(wlenf4m,wsf4m,wef4m)
 
+    if (debug) call mpp_sync()
+    if (debug) print *, "init_spherical1: calling spherical_init"
     call spherical_init()
+    if (debug) print *, "init_spherical1: after calling spherical_init"
 
     clck_f2s = mpp_clock_id('fourier2spherical')
     clck_s2f = mpp_clock_id('spherical2fourier')
+
+    call mpp_error(NOTE,"init_spherical: ----initialized---")
 
     initialized = .true.
 
@@ -471,8 +476,13 @@ subroutine init_spherical2()
     je_hem = -1
     jlen_hem = 0
 
+    if (debug) call mpp_sync()
+    if (debug) print *, "init_spherical2: before calling define_gaussian"
     call define_gaussian()
+    if (debug) print *, "init_spherical2: after calling define_gaussian"
 
+    call mpp_error(NOTE,"init_spherical: ----initialized---")
+    if (debug) print *, "init_spherical2: Done"
     initialized = .true.
 end subroutine init_spherical2
 
@@ -710,7 +720,9 @@ subroutine spherical_init()
     lepsilon = sqrt(lepsilon)
     
     leigen_laplacian = lspherical_wave*(lspherical_wave + 1.0)/(radius*radius)
-    
+   
+    if (debug) call mpp_sync() 
+    if (debug) print *, "spherical_init: line no: 724"
     where (lspherical_wave > 0) 
       lcoef_uvc = -radius*lfourier_wave/(lspherical_wave*(lspherical_wave + 1.0))
     else where 
@@ -819,9 +831,13 @@ subroutine spherical_init()
         coef_dyp = 0.
     end where
 
+    if (debug) call mpp_sync()
     call define_gaussian
+    call mpp_error(NOTE,"init_spherical: ----define gaussian---")
 
+    if (debug) call mpp_sync()
     call define_legendre(lepsilon,lspherical_wave)
+    call mpp_error(NOTE,"init_spherical: ----define legendre---")
 
     initialized = .true.
 
@@ -894,18 +910,38 @@ subroutine define_legendre(lepsilon,lspherical_wave)
 !--------------------------------------------------------------------------------   
     real, dimension(0:num_fourier,0:num_spherical), intent(in) :: lepsilon, lspherical_wave
     integer :: j, m, w, wo, we, mshuff, n, jg
-    real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Pnm_global
-    real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Hnm_global
+    !real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Pnm_global
+    !real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Hnm_global
+    !real, dimension(0:num_fourier,0:num_spherical,js_hem:je_hem) :: Pnm_global
+    !real, dimension(0:num_fourier,0:num_spherical,js_hem:je_hem) :: Hnm_global
+    real, dimension(:,:,:), allocatable :: Hnm_global, Pnm_global
+    integer :: jhg(js_hem:je_hem)
     real :: wgt
     character(len=8) :: suffix
 
+    if (debug) call mpp_sync()
     allocate(Pnm(jlen_hem,nwaves_oe,2))
+    if (debug) call mpp_sync()
     allocate(Pnm_wts(jlen_hem,nwaves_oe,2))
+    if (debug) call mpp_sync()
     allocate(Hnm(jlen_hem,nwaves_oe,2))
+    if (debug) call mpp_sync()
     allocate(Hnm_wts(jlen_hem,nwaves_oe,2))
+    if (debug) call mpp_sync()
+    allocate(Pnm_global(0:num_fourier,0:num_spherical,js_hem:je_hem))
+    if (debug) call mpp_sync()
+    allocate(Hnm_global(0:num_fourier,0:num_spherical,js_hem:je_hem))
 
-    call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
+    if (debug) call mpp_sync()
+    do j = js_hem, je_hem
+      jhg(j) = jh(j)%g
+    end do
 
+    if (debug) call mpp_sync()
+    !call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
+    call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2, jhg)
+
+    if (debug) call mpp_sync()
     do m = 0, num_fourier
         do n = 0, num_spherical-1
             Hnm_global(m,n,:) = -lspherical_wave(m,n) &
@@ -919,6 +955,7 @@ subroutine define_legendre(lepsilon,lspherical_wave)
         enddo
     enddo
   
+    if (debug) call mpp_sync()
     wgt = 1./RADIUS
     Hnm_global(:,:,:) = Hnm_global(:,:,:)*wgt
 
@@ -933,20 +970,25 @@ subroutine define_legendre(lepsilon,lspherical_wave)
                 we = we + 1
                 do j = js_hem, je_hem
                     jg = jh(j)%g
-                    Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,jg) 
-                    Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,jg) 
+                    !Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,jg) 
+                    !Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,jg) 
+                    Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,j) 
+                    Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,j) 
                 end do
             else
                 wo = wo + 1
                 do j = js_hem, je_hem
                     jg = jh(j)%g
-                    Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,jg) 
-                    Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,jg) 
+                    !Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,jg) 
+                    !Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,jg) 
+                    Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,j) 
+                    Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,j) 
                 end do
             endif
         enddo
     enddo
 
+    if (debug) call mpp_sync()
     do j = js_hem, je_hem
         jg = jh(j)%g
         Pnm_wts(j-js_hem+1,:,:) = Pnm(j-js_hem+1,:,:)*wts_hem(jg)
@@ -960,6 +1002,9 @@ subroutine define_legendre(lepsilon,lspherical_wave)
              Pnm(j-js_hem+1,:,:) = 0.
          end where
     enddo
+    if (debug) call mpp_sync()
+    deallocate(Pnm_global)
+    deallocate(Hnm_global)
 
     return
 end subroutine define_legendre

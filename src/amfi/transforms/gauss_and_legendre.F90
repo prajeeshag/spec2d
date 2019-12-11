@@ -1,9 +1,11 @@
 module gauss_and_legendre_mod
 
 use       fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                         write_version_number
+                         write_version_number, NOTE, read_data, write_data
 
 use constants_mod, only: pi
+
+use netcdf
 
 !-----------------------------------------------------------------------
 !   computes Gaussian latitudes and associated Legendre polynomials
@@ -18,24 +20,31 @@ character(len=128), parameter :: tagname ='$Name: tikal $'
 
 logical :: entry_to_logfile_done=.false.
 
+character (len=512) :: fnm
+
 public :: compute_legendre, compute_gaussian
+
 
 contains
 
 !-----------------------------------------------------------------------
 subroutine compute_legendre(legendre, num_fourier, fourier_inc,  &
-                num_spherical, sin_lat, n_lat)
+                num_spherical, sin_lat, n_lat, jhg, write_coef)
 !-----------------------------------------------------------------------
 
 integer, intent (in) :: num_fourier, fourier_inc, num_spherical, n_lat
 real,    intent (in), dimension(n_lat) :: sin_lat
+integer, intent(in) :: jhg(:)
+logical, optional :: write_coef
 
-real, intent (out), dimension(0:num_fourier, 0:num_spherical, n_lat)  :: legendre
+!real, intent (out), dimension(0:num_fourier, 0:num_spherical,n_lat)  :: legendre
+real, intent (out), dimension(0:, 0:, :)  :: legendre
 
-integer :: j, m, n , fourier_max
+integer :: j, m, n , fourier_max, j1, j2, ios
 real, dimension(0:num_fourier*fourier_inc, 0:num_spherical) :: poly, eps, m2, l2
 real, dimension(0:num_fourier*fourier_inc) :: b
 real, dimension(n_lat) :: cos_lat
+logical :: file_exist
 
 if(.not.entry_to_logfile_done) then
   call write_version_number(version, tagname)
@@ -43,6 +52,29 @@ if(.not.entry_to_logfile_done) then
 endif
 
 fourier_max = num_fourier*fourier_inc
+
+write(fnm,'("pnm_",I4.4,"_",I4.4,"_",I4.4,"_",I4.4,".nc")') &
+        num_fourier, num_spherical, n_lat, 1
+inquire(file='legendre/'//trim(fnm),exist=file_exist)
+
+write(fnm,'("pnm_",I4.4,"_",I4.4,"_",I4.4)') &
+        num_fourier, num_spherical, n_lat
+
+if (file_exist) then
+  call error_mesg('compute_legendre','Reading from Legendre poly file legendre/'//trim(fnm), NOTE)
+  do j = 1, size(jhg)
+    j1 = jhg(j)
+    call read_legendre(legendre(:,:,j),j1)
+    !write(fnm,'("pnm_",I4.4,"_",I4.4,"_",I4.4,"_",I4.4,".nc")') &
+    !          num_fourier, num_spherical, n_lat, j1
+    !open(10,file='legendre/'//trim(fnm),form='unformatted',status='old',action='read',iostat=ios)
+    !if (ios/=0) call error_mesg('compute_legendre','Error opening file legendre/'//trim(fnm), FATAL)
+    !read(10,iostat=ios) legendre(:,:,j)
+    !if (ios/=0) call error_mesg('compute_legendre','Error reading file legendre/'//trim(fnm), FATAL)
+    !close(10)
+  end do
+return
+endif
 
 do j=1,n_lat
   cos_lat(j)=sqrt(1-sin_lat(j)*sin_lat(j))
@@ -62,10 +94,15 @@ do m=1,fourier_max
 end do
 
 poly(0,0) = sqrt(0.5)
-do j=1,n_lat     
+j2=0
+do j=1,n_lat
+
+  if (mpp_pe()==mpp_root_pe()) print *, "compute_legendre j=", j
+
   do m=1,fourier_max
     poly(m,0) = b(m)*cos_lat(j)*poly(m-1,0)
   end do
+
   do m=0,fourier_max
      poly(m,1) =  sin_lat(j)*poly(m,0)/eps(m,1)
   end do
@@ -76,11 +113,31 @@ do j=1,n_lat
     end do
   end do
 
-  do n = 0, num_spherical
-    do m = 0,num_fourier
-      legendre(m,n,j) = poly(m*fourier_inc,n)
-    end do
-  end do
+  
+  if (present(write_coef) .and. write_coef) then
+    !write(fnm,'("pnm_",I4.4,"_",I4.4,"_",I4.4,"_",I4.4,".nc")') &
+    !    num_fourier, num_spherical, n_lat, j
+    if (mpp_pe()==mpp_root_pe()) then
+      !open(10,file=trim(fnm),form='unformatted',iostat=ios)
+      !if (ios/=0) call error_mesg('compute_legendre','Error opening file '//trim(fnm), FATAL)
+      !write(10,iostat=ios) poly
+      !if (ios/=0) call error_mesg('compute_legendre','Error writting file '//trim(fnm), FATAL)
+      !close(10)
+      call write_legendre(poly,j)
+    endif
+  else
+    if (any(jhg==j)) then
+      j1 = maxloc(jhg,1,jhg==j)
+      do n = 0, num_spherical
+        do m = 0,num_fourier
+          legendre(m,n,j1) = poly(m*fourier_inc,n)
+        end do
+      end do
+      j2 = j2 + 1
+      if (j2==size(jhg)) return
+    endif
+  endif
+
 end do
 
 return
@@ -162,4 +219,88 @@ return
 end subroutine compute_gaussian
 !----------------------------------------------------------------------
 
+
+subroutine write_legendre(pnm,l)
+
+  real, intent(in) :: pnm(:,:)
+  integer, intent(in) :: l
+  character(len=512) :: filename
+  integer :: stat, ncid, xid, yid, varid
+
+  write(filename,'(A,"_",I4.4,".nc")') trim(fnm), l
+
+  stat = nf90_create(trim(filename),OR(nf90_clobber,nf90_netcdf4),ncid)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_def_dim(ncid,'x',size(pnm,1),xid)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_def_dim(ncid,'y',size(pnm,2),yid)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_def_var(ncid,'pnm',nf90_double,[xid,yid],varid)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_def_var_deflate(ncid,varid,0,0,0)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_enddef(ncid)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+  
+  stat = nf90_put_var(ncid,varid,pnm)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_close(ncid)
+  if (stat/=nf90_noerr) call error_mesg('write_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+end subroutine write_legendre
+
+
+
+subroutine read_legendre(pnm,l)
+
+  real, intent(out) :: pnm(:,:)
+  integer, intent(in) :: l
+  character(len=512) :: filename
+  integer :: stat, ncid, xid, yid, varid
+
+  write(filename,'(A,"_",I4.4,".nc")') 'legendre/'//trim(fnm), l
+
+  stat = nf90_open(trim(filename),0,ncid)
+  if (stat/=nf90_noerr) call error_mesg('read_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_inq_varid(ncid,'pnm',varid)
+  if (stat/=nf90_noerr) call error_mesg('read_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_get_var(ncid,varid,pnm)
+  if (stat/=nf90_noerr) call error_mesg('read_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+  stat = nf90_close(ncid)
+  if (stat/=nf90_noerr) call error_mesg('read_legendre', &
+    trim(filename)//": "//trim(nf90_strerror(stat)), FATAL)
+
+end subroutine read_legendre
+
+
+!subroutine handle_err(status)
+!   integer, intent ( in) :: status
+!    if(status /= nf90_noerr) then
+!       print *, trim(nf90_strerror(status))
+!    stop “Stopped”
+!         end if
+!end subroutine handle_err
+
 end module gauss_and_legendre_mod
+
+
