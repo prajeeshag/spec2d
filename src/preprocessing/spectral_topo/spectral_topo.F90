@@ -27,7 +27,7 @@ program main
   
   implicit none
 
-  integer :: layout(2) = [1,1]
+  integer :: layout(2) = [0,0]
   logical :: reduced=.True., packed=.True.
 
   type(domain2d) :: domain_g1, domain_g2
@@ -47,12 +47,17 @@ program main
 
   real, allocatable :: topog1(:,:), topog2(:,:), gtopo1(:,:,:), gtopo2(:,:,:)
   complex, allocatable :: stopo1(:,:,:), stopo2(:,:,:)
-  integer :: i,j,l,m,j1
+  integer :: i,j,l,m,j1,unit
+
+  namelist/spectral_topo_nml/num_lat1,trunc1,layout
 
   call mpp_init()
   call fms_init()
 
-  layout = 0 
+  unit = open_namelist_file()
+  read(unit,nml=spectral_topo_nml)
+  call close_file(unit)
+
   if (any(layout==0)) then
       layout = [mpp_npes()/50,50]
   elseif (layout(1)*layout(2)/=mpp_npes()) then

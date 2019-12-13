@@ -28,13 +28,17 @@ source $envir
 numproc=16
 
 debug=False
+
+usage() {echo "Usage: $0 [-g] [-j numproc]" 1>&2; exit 1;}
+
+
 while getopts 'gj:' flag; do
     case "${flag}" in
 	g) debug=True ;;
 	j) numproc="$OPTARG" ;;
     *)
 		echo "error"
-		exit 1
+		usage
         ;;
     esac
 done
