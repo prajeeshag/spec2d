@@ -46,7 +46,6 @@ public :: compute_lon_deriv_cos, compute_lat_deriv_cos
 public :: compute_ucos_vcos, compute_vor_div, compute_vor
 public :: compute_div, do_truncation, get_spherical_wave
 public :: fourier_to_spherical, spherical_to_fourier
-public :: end_spherical, get_fourier_wave
 
 real, dimension(:,:), allocatable :: eigen_laplacian
 real, dimension(:,:), allocatable :: epsilon
@@ -425,13 +424,13 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
     enddo
 
     if (debug) then
-        !print *, 'ws4m=', ws4m 
-        !print *, 'wlen4m=', wlen4m 
-        !write(suffix,'(I4.4)') mpp_pe()
-        !print *, 'debug from fourier_spherical, pe= ', trim(suffix)
-        !print *, 'pe, noddwaves, nevenwaves =', mpp_pe(), noddwaves, nevenwaves
-        !print *, 'pe, ns4m(:)=', ns4m(:)
-        !print *, 'pe, ne4m(:)=', ne4m(:)
+        print *, 'ws4m=', ws4m 
+        print *, 'wlen4m=', wlen4m 
+        write(suffix,'(I4.4)') mpp_pe()
+        print *, 'debug from fourier_spherical, pe= ', trim(suffix)
+        print *, 'pe, noddwaves, nevenwaves =', mpp_pe(), noddwaves, nevenwaves
+        print *, 'pe, ns4m(:)=', ns4m(:)
+        print *, 'pe, ne4m(:)=', ne4m(:)
 
         !print *, 'pe, wdecomp(:,ev)=', wdecomp(:,ev)
         !print *, 'pe, wdecomp(:,od)=', wdecomp(:,od)
@@ -439,15 +438,10 @@ subroutine init_spherical1(trunc_in, nwaves_oe_out, &
 
     deallocate(wlenf4m,wsf4m,wef4m)
 
-    if (debug) call mpp_sync()
-    if (debug) print *, "init_spherical1: calling spherical_init"
     call spherical_init()
-    if (debug) print *, "init_spherical1: after calling spherical_init"
 
     clck_f2s = mpp_clock_id('fourier2spherical')
     clck_s2f = mpp_clock_id('spherical2fourier')
-
-    call mpp_error(NOTE,"init_spherical: ----initialized---")
 
     initialized = .true.
 
@@ -476,13 +470,8 @@ subroutine init_spherical2()
     je_hem = -1
     jlen_hem = 0
 
-    if (debug) call mpp_sync()
-    if (debug) print *, "init_spherical2: before calling define_gaussian"
     call define_gaussian()
-    if (debug) print *, "init_spherical2: after calling define_gaussian"
 
-    call mpp_error(NOTE,"init_spherical: ----initialized---")
-    if (debug) print *, "init_spherical2: Done"
     initialized = .true.
 end subroutine init_spherical2
 
@@ -660,21 +649,6 @@ subroutine get_spherical_wave(spherical_wave_out,nnp1_out)
 
 end subroutine get_spherical_wave
 
-!--------------------------------------------------------------------------------   
-subroutine get_fourier_wave(fourier_wave_out)
-!--------------------------------------------------------------------------------   
-    integer, intent(out) :: fourier_wave_out(:,:)
-
-    if (notfpe) return
-
-    if(.not.initialized) &
-        call mpp_error('get_fourier_wave', 'module not initialized', FATAL)
-
-    fourier_wave_out = fourier_wave
-
-end subroutine get_fourier_wave
-
-
 
 !--------------------------------------------------------------------------
 subroutine spherical_init()
@@ -720,9 +694,7 @@ subroutine spherical_init()
     lepsilon = sqrt(lepsilon)
     
     leigen_laplacian = lspherical_wave*(lspherical_wave + 1.0)/(radius*radius)
-   
-    if (debug) call mpp_sync() 
-    if (debug) print *, "spherical_init: line no: 724"
+    
     where (lspherical_wave > 0) 
       lcoef_uvc = -radius*lfourier_wave/(lspherical_wave*(lspherical_wave + 1.0))
     else where 
@@ -831,13 +803,9 @@ subroutine spherical_init()
         coef_dyp = 0.
     end where
 
-    if (debug) call mpp_sync()
     call define_gaussian
-    call mpp_error(NOTE,"init_spherical: ----define gaussian---")
 
-    if (debug) call mpp_sync()
     call define_legendre(lepsilon,lspherical_wave)
-    call mpp_error(NOTE,"init_spherical: ----define legendre---")
 
     initialized = .true.
 
@@ -910,38 +878,18 @@ subroutine define_legendre(lepsilon,lspherical_wave)
 !--------------------------------------------------------------------------------   
     real, dimension(0:num_fourier,0:num_spherical), intent(in) :: lepsilon, lspherical_wave
     integer :: j, m, w, wo, we, mshuff, n, jg
-    !real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Pnm_global
-    !real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Hnm_global
-    !real, dimension(0:num_fourier,0:num_spherical,js_hem:je_hem) :: Pnm_global
-    !real, dimension(0:num_fourier,0:num_spherical,js_hem:je_hem) :: Hnm_global
-    real, dimension(:,:,:), allocatable :: Hnm_global, Pnm_global
-    integer :: jhg(js_hem:je_hem)
+    real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Pnm_global
+    real, dimension(0:num_fourier,0:num_spherical,nlat/2) :: Hnm_global
     real :: wgt
     character(len=8) :: suffix
 
-    if (debug) call mpp_sync()
     allocate(Pnm(jlen_hem,nwaves_oe,2))
-    if (debug) call mpp_sync()
     allocate(Pnm_wts(jlen_hem,nwaves_oe,2))
-    if (debug) call mpp_sync()
     allocate(Hnm(jlen_hem,nwaves_oe,2))
-    if (debug) call mpp_sync()
     allocate(Hnm_wts(jlen_hem,nwaves_oe,2))
-    if (debug) call mpp_sync()
-    allocate(Pnm_global(0:num_fourier,0:num_spherical,js_hem:je_hem))
-    if (debug) call mpp_sync()
-    allocate(Hnm_global(0:num_fourier,0:num_spherical,js_hem:je_hem))
 
-    if (debug) call mpp_sync()
-    do j = js_hem, je_hem
-      jhg(j) = jh(j)%g
-    end do
+    call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
 
-    if (debug) call mpp_sync()
-    !call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2)
-    call compute_legendre(Pnm_global, num_fourier, 1, num_spherical, sin_hem, nlat/2, jhg)
-
-    if (debug) call mpp_sync()
     do m = 0, num_fourier
         do n = 0, num_spherical-1
             Hnm_global(m,n,:) = -lspherical_wave(m,n) &
@@ -955,7 +903,6 @@ subroutine define_legendre(lepsilon,lspherical_wave)
         enddo
     enddo
   
-    if (debug) call mpp_sync()
     wgt = 1./RADIUS
     Hnm_global(:,:,:) = Hnm_global(:,:,:)*wgt
 
@@ -970,25 +917,20 @@ subroutine define_legendre(lepsilon,lspherical_wave)
                 we = we + 1
                 do j = js_hem, je_hem
                     jg = jh(j)%g
-                    !Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,jg) 
-                    !Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,jg) 
-                    Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,j) 
-                    Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,j) 
+                    Pnm(j-js_hem+1,we,1) = Pnm_global(mshuff,n,jg) 
+                    Hnm(j-js_hem+1,we,1) = Hnm_global(mshuff,n,jg) 
                 end do
             else
                 wo = wo + 1
                 do j = js_hem, je_hem
                     jg = jh(j)%g
-                    !Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,jg) 
-                    !Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,jg) 
-                    Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,j) 
-                    Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,j) 
+                    Pnm(j-js_hem+1,wo,2) = Pnm_global(mshuff,n,jg) 
+                    Hnm(j-js_hem+1,wo,2) = Hnm_global(mshuff,n,jg) 
                 end do
             endif
         enddo
     enddo
 
-    if (debug) call mpp_sync()
     do j = js_hem, je_hem
         jg = jh(j)%g
         Pnm_wts(j-js_hem+1,:,:) = Pnm(j-js_hem+1,:,:)*wts_hem(jg)
@@ -1002,9 +944,6 @@ subroutine define_legendre(lepsilon,lspherical_wave)
              Pnm(j-js_hem+1,:,:) = 0.
          end where
     enddo
-    if (debug) call mpp_sync()
-    deallocate(Pnm_global)
-    deallocate(Hnm_global)
 
     return
 end subroutine define_legendre
@@ -1489,74 +1428,6 @@ subroutine fourier_to_spherical(fourier, waves, useHnm, do_trunc)
     call mpp_clock_end(clck_f2s)
     return 
 end subroutine fourier_to_spherical
-
-
-subroutine end_spherical()
-    
-  if (allocated(eigen_laplacian)) deallocate(eigen_laplacian) 
-  if (allocated(epsilon)       )  deallocate(epsilon)
-  if (allocated(r_epsilon)     )  deallocate(r_epsilon)
-  if (allocated(coef_uvm)      )  deallocate(coef_uvm)
-  if (allocated(coef_uvc)      )  deallocate(coef_uvc)
-  if (allocated(coef_uvp)      )  deallocate(coef_uvp)
-  if (allocated(coef_alpm)     )  deallocate(coef_alpm)
-  if (allocated(coef_alpp)     )  deallocate(coef_alpp)
-  if (allocated(coef_dym)      )  deallocate(coef_dym)
-  if (allocated(coef_dx)       )  deallocate(coef_dx)
-  if (allocated(coef_dyp)      )  deallocate(coef_dyp)
-  if (allocated(triangle_mask) ) deallocate(triangle_mask)  
-  if (allocated(triangle_mask1)) deallocate(triangle_mask1)
-  if (allocated(fourier_wave)  ) deallocate(fourier_wave)
-  if (allocated(spherical_wave)) deallocate(spherical_wave)
-  if (allocated(nnp1)          ) deallocate(nnp1)
-  if (allocated(sin_latF)      ) deallocate(sin_latF)
-  if (allocated(cos_latF)      ) deallocate(cos_latF)
-  if (allocated(cosm_latF)     ) deallocate(cosm_latF)
-  if (allocated(cosm2_latF)    ) deallocate(cosm2_latF)
-  if (allocated(deg_latF)      ) deallocate(deg_latF)
-  if (allocated(wts_latF)      ) deallocate(wts_latF)
-  if (allocated(sin_latP)      ) deallocate(sin_latP)
-  if (allocated(cos_latP)      ) deallocate(cos_latP)
-  if (allocated(cosm_latP)     ) deallocate(cosm_latP)
-  if (allocated(cosm2_latP)    ) deallocate(cosm2_latP)
-  if (allocated(deg_latP)      ) deallocate(deg_latP)
-  if (allocated(wts_latP)      ) deallocate(wts_latP)
-  if (allocated(sin_hem)       ) deallocate(sin_hem)
-  if (allocated(wts_hem)       ) deallocate(wts_hem)
-  if (allocated(Pnm)     )   deallocate(Pnm)        
-  if (allocated(Pnm_wts) )   deallocate(Pnm_wts)
-  if (allocated(Hnm)     )   deallocate(Hnm)
-  if (allocated(Hnm_wts) )   deallocate(Hnm_wts)
-  if (allocated(ns4m)    )   deallocate(ns4m)
-  if (allocated(ne4m)    )   deallocate(ne4m)
-  if (allocated(nlen4m)  )   deallocate(nlen4m)
-  if (allocated(iseven)  )   deallocate(iseven)
-  if (allocated(ws4m)    )   deallocate(ws4m)
-  if (allocated(we4m)    )   deallocate(we4m)
-  if (allocated(wlen4m ) )   deallocate(wlen4m )
-  if (allocated(wdecomp) )   deallocate(wdecomp)
-  if (allocated(wdecompa))   deallocate(wdecompa)
-  if (allocated(tshuffle))   deallocate(tshuffle)
-  if (allocated(ocP)     )   deallocate(ocP)
-  if (allocated(ocF)     )   deallocate(ocF)
-  if (allocated(jh)      )   deallocate(jh)
-
-  num_fourier = 0
-  num_spherical = 0
-  trunc = 0
-  truncadj = 0
-  nwaves = 0 
-  nwaves_oe = 0 
-  noddwaves = 0
-  nevenwaves = 0
-  noddwaves_g = 0
-  nevenwaves_g = 0
-  nwaves_oe_g = 0
-
-  initialized=.false.
-  notfpe=.false.
-
-end subroutine end_spherical
 
 
 !--------------------------------------------------------------------------------   

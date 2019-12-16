@@ -28,8 +28,8 @@ use spherical_mod, only : spherical_to_fourier
 
 use spherical_mod, only : compute_lon_deriv_cos, compute_lat_deriv_cos
 use spherical_mod, only : compute_vor_div, compute_ucos_vcos
-use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave, get_fourier_wave
-use spherical_mod, only : get_latsP, get_wdecompa, get_latsF, end_spherical
+use spherical_mod, only : ev, od, do_truncation, get_wdecomp, get_spherical_wave
+use spherical_mod, only : get_latsP, get_wdecompa, get_latsF
 
 use ocpack_mod, only : npack=>oc_npack, get_ocpackF, get_ocpackP, ocpack_typeP, ocpack_typeF, &
         oc_ny, oc_nx, oc_nlat, oc_maxlon, oc_nfour, oc_isreduced
@@ -43,7 +43,7 @@ public :: compute_ucos_vcos, compute_vor_div, get_latsF, get_latsP, &
          get_wdecomp, get_spherical_wave, get_lonsP, get_wdecompa, &
          spherical_to_grid, grid_to_spherical, init_transforms, &
          register_spec_restart, save_spec_restart, restore_spec_restart, &
-         comm_f_y, comm_f_all, isfpe, end_transforms, save_wisdom, get_fourier_wave
+         comm_f_y, comm_f_all, isfpe, end_transforms, save_wisdom
 
 !--> tranforms_mod operates both on P-grid and F-grid, so it need grid
 ! parameters in both the grids. F-grid is for fourier. 
@@ -274,29 +274,7 @@ end subroutine init_transforms
 
 subroutine end_transforms()
     
-    deallocate(parentpes)
-    deallocate(ocP)
-    deallocate(ocF)
-    deallocate(Tshuff)
-    deallocate(fextent)
-    deallocate(fpesall)
-    deallocate(fpesy)
-    deallocate(spextent)
-    deallocate(deg_lonP)
-    deallocate(cosm_latF)
-    deallocate(cosm2_latF)
-    deallocate(cosm_latP)
-
     call end_grid_fourier()
-    call end_spherical()
-
-    nwaves_oe=0
-    nwaves_oe_total=0
-
-    fpe=.false.
-    fpe_write=.false.
-
-    initialized = .false.
 
 end subroutine end_transforms
 

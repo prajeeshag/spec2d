@@ -589,8 +589,7 @@ void usage()
 	printf("  -n4 # Create netCDF output files in NETCDF4_CLASSIC mode, # deflate level. \n");
 	printf("  -u #  Unpack AMFI P-grid to latlon, # is the path to p_xgrd.nc file. \n");
 	printf("  -m    Initialize output variables with a \"missing_value\" from the variables\n");
-	printf("        of the first input file instead of the default 0 value.\n");
-	printf("  -u x_grid    input x_grid for unpacking AMFI output\n\n");
+	printf("        of the first input file instead of the default 0 value.\n\n");
 	printf("mppnccombine joins together an arbitrary number of netCDF input files, each\n");
 	printf("containing parts of a decomposed domain, into a unified netCDF output file.\n");
 	printf("An output file must be specified and it is assumed to be the first filename\n");

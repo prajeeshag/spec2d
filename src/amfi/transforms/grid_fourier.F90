@@ -910,24 +910,9 @@ end subroutine execute_ocfft_c2r
 subroutine end_grid_fourier()
 !--------------------------------------------------------------------------------   
     implicit none
-    integer :: np
 
     call save_wisdom()
     call fftw_mpi_cleanup()
-    deallocate(pes)
-    deallocate(ocP)
-    deallocate(RSCALE)
-    deallocate(Tshuffle)
-    deallocate(Tshuffle2)
-    do np = 1, nplang2f 
-      deallocate(g2fp(np)%fp)
-    end do
-    do np = 1, nplanf2g
-      deallocate(f2gp(np)%fp)
-    end do
-    nplang2f = 0
-    nplanf2g = 0
-    initialized = .false.
 
 end subroutine end_grid_fourier
 

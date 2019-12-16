@@ -12,9 +12,7 @@ use mpp_mod, only : mpp_init, mpp_exit, mpp_error, FATAL, WARNING, NOTE, &
 
 implicit none
 
-#ifdef use_libMPI
 include 'mpif.h'
-#endif
 
 interface 
     integer(C_INT) function nccp2r(narg,args) bind(C,name="nccp2r")
@@ -283,8 +281,7 @@ subroutine read_options()
         read(*,nml=opts_nml,iostat=stat)
         if (stat/=0) call mpp_error(FATAL,"run_mppnccp2r: error while reading of options")
     end if
-   
-#ifdef use_libMPI 
+    
     call mpi_bcast(removein, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(atmpes, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(nc4, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
@@ -293,7 +290,7 @@ subroutine read_options()
     call mpi_bcast(child_run, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(calendar_type, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(startdate, size(startdate), MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
-#endif
+
 return
 end subroutine read_options
 
@@ -323,19 +320,15 @@ end function submit_processing
 
 subroutine do_jobs()
     integer :: jobids(2), done, tag
-#ifdef use_libMPI 
     INTEGER :: stat(MPI_STATUS_SIZE)
-#endif
     integer :: nf, n, ierr
 
     tag = 0
 
     done = mpp_pe()
     do while (.true.)
-#ifdef use_libMPI 
         call MPI_SEND(done, 1, MPI_INTEGER, 0, tag, MPI_COMM_WORLD, ierr)
         call MPI_RECV(jobids, 2, MPI_INTEGER, 0, tag, MPI_COMM_WORLD, stat, ierr)
-#endif
         nf = jobids(1); n = jobids(2)
         if (nf==0) exit
         if(verbose>0)print *, "recieved file "//trim(filenms(nf)%nm(n))//" for processing" 
@@ -350,9 +343,7 @@ end subroutine do_jobs
 integer function send_jobs(nf,n)
     integer, intent(in) :: nf, n
     integer :: jobids(2), free_pe, tag, ierr
-#ifdef use_libMPI 
     INTEGER :: stat(MPI_STATUS_SIZE)
-#endif
     character(len=512) :: msg, fnm
 
     tag = 0
@@ -370,16 +361,12 @@ integer function send_jobs(nf,n)
         if (mpp_pe()==mpp_root_pe()) then
             jobids(1) = nf
             jobids(2) = n
-#ifdef use_libMPI 
             call MPI_RECV(free_pe, 1, MPI_INTEGER, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, stat, ierr)
-#endif
             write(msg,*) abs(free_pe)
             if (free_pe<0) then
                 jobids = 0
                 free_pe=abs(free_pe)
-#ifdef use_libMPI 
                 call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
-#endif
                 send_jobs = -1
                 return
             endif
@@ -388,9 +375,7 @@ integer function send_jobs(nf,n)
             else
                 print *, "sending end job msg to pe "//trim(adjustl(msg))
             endif
-#ifdef use_libMPI 
             call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
-#endif
         endif
     else
         ierr = submit_processing(nf,n)

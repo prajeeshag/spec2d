@@ -1045,11 +1045,7 @@ end subroutine init_nonblock_type
 #undef MPP_TYPE_
 #define MPP_TYPE_ real(DOUBLE_KIND)
 #undef MPI_TYPE_
-#ifdef use_libMPI
 #define MPI_TYPE_ MPI_REAL8
-#else
-#define MPI_TYPE_ real(DOUBLE_KIND)
-#endif
 #undef MPP_START_DO_UPDATE_3D_
 #define MPP_START_DO_UPDATE_3D_ mpp_start_do_update_r8_3D
 #undef MPP_COMPLETE_DO_UPDATE_3D_

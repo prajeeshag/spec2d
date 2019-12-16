@@ -10,7 +10,7 @@ subroutine MPP_START_DO_UPDATE_3D_(id_update, f_addrs, domain, update, d_type, k
   logical,                    intent(in) :: reuse_id_update
   character(len=*),           intent(in) :: name
   integer,                    intent(in) :: flags
-#ifdef use_libMPI  
+  
   !--- local variables
   integer                     :: i, j, k, m, n, l, dir, count, tMe
   integer                     :: buffer_pos, msgsize, from_pe, to_pe, pos
@@ -226,7 +226,7 @@ subroutine MPP_START_DO_UPDATE_3D_(id_update, f_addrs, domain, update, d_type, k
   endif
   
   overPtr => NULL()
-#endif
+
   return
 
 
@@ -247,7 +247,6 @@ subroutine MPP_COMPLETE_DO_UPDATE_3D_(id_update, f_addrs, domain, update, d_type
   integer,             intent(in) :: b_size
   integer,             intent(in) :: flags
 
-#ifdef use_libMPI  
   !--- local variables
   integer                     :: i, j, k, m, n, l, dir, count, tMe
   integer                     :: buffer_pos, msgsize, from_pe, pos
@@ -375,7 +374,6 @@ subroutine MPP_COMPLETE_DO_UPDATE_3D_(id_update, f_addrs, domain, update, d_type
   
 !  call init_nonblock_type(nonblock_data(id_update))
 
-#endif
   return
 
 end subroutine MPP_COMPLETE_DO_UPDATE_3D_

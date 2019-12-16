@@ -29,7 +29,7 @@ numproc=16
 
 debug=False
 
-usage() {echo "Usage: $0 [-g] [-j numproc]" 1>&2; exit 1;}
+usage() { echo "Usage: $0 [-g] [-j numproc]" 1>&2; exit 1;}
 
 
 while getopts 'gj:' flag; do
@@ -84,25 +84,25 @@ if [ -z "$FFTW_DIR" ]; then
 fi
 
 
-echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
-paths="$srcdir/shared/mpp $srcdir/shared/include \
-       $srcdir/shared/mpp/include \
-       $srcdir/shared/fms $srcdir/shared/platform \
-       $srcdir/shared/memutils $srcdir/shared/constants \
-       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
-	   $srcdir/shared/time_manager $srcdir/shared/data_override \
-       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
-       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
-       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
-	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
-	   $srcdir/shared/strman"
-
-cppDef="-Duse_netCDF"
-mkdir -p $execdir/lib_fms_nompi
-cd $execdir/lib_fms_nompi
-$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
+#paths="$srcdir/shared/mpp $srcdir/shared/include \
+#       $srcdir/shared/mpp/include \
+#       $srcdir/shared/fms $srcdir/shared/platform \
+#       $srcdir/shared/memutils $srcdir/shared/constants \
+#       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
+#	   $srcdir/shared/time_manager $srcdir/shared/data_override \
+#       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
+#       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
+#       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
+#	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
+#	   $srcdir/shared/strman"
+#
+#cppDef="-Duse_netCDF"
+#mkdir -p $execdir/lib_fms_nompi
+#cd $execdir/lib_fms_nompi
+#$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 
 echo "#-----------------------------MAKE FMS LIBRARY MPI---------------------------------"
@@ -118,7 +118,7 @@ paths="$srcdir/shared/mpp $srcdir/shared/include \
 	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
 	   $srcdir/shared/strman"
 
-cppDef="-Duse_netCDF -Duse_libMPI -DOVERLOAD_C8"
+cppDef="-Duse_netCDF -Duse_libMPI"
 mkdir -p $execdir/lib_fms
 cd $execdir/lib_fms
 $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $paths
@@ -198,25 +198,25 @@ make -j $numproc
 echo "#------------------------------------------------------------------------------"
 
 
-echo "#--------------------------MAKE spectral_topo-----------------------------------"
-cppDef="-Duse_netCDF -Duse_libMPI" # -Dtest_gauss_legendre"
-exe=spectral_topo
-paths="$srcdir/preprocessing/spectral_topo/ \
-		$srcdir/amfi/ocpack $srcdir/amfi/transforms/"
-export LD=$FC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-OPTS="-I$execdir/lib_fms"
-LIBS="$execdir/lib_fms/lib_fms.a"
-
-if [ ! -z "$FFTW_DIR" ]; then
-	OPTS="$OPTS -I$FFTW_DIR/include"
-	LIBS="$LIBS $FFTW_DIR/lib/libfftw3_mpi.a $FFTW_DIR/lib/libfftw3.a"
-fi
-
-$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#--------------------------MAKE spectral_topo-----------------------------------"
+#cppDef="-Duse_netCDF -Duse_libMPI" # -Dtest_gauss_legendre"
+#exe=spectral_topo
+#paths="$srcdir/preprocessing/spectral_topo/ \
+#		$srcdir/amfi/ocpack $srcdir/amfi/transforms/"
+#export LD=$FC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#OPTS="-I$execdir/lib_fms"
+#LIBS="$execdir/lib_fms/lib_fms.a"
+#
+#if [ ! -z "$FFTW_DIR" ]; then
+#	OPTS="$OPTS -I$FFTW_DIR/include"
+#	LIBS="$LIBS $FFTW_DIR/lib/libfftw3_mpi.a $FFTW_DIR/lib/libfftw3.a"
+#fi
+#
+#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 
 echo "#--------------------------listlayout-----------------------------------"
