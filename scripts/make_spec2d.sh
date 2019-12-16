@@ -149,8 +149,8 @@ paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms_nompi"
-LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
@@ -191,8 +191,8 @@ paths="$srcdir/preprocessing/make_grids/xgrid \
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms_nompi"
-LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
