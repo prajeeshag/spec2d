@@ -26,7 +26,7 @@ combine_child_run=1
 
 
 
-EXE=_EXE_
+EXE=_ROOTDIR_/exec/spec2d/spec2d.exe
 RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 
 
@@ -45,6 +45,8 @@ RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 #--------------------------------------------------------------------------------   
 #-------------------------------------------------------------------------------- 
 
+machine=$(cat _ROOTDIR_/bin/._machine_)
+source _ROOTDIR_/bin/env.$machine
 
 STDOUT="stdout"_$JOBNAME
 
@@ -116,6 +118,8 @@ cat <<EOF > $tfile
 
 export I_MPI_FABRICS=shm:dapl
 
+machine=$(cat _ROOTDIR_/bin/._machine_)
+source _ROOTDIR_/bin/env.$machine
 ulimit -c unlimited
 set -xu
 
@@ -170,6 +174,8 @@ cat <<EOF > $tfile
 #$COND
 #BSUB -n $nproc_combine
 
+machine=$(cat _ROOTDIR_/bin/._machine_)
+source _ROOTDIR_/bin/env.$machine
 ulimit -c unlimited
 set -xu
 

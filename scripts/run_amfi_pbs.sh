@@ -45,6 +45,8 @@ RUNNCCP2R=_ROOTDIR_/exec/run_mppnccp2r/run_mppnccp2r
 #--------------------------------------------------------------------------------   
 #-------------------------------------------------------------------------------- 
 
+machine=$(cat _ROOTDIR_/bin/._machine_)
+source _ROOTDIR_/bin/env.$machine
 
 STDOUT="stdout"_$JOBNAME
 
@@ -125,6 +127,8 @@ cat <<EOF > $tfile
 ####PBS -o $STDOUT 
 
 
+machine=$(cat _ROOTDIR_/bin/._machine_)
+source _ROOTDIR_/bin/env.$machine
 ulimit -c unlimited
 set -xu
 cd \$PBS_O_WORKDIR
@@ -189,6 +193,8 @@ cat <<EOF > $tfile
 ####PBS -o $STDOUT 
 #$COND
 
+machine=$(cat _ROOTDIR_/bin/._machine_)
+source _ROOTDIR_/bin/env.$machine
 ulimit -c unlimited
 set -xu
 cd \$PBS_O_WORKDIR

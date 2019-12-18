@@ -49,8 +49,6 @@ else
 	mkmftemplate=${mkmftemp}.$machine
 fi
 
-shift $(expr $OPTIND - 1)
-
 cat $mkmftemplate
 
 echo "#--------------------------MAKE MPPNCCOMBINEP2R-----------------------------------"
@@ -79,30 +77,30 @@ if [ -z "$FFTW_DIR" ]; then
 		make install
 		make clean
 	fi
-	export FFTW_DIR=$execdir/fftw
+	FFTW_DIR=$execdir/fftw
 	echo "#------------------------------------------------------------------------------"
 fi
 
 
-#echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
-#paths="$srcdir/shared/mpp $srcdir/shared/include \
-#       $srcdir/shared/mpp/include \
-#       $srcdir/shared/fms $srcdir/shared/platform \
-#       $srcdir/shared/memutils $srcdir/shared/constants \
-#       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
-#	   $srcdir/shared/time_manager $srcdir/shared/data_override \
-#       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
-#       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
-#       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
-#	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
-#	   $srcdir/shared/strman"
-#
-#cppDef="-Duse_netCDF"
-#mkdir -p $execdir/lib_fms_nompi
-#cd $execdir/lib_fms_nompi
-#$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
-#make -j $numproc
-#echo "#------------------------------------------------------------------------------"
+echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
+paths="$srcdir/shared/mpp $srcdir/shared/include \
+       $srcdir/shared/mpp/include \
+       $srcdir/shared/fms $srcdir/shared/platform \
+       $srcdir/shared/memutils $srcdir/shared/constants \
+       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
+	   $srcdir/shared/time_manager $srcdir/shared/data_override \
+       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
+       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
+       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
+	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
+	   $srcdir/shared/strman"
+
+cppDef="-Duse_netCDF"
+mkdir -p $execdir/lib_fms_nompi
+cd $execdir/lib_fms_nompi
+$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
 
 
 echo "#-----------------------------MAKE FMS LIBRARY MPI---------------------------------"
@@ -149,8 +147,8 @@ paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms"
-LIBS="$execdir/lib_fms/lib_fms.a"
+OPTS="-I$execdir/lib_fms_nompi"
+LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
@@ -191,8 +189,8 @@ paths="$srcdir/preprocessing/make_grids/xgrid \
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms"
-LIBS="$execdir/lib_fms/lib_fms.a"
+OPTS="-I$execdir/lib_fms_nompi"
+LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
