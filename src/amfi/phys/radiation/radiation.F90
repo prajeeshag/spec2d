@@ -80,9 +80,9 @@ integer :: id_htlw, id_rlut, id_rlutc, id_rlds, id_rldsc, id_rlus, id_rlusc, &
 
 integer :: clck_swrad, clck_lwrad
 
-logical :: initialized=.false., debug=.false.
+logical :: initialized=.false., debug=.false., interp_ozone_vert=.true.
 
-namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm, debug
+namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm, debug, interp_ozone_vert
 
 contains
 
@@ -434,24 +434,30 @@ subroutine get_ozone(time,prsl,o3)
     real, intent(in) :: prsl(:,js:,is:)
     real, intent(out) :: o3(:,js:,is:)
     integer :: siz(4), i, j
+    logical :: ov
 
     o3 = 0.
-    if (trim(ozone_fnm)=='NOOZON') return
 
-    if (.not.allocated(o3tmp)) then
-        call field_size(trim(ozone_fnm),'level',siz)
-        allocate(o3lev(siz(1)))
-        allocate(o3tmp(siz(1),js:je,is:ie))
-        call read_data(trim(ozone_fnm),'level',o3lev)
-    end if
+    if (interp_ozone_vert) then
+      if (.not.allocated(o3tmp)) then
+          call field_size(trim(ozone_fnm),'level',siz)
+          allocate(o3lev(siz(1)))
+          if (o3lev(2)-o3lev(1)<=0) & call mpp_error(FATAL,"get_ozone: levels of ozone file &
+              & should be in hPa and monotonically increasing")
+          allocate(o3tmp(siz(1),js:je,is:ie))
+          call read_data(trim(ozone_fnm),'level',o3lev)
+      end if
    
-    call data_override('ATM','ozone',o3tmp,Time,kxy=1)
+      call data_override('ATM','ozone',o3tmp,Time,ov,kxy=1)
 
-    do i = is, ie
-        do j = js, je
-            call interp_vert(o3tmp(:,j,i),o3(:,j,i),o3lev,prsl(:,j,i),.false.)
-        end do
-    end do    
+      do i = is, ie
+          do j = js, je
+              call interp_vert(o3tmp(:,j,i),o3(:,j,i),o3lev,prsl(:,j,i),.false.)
+          end do
+      end do
+    else
+      call data_override('ATM','ozone',o3,Time,ov,kxy=1)
+    endif
    
     return 
 end subroutine get_ozone

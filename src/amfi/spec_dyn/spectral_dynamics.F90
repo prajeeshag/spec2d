@@ -107,7 +107,7 @@ real :: deltim=600.
 real :: filta = 0.85 
 logical :: mass_corr=.true.
 logical :: zero_topo=.false.
-integer :: niter_topo = 10
+integer :: niter_topo = 0
 
 integer :: i0 = -1
 
@@ -152,7 +152,7 @@ subroutine init_spectral_dynamics(Time, nlev_in, trunc_in, domain, deltim_in, ga
     integer :: num_prog, num_diag, unit, stat
     logical :: used
 
-    namelist/spectral_dynamics_nml/zero_topo, niter_topo, topo_file, topo_field, pdryini
+    namelist/spectral_dynamics_nml/zero_topo, topo_file, topo_field, pdryini
     
     call mpp_init()
     call fms_init()

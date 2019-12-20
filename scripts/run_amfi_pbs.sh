@@ -174,7 +174,7 @@ WCLOCK=$((WCLOCK*2))
 
 ppn=36
 nnodes=$((nproc_combine/ppn))
-rem=$((npes%ppn))
+rem=$((nproc_combine%ppn))
 if [ "$rem" -gt "0" ]; then
 	nnodes=$((nnodes+1))
 fi

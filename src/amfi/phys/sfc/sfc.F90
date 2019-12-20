@@ -98,7 +98,9 @@ integer :: id_vegtype, id_soiltype, id_slopetype, id_canopy, id_tslnd, id_sheleg
 
 integer :: id_facsf, id_facwf
 
-logical :: initialized=.false.
+logical :: initialized=.false., const_vegtype=.true.
+
+namelist/sfc_nml/ const_vegtype
 
 contains
 
@@ -110,7 +112,15 @@ subroutine init_sfc(Time,deltim_in,domain_in,axes_in,lat_deg_in)
     real, intent(in) :: deltim_in, lat_deg_in(:,:)
     integer, intent(in) :: axes_in(:)
     
-    integer :: indx, k
+    integer :: indx, k, unit
+
+    unit = open_namelist_file()
+    read(unit,nml=sfc_nml)
+    call close_file(unit)
+    if (mpp_pe()==mpp_root_pe()) then
+      write(*,nml=sfc_nml)
+    endif
+
 
     deltim = deltim_in 
     
@@ -403,8 +413,10 @@ subroutine init_land(Time)
     call read_data('INPUT/soiltype','soiltype',tmpt)
     soiltype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
 
-    call read_data('INPUT/vegtype','vegtype',tmpt)
-    vegtype(js:je,is:ie) = int(tmpt(js:je,is:ie)) 
+    if (const_vegtype) then
+      call read_data('INPUT/vegtype','vegtype',tmpt)
+      vegtype(js:je,is:ie) = int(tmpt(js:je,is:ie))
+    endif
 
     call read_data('INPUT/slopetype','slopetype',tmpt)
     slopetype(js:je,is:ie) = int(tmpt(js:je,is:ie))
@@ -653,7 +665,8 @@ subroutine do_land(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
     real, dimension(js:je,is:ie) :: ddvel, sfcems, vegfrac, slimsk, eta, sheat, &
                 ec, edir, et, esnow, drip, dew, beta, etp, ssoil, flx1, flx2, flx3, &
                 runoff1, runoff2, runoff3, snomlt, rc, pc, rsmin, xlai, rcs, rcq, &
-                rcsoil, soilw, soilm, smcwlt, smcdry, smcref, smcmax, rct, tsurf
+                rcsoil, soilw, soilm, smcwlt, smcdry, smcref, smcmax, rct, tsurf, &
+                tmpt
 
     integer, dimension(js:je,is:ie) :: nroot
     logical, dimension(js:je,is:ie) :: mask, guess
@@ -689,6 +702,12 @@ subroutine do_land(Time, pgr, ugrs, vgrs, tgrs, qgrs, prsl, prslki, sfcdlw, &
     mask = .false.
     where (fland>0) mask = .true.
     guess = .false.
+
+    if (.not.const_vegtype) then
+      call data_override('ATM','vegtype',tmpt,Time,ov)
+      if (.not.ov) call mpp_error(FATAL,'sfc_mod: data_override failed for vegtype !')
+      vegtype = int(tmpt)
+    endif
 
     do iter = 1, niter
     
