@@ -131,7 +131,8 @@ EOF
 if [ "$submit_combine" == "True" ]; then
 	if [ ! "$combine_only" == "True" ]; then
 		echo "Removing any previous unprocessed output files."
-		rm -f *.nc.????
+		#rm -f *.nc.????
+		find . -name "*.nc.*" -delete
 	fi
 fi
 

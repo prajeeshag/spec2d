@@ -132,16 +132,35 @@ if (all(startdate<=0).or.calendar_type==-11) then
 
     open(unit,file=trim(run_time_stamp),status='old')
     read(unit,*) calendar_type
+    read(unit,*)
     read(unit,*) startdate
     close(unit)
 endif
+
+do i = 1, 5
+  if (.not.file_exist('time_stamp.out')) then
+    call wait_seconds(60.)
+    cycle
+  else
+    open(unit,file='time_stamp.out',status='old')
+    read(unit,*)
+    read(unit,*)enddate
+    close(unit)
+    exit
+  endif
+end do
+
+if (all(enddate==0)) call mpp_error(FATAL,"Could not read enddate from time_stamp.out")
 
 call set_calendar_type(calendar_type)
 
 starttime=set_date(startdate(1),startdate(2),startdate(3), &
                   startdate(4),startdate(5),startdate(6))
 
-endtime=increment_date(starttime, years = maxrunlength)
+endtime=set_date(enddate(1),enddate(2),enddate(3), &
+                  enddate(4),enddate(5),enddate(6))
+
+!endtime=increment_date(starttime, years = maxrunlength)
 
 lowestfreq = set_time(0,days=VERY_LARGE_FILE_FREQ) !lowest frequency of output
 
@@ -199,7 +218,11 @@ if (mpp_pe()==mpp_root_pe()) then
     
                 fnm_next = trim(filenms(nf)%nm(n+1))
     
-                if (.not.all_files_exist(trim(fnm_next),0,atmpes)) cycle
+                !if (.not.all_files_exist(trim(fnm_next),0,atmpes)) then
+                if (.not.all_files_exist(trim(fnm_next),0,1)) then
+                  call mpp_error(NOTE,trim(fnm_next)//' not yet there!')
+                  cycle
+                endif
     
                 next_file_found=.true. !Atleast one next file was found
     
@@ -245,6 +268,8 @@ if (mpp_pe()==mpp_root_pe()) then
                 if (time2-time1 > maxwait) then
                     exit
                 endif
+                call mpp_error(NOTE,"Waiting for 10 seconds")
+                call wait_seconds(10.)
             endif
     
         end do
@@ -253,7 +278,7 @@ if (mpp_pe()==mpp_root_pe()) then
     
     do nf = 1, num_files
         do n = filenms(nf)%done+1, filenms(nf)%total
-            if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,atmpes)) exit
+            if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,1)) exit
             ierr = send_jobs(nf,n)
             if (ierr/=0) call quit_jobs()
             filenms(nf)%done=n
@@ -424,6 +449,7 @@ logical function all_files_exist(fnm,strt,cnt)
     do i = strt, strt+cnt-1 
         write(suffix,'(I4.4)') i
         suffix = "."//trim(adjustl(suffix))
+        if (verbose) call mpp_error(NOTE,"checking if file exist: "//trim(fnm)//trim(suffix))
         if(.not.file_exist(trim(fnm)//trim(suffix))) then
             all_files_exist=.false.
             return
@@ -474,7 +500,7 @@ subroutine set_filenames(n)
         endif
     endif
         
-    !print *, "number of file for "//trim(files(n)%name)//" = ", nfiles
+    if (verbose>0) print *, "number of file for "//trim(files(n)%name)//" = ", nfiles
     nfiles = nfiles + 1
 
     allocate(filenms(n)%nm(nfiles))
@@ -567,7 +593,6 @@ subroutine wait_seconds(seconds)
     rWait = seconds; rDT = 0.d0
     percent1=0; percent2=0
     call system_clock(iStart)
-    print *, dtime
     do while (rDT <= rWait)
         call system_clock(iNew,count_rate)
         rDT = float(iNew - iStart)/count_rate

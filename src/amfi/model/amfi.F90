@@ -6,7 +6,7 @@ use mpp_mod, only : mpp_exit, mpp_clock_id, mpp_clock_begin, mpp_clock_end
 use mpp_mod, only : mpp_sync, mpp_root_pe, mpp_broadcast, mpp_gather
 use mpp_mod, only : mpp_declare_pelist, mpp_set_current_pelist
 
-use mpp_io_mod, only : mpp_open, MPP_RDONLY
+use mpp_io_mod, only : mpp_open, MPP_RDONLY, mpp_close
 
 use mpp_domains_mod, only : mpp_define_domains, domain2d, mpp_get_compute_domain
 
@@ -36,7 +36,7 @@ integer :: restart_interval(6) = 0
 integer :: dt_atmos=0, unit, m, n
 character(len=32) :: timestamp
 
-integer :: clck_atmos
+integer :: clck_atmos, clck_atmosinit1step
 
 namelist/amfi_nml/months, days, hours, minutes, seconds, dt_atmos, restart_interval
 
@@ -86,12 +86,28 @@ end do
 
 Time_end   = Time_end + set_time(hours*3600+minutes*60+seconds, days)
 
+
+
+
 if (all(restart_interval<=0)) then
     time_restart = increment_date(Time_end,1,0,0,0,0,0)
 else
     time_restart = increment_date(Time, restart_interval(1), restart_interval(2), &
     restart_interval(3), restart_interval(4), restart_interval(5), restart_interval(6) )
 endif 
+
+if (mpp_pe()==mpp_root_pe()) then
+  call mpp_open(unit, 'time_stamp.out', nohdrs=.True.)
+  call get_date(Time_start, date(1), date(2), date(3), &
+    date(4), date(5), date(6))
+  write(unit,'(6i4,2x)') date
+  call get_date(Time_end, date(1), date(2), date(3), &
+    date(4), date(5), date(6))
+  write(unit,'(6i4,2x)') date
+  call mpp_close(unit)
+endif
+
+
 
 Run_length = Time_end - Time
 
@@ -100,13 +116,16 @@ time_step = set_time(dt_atmos,0)
 num_atmos_calls = Run_length / time_step
 
 clck_atmos = mpp_clock_id('Atmos')
+clck_atmosinit1step = mpp_clock_id('Atmos_init1step')
+
+call mpp_clock_begin(clck_atmos)
+call mpp_clock_begin(clck_atmosinit1step)
 
 call init_atmos(Time,real(dt_atmos))
 
-call mpp_clock_begin(clck_atmos)
 do n = 1, num_atmos_calls
-    call update_atmos(Time)
     Time = Time + time_step
+    call update_atmos(Time)
     if (Time >= time_restart) then
         timestamp = date_to_string(Time)
         time_restart = increment_date(Time, restart_interval(1), restart_interval(2), &
@@ -116,6 +135,7 @@ do n = 1, num_atmos_calls
         call save_restart_atmos(timestamp)
         call atm_restart(Time,timestamp) 
     endif
+    if (n==1) call mpp_clock_end(clck_atmosinit1step)
 enddo
 
 call mpp_clock_end(clck_atmos)
@@ -156,6 +176,7 @@ subroutine atm_restart(Time_run, time_stamp)
              'Model start time:   year, month, day, hour, minute, second'
         write( unit, '(6i6,8x,a)' )date, &
              'Current model time: year, month, day, hour, minute, second'
+        call mpp_close(unit)
     end if
 
     return

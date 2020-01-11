@@ -196,6 +196,22 @@ make -j $numproc
 echo "#------------------------------------------------------------------------------"
 
 
+echo "#--------------------------MAKE StackNFoldF-----------------------------------"
+cppDef="-Duse_netCDF -Dlib_xgrid"
+exe=StackNFoldF
+paths="$srcdir/preprocessing/make_grids/xgrid \
+       $srcdir/preprocessing/StackNFoldF \
+		$srcdir/amfi/ocpack $srcdir/amfi/transforms/gauss_and_legendre.F90"
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
+OPTS="-I$execdir/lib_fms_nompi"
+LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
+
+
 #echo "#--------------------------MAKE spectral_topo-----------------------------------"
 #cppDef="-Duse_netCDF -Duse_libMPI" # -Dtest_gauss_legendre"
 #exe=spectral_topo

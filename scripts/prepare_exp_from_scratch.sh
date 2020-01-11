@@ -233,7 +233,7 @@ cp $scriptdir/run_amfi_${JOBSCDLR}.sh .
 
 sed -i "s|_EXE_|$EXE|g" run_amfi_${JOBSCDLR}.sh
 
-$p_listlayout <<< "$NLAT $TRUNC" > valid_pe_layouts_${NLAT}_$TRUNC
+$p_listlayout <<< "$NLAT $TRUNC" > valid_pe_layouts_${NLAT}_T$TRUNC
 
 echo " "
 echo " "

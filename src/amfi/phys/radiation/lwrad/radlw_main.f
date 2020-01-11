@@ -342,7 +342,7 @@
 
 !  ---  public accessable subprograms
 
-      public :: lwrad, init_lwrad, nbands
+      public :: lwrad, init_lwrad, nbands, nbdlw
 
 ! ================
       contains

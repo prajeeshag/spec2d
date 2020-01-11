@@ -122,6 +122,11 @@ interface spherical_to_grid
     module procedure spherical_to_grid2D
 end interface
 
+interface register_spec_restart
+  module procedure register_spec_restart3d
+  module procedure register_spec_restart0d
+end interface register_spec_restart
+
 contains
 
 !--------------------------------------------------------------------------------   
@@ -328,13 +333,13 @@ subroutine get_lonsP(deglon)
 end subroutine get_lonsP
     
 !--------------------------------------------------------------------------------   
-function register_spec_restart(fieldname,data,mandatory,data_default)
+function register_spec_restart3d(fieldname,data,mandatory,data_default)
 !--------------------------------------------------------------------------------
     character (len=*), intent(in) :: fieldname
     complex, intent(in) :: data(:,:,:)
     real, optional, intent(in) :: data_default
     logical, optional, intent(in) :: mandatory
-    integer :: register_spec_restart 
+    integer :: register_spec_restart3d
 
     integer :: isize, jsize, idx_dom, gdom(4), layout(2), i
     type(C_PTR) :: cptr
@@ -342,7 +347,7 @@ function register_spec_restart(fieldname,data,mandatory,data_default)
    
     if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
 
-    register_spec_restart = 0
+    register_spec_restart3d = 0
 
 
     if (.not.fpe) return
@@ -370,16 +375,46 @@ function register_spec_restart(fieldname,data,mandatory,data_default)
 
     cptr = C_LOC(data)
     call c_f_pointer(cptr,rdata,[size(data,1)*2,size(data,2),size(data,3)])
-    register_spec_restart = &
+    register_spec_restart3d = &
             register_restart_field(specres, resnm, fieldname, rdata, &
-                     spresdom(idx_dom), mandatory, data_default=data_default)
+                     spresdom(idx_dom), mandatory=mandatory, data_default=data_default)
 
 
     call mpp_set_current_pelist(parentpes, no_sync=.true.)
 
     return
 
-end function register_spec_restart
+end function register_spec_restart3d
+
+
+!--------------------------------------------------------------------------------   
+function register_spec_restart0d(fieldname,rdata,mandatory,data_default)
+!--------------------------------------------------------------------------------
+    character (len=*), intent(in) :: fieldname
+    real, intent(in) :: rdata
+    real, optional, intent(in) :: data_default
+    logical, optional, intent(in) :: mandatory
+    integer :: register_spec_restart0d
+
+    integer :: isize, jsize, idx_dom, gdom(4), layout(2), i
+    type(C_PTR) :: cptr
+   
+    if(.not.initialized) call mpp_error(FATAL,'transforms_mod: module not initialized!')
+
+    register_spec_restart0d = 0
+
+    if (.not.fpe) return
+
+    call mpp_set_current_pelist(fpesy,no_sync=.true.)
+
+    register_spec_restart0d = register_restart_field(specres, resnm, fieldname, rdata, & 
+      mandatory=mandatory, data_default=data_default)
+
+    call mpp_set_current_pelist(parentpes, no_sync=.true.)
+
+    return
+
+end function register_spec_restart0d
 
 
 !--------------------------------------------------------------------------------   
