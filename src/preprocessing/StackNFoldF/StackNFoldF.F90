@@ -3,19 +3,40 @@ program amfi_xgrid
   use iso_c_binding
 
   use netcdf
-  use mpp_mod, only : mpp_init, mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, mpp_exit
+  use mpp_mod, only : mpp_init, mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, mpp_exit, mpp_npes
   use mpp_io_mod, only : MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, mpp_io_init, mpp_get_axes
   use mpp_io_mod, only : mpp_open, mpp_get_info, mpp_get_fields, mpp_get_atts, fieldtype, axistype
   use mpp_io_mod, only : mpp_read, atttype, MPP_OVERWR, mpp_modify_meta, mpp_copy_meta, mpp_write
-  use mpp_io_mod, only : mpp_close, mpp_write_meta
-  use fms_mod, only : fms_init
-  use fms_io_mod, only : read_data, field_size, fms_io_init, fms_io_exit, write_data
+  use mpp_io_mod, only : mpp_close, mpp_write_meta, mpp_get_times, mpp_get_axis_data
+  use fms_io_mod, only : field_size, read_data, fms_io_init, fms_io_exit, fms_io_init
+  use fms_io_mod, only : open_namelist_file, close_file
   use mkxgrid_mod, only : vtx, clipin, poly_area
   use gauss_and_legendre_mod, only : compute_gaussian
   use constants_mod, only : PI
   
   implicit none
   
+  character(len=128), parameter :: gridf="amfi_grid.nc"
+  character(len=13), dimension(6) :: lat_units=['degrees_north',& 
+                                                'degree_north ',& 
+                                                'degree_N     ',& 
+                                                'degrees_N    ',& 
+                                                'degreeN      ',& 
+                                                'degreesN     ']
+
+  character(len=13), dimension(6) :: lon_units=['degrees_east ',& 
+                                                'degree_east  ',& 
+                                                'degree_E     ',& 
+                                                'degrees_E    ',& 
+                                                'degreeE      ',& 
+                                                'degreesE     ']
+
+  character(len=10), dimension(2) :: lat_names=['latitude  ', &
+                                                'lat       ']
+
+  character(len=10), dimension(2) :: lon_names=['longitude ', &
+                                                'lon       ']
+
   integer, allocatable :: pxi(:), pxj(:)
   integer, allocatable :: rxi(:), rxj(:)
   real, allocatable :: rxf(:)
@@ -30,15 +51,18 @@ program amfi_xgrid
   type(fieldtype), allocatable :: ofields(:)
   type(fieldtype), allocatable :: fields(:)
   type(axistype) :: time_axis
+  real, allocatable :: times(:)
   character(len=32) :: time_axis_name="NOTIME"
-  character(len=128) :: lon_nm='lon', lat_nm='lat'
+  character(len=128) :: lon_nm='NONAME', lat_nm='NONAME'
   
   integer :: stat, xn, i, np=10
   real, parameter :: eps1 = 1e-10
   real, allocatable :: data2d(:,:), rdata2d(:,:)
   real, allocatable :: data3d(:,:,:), rdata3d(:,:,:)
   
-  character(len=512) :: file_nm="in.nc", gridf="amfi_grid.nc"
+  character(len=512) :: in_file="in.nc"
+  character(len=512) :: out_file="snf_out.nc"
+
   character(len=128) :: var_nm(50)
   integer, target :: kk, jj, ii
   integer, pointer :: kp, jp, ip
@@ -46,20 +70,22 @@ program amfi_xgrid
   integer :: ocnx, ocny
 
   logical :: debug=.false.
+  integer :: unit
 
   
-  namelist/snf_nml/file_nm, var_nm, lon_nm, lat_nm, np, debug
+  namelist/snf_nml/in_file, var_nm, lon_nm, lat_nm, np, debug
   
   call mpp_init()
   call mpp_io_init()
-  call fms_init()
   call fms_io_init()
   
   do i = 1, size(var_nm)
     var_nm(i)="NONAME"
   end do
 
-  read(*,nml=snf_nml)
+  unit = open_namelist_file()
+  read(unit,nml=snf_nml)
+  call close_file(unit)
 
   if (mpp_pe()==mpp_root_pe()) then
     write(*,nml=snf_nml)
@@ -84,25 +110,22 @@ program amfi_xgrid
       real, allocatable :: wts_hem(:), wts_lat(:), sin_hem(:)
       integer :: siz(4), i, j
       real :: dlon, sumwts=0., dlat
+      type(axistype), allocatable :: axes(:)
 
-      call field_size(trim(file_nm),trim(lon_nm),siz)
-      nlon = siz(1)
-      call mpp_error(NOTE,"read nlon")
+      call mpp_open(iunit,trim(in_file),action=MPP_RDONLY, &
+                    form=MPP_NETCDF,threading=MPP_MULTI,fileset=MPP_SINGLE)
 
-      call field_size(trim(file_nm),trim(lat_nm),siz)
-      nlat = siz(1)
-      call mpp_error(NOTE,"read nlat")
+      call mpp_get_info(iunit, ndim, nvar, natt, ntime)
 
-      allocate(lat(nlat))
+      allocate(fields(nvar))
+      allocate(axes(ndim))
+
+      call mpp_get_axes(iunit, axes, time_axis=time_axis)
+
+      call set_lonlat(axes)
+
       allocate(latb(nlat+1))
-
-      allocate(lon(nlon))
       allocate(lonb(nlon+1))
-
-      call read_data(trim(file_nm),trim(lat_nm),lat)
-      call mpp_error(NOTE,"read lat")
-      call read_data(trim(file_nm),trim(lon_nm),lon)
-      call mpp_error(NOTE,"read lon")
 
       if (ifgaussian(lat)) then
         call mpp_error(NOTE,"Input data is in gaussian latitudes.")
@@ -140,10 +163,78 @@ program amfi_xgrid
       end do
 
     end subroutine initialize_input_grid
+
+
+    subroutine set_lonlat(axes)
+      type(axistype), intent(in) :: axes(:)
+      
+      integer :: i, siz
+      character(len=13) :: units
+      character(len=128) :: name
+
+      if (trim(lon_nm)=='NONAME') then
+        do i = 1, size(axes,1)
+          call mpp_get_atts(axes(i),units=units,name=name,len=siz)
+          units = trim(adjustl(units))
+          name = trim(adjustl(name))
+          if (any(units==lon_units) .or. any(name(1:10)==lon_names) ) then
+            lon_nm=name
+            nlon=siz
+            if (allocated(lon)) call mpp_error(FATAL,"Cannot have more than one longitude axis in file")
+            allocate(lon(nlon))
+            call mpp_get_axis_data(axes(i),lon)
+          endif
+        end do
+      else
+        do i = 1, size(axes,1)
+          call mpp_get_atts(axes(i),units=units,name=name,len=siz)
+          name = trim(adjustl(name))
+          if (trim(name)==trim(lon_nm)) then
+            nlon=siz
+            if (allocated(lon)) call mpp_error(FATAL,"Cannot have more than one longitude axis in file")
+            allocate(lon(nlon))
+            call mpp_get_axis_data(axes(i),lon)
+            exit
+          endif
+        end do
+      end if
+
+      if (trim(lon_nm)=='NONAME') call mpp_error(FATAL,"Could'nt find longitude")
+
+      if (trim(lat_nm)=='NONAME') then
+        do i = 1, size(axes,1)
+          call mpp_get_atts(axes(i),units=units,name=name,len=siz)
+          units = trim(adjustl(units))
+          name = trim(adjustl(name))
+          if (any(units==lat_units) .or. any(name(1:10)==lat_names) ) then
+            lat_nm=name
+            nlat=siz
+            if (allocated(lat)) call mpp_error(FATAL,"Cannot have more than one latitude axis in file")
+            allocate(lat(nlat))
+            call mpp_get_axis_data(axes(i),lat)
+          endif
+        end do
+      else
+        do i = 1, size(axes,1)
+          call mpp_get_atts(axes(i),units=units,name=name,len=siz)
+          name = trim(adjustl(name))
+          if (trim(name)==trim(lat_nm)) then
+            nlat=siz
+            if (allocated(lat)) call mpp_error(FATAL,"Cannot have more than one latitude axis in file")
+            allocate(lat(nlat))
+            call mpp_get_axis_data(axes(i),lat)
+            exit
+          endif
+        end do
+      end if
+
+      if (trim(lat_nm)=='NONAME') call mpp_error(FATAL,"Could'nt find latitude")
+
+    end subroutine set_lonlat
   
 
     function open_files_copy_meta()
-      type(axistype), allocatable :: axes(:)
+      type(axistype) :: axes(ndim)
       type(atttype), allocatable :: gatt(:)
       character(len=128) :: nm, cart
       integer :: n, siz(4), ndimv
@@ -151,19 +242,10 @@ program amfi_xgrid
 
       open_files_copy_meta=.true.
 
-      call mpp_open(iunit,trim(file_nm),action=MPP_RDONLY, &
-                    form=MPP_NETCDF,threading=MPP_MULTI,fileset=MPP_SINGLE)
-
-      call mpp_get_info(iunit, ndim, nvar, natt, ntime)
-
-      allocate(fields(nvar))
-      allocate(axes(ndim))
-      allocate(gatt(natt))
-
-      call mpp_get_axes(iunit, axes, time_axis=time_axis)
-
       if (ntime > 0) then
         call mpp_get_atts(time_axis, name=time_axis_name)
+        allocate(times(ntime))
+        call mpp_get_times(iunit, times)
       endif
 
       call mpp_get_fields(iunit,fields)
@@ -181,8 +263,9 @@ program amfi_xgrid
         return
       endif
 
-      call mpp_open(ounit,"o_"//trim(file_nm),action=MPP_OVERWR, &
-                    form=MPP_NETCDF,threading=MPP_MULTI,fileset=MPP_SINGLE)
+      call mpp_open(ounit,trim(out_file),action=MPP_OVERWR, &
+                    form=MPP_NETCDF,threading=MPP_MULTI,&
+                    nc4parallel=.true.)
 
       !do n = 1, natt
       !  call mpp_copy_meta(ounit,gatt(n))
@@ -211,18 +294,58 @@ program amfi_xgrid
       integer :: n, ndimv
       type(axistype) :: axes(ndim)
       character(len=64) :: nm
+      integer :: id_k, t, ti
+      integer :: tstart, tstep, tend
+      logical :: hstime, hslatlon
 
-      do n = 1, nvar
-        call mpp_get_atts(fields(n),name=nm,ndim=ndimv,axes=axes)
-        if (.not.haslatlon(axes(1:ndimv))) then
-        
-        else  
-          print *, trim(nm)
-          call init_rearrange(axes(1:ndimv))
-          if (notTXY(axes(1:ndimv))<1) then
-            call do_interpolation2d(n,hastime(axes(1:ndimv)))
+      !tstart = mpp_pe()+1
+      !tstep = mpp_npes()
+
+      tstart = mpp_pe()+1
+      tstep = mpp_npes()
+      tend = ntime + (tstep-mod(ntime,tstep))
+
+      if (mpp_pe()==mpp_root_pe()) then
+        do n = 1, nvar
+          call mpp_get_atts(fields(n),name=nm,ndim=ndimv,axes=axes)
+          hstime = hastime(axes(1:ndimv))
+          if (hstime) cycle
+          if (.not.haslatlon(axes(1:ndimv))) then
+          
+          else  
+            call mpp_error(NOTE,'Interpolating .... '//trim(nm))
+            call init_rearrange(axes(1:ndimv))
+            id_k=notTXY(axes(1:ndimv))
+            ti = -1
+            if (id_k<1) then
+              call do_interpolation2d(n,ti)
+            else
+              call do_interpolation3d(n,ti,id_k)
+            endif
           endif
-        endif
+        end do
+      endif
+
+      do t = tstart, tend, tstep
+        do n = 1, nvar
+          call mpp_get_atts(fields(n),name=nm,ndim=ndimv,axes=axes)
+          hstime = hastime(axes(1:ndimv))
+          if (.not.hstime) cycle
+          if (.not.haslatlon(axes(1:ndimv))) then
+          
+          else  
+            call mpp_error(NOTE,'Interpolating .... '//trim(nm))
+            call init_rearrange(axes(1:ndimv))
+            id_k=notTXY(axes(1:ndimv))
+            ti = t
+            if (t > ntime) ti=t-tstep
+            if (id_k<1) then
+              call do_interpolation2d(n,ti)
+            else
+              call do_interpolation3d(n,ti,id_k)
+            endif
+          endif
+        end do
       end do
 
       call mpp_close(ounit)
@@ -340,10 +463,58 @@ program amfi_xgrid
     end subroutine modify_axes
 
 
-    subroutine do_interpolation2d(ni,istime)
+    subroutine do_interpolation3d(ni, itime, id_k)
+      integer, intent(in) :: ni, id_k
+      integer, intent(in) :: itime
+      integer :: siz(4), n, t, k
+
+      call mpp_get_atts(fields(ni),siz=siz)
+
+      if (allocated(data3d)) deallocate(data3d)
+
+      allocate(data3d(siz(1),siz(2),siz(3)))
+      if (.not.allocated(rdata3d)) allocate(rdata3d(siz(id_k),ocny,ocnx))
+
+      if (itime>0) then
+        t = itime
+        print *, 'pe, time =', mpp_pe(), t
+        call mpp_read(iunit, fields(ni), data3d, t)
+        rdata3d = 0.
+        do n = 1, xn
+          ip = rxi(n)
+          jp = rxj(n)
+          do k = 1, siz(id_k)
+            kp = k
+            if (debug) print *, ii, jj, kk
+            rdata3d(k,pxj(n),pxi(n)) = rdata3d(k,pxj(n),pxi(n)) + &
+              data3d(ii,jj,kk) * pxf(n)
+          end do
+        end do
+        call mpp_write(ounit,ofields(ni),rdata3d,times(t))
+      else
+        call mpp_read(iunit, fields(ni), data3d)
+        rdata3d = 0.
+        do n = 1, xn
+          ip = rxi(n)
+          jp = rxj(n)
+          do k = 1, siz(id_k)
+            kp = k
+            if (debug) print *, ii, jj, kk
+            rdata3d(k,pxj(n),pxi(n)) = rdata3d(k,pxj(n),pxi(n)) + &
+              data3d(ii,jj,kk) * pxf(n)
+          end do
+        end do
+        call mpp_write(ounit,ofields(ni),rdata3d)
+      end if
+
+    end subroutine do_interpolation3d
+
+
+    subroutine do_interpolation2d(ni,itime)
       integer, intent(in) :: ni
-      logical, intent(in) :: istime
-      integer :: siz(4), n
+      integer, intent(in) :: itime
+      integer :: siz(4), n, t
+
 
       call mpp_get_atts(fields(ni),siz=siz)
 
@@ -352,8 +523,10 @@ program amfi_xgrid
       allocate(data2d(siz(1),siz(2)))
       if (.not.allocated(rdata2d)) allocate(rdata2d(ocny,ocnx))
 
-      if (istime) then
-        call mpp_read(iunit, fields(ni), data2d, 1)
+      if (itime>0) then
+        t = itime
+        print *, 'pe, time =', mpp_pe(), t
+        call mpp_read(iunit, fields(ni), data2d, t)
         rdata2d = 0.
         do n = 1, xn
           ip = rxi(n)
@@ -362,7 +535,7 @@ program amfi_xgrid
           rdata2d(pxj(n),pxi(n)) = rdata2d(pxj(n),pxi(n)) + &
             data2d(ii,jj) * pxf(n)
         end do
-        call mpp_write(ounit,ofields(ni),rdata2d,1.)
+        call mpp_write(ounit,ofields(ni),rdata2d,times(t))
       else
         call mpp_read(iunit, fields(ni), data2d)
         rdata2d = 0.
@@ -405,11 +578,11 @@ program amfi_xgrid
       elseif (trim(get_name(axes(3)))==trim(lon_nm)) then
         ip => kk
         if (trim(get_name(axes(1)))==trim(lat_nm)) then
-          jp = ii
-          kp = jj
+          jp => ii
+          kp => jj
         else
-          jp = jj
-          kp = ii
+          jp => jj
+          kp => ii
         endif 
       endif
 

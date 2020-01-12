@@ -82,25 +82,25 @@ if [ -z "$FFTW_DIR" ]; then
 fi
 
 
-echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
-paths="$srcdir/shared/mpp $srcdir/shared/include \
-       $srcdir/shared/mpp/include \
-       $srcdir/shared/fms $srcdir/shared/platform \
-       $srcdir/shared/memutils $srcdir/shared/constants \
-       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
-	   $srcdir/shared/time_manager $srcdir/shared/data_override \
-       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
-       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
-       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
-	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
-	   $srcdir/shared/strman"
-
-cppDef="-Duse_netCDF"
-mkdir -p $execdir/lib_fms_nompi
-cd $execdir/lib_fms_nompi
-$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
+#paths="$srcdir/shared/mpp $srcdir/shared/include \
+#       $srcdir/shared/mpp/include \
+#       $srcdir/shared/fms $srcdir/shared/platform \
+#       $srcdir/shared/memutils $srcdir/shared/constants \
+#       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
+#	   $srcdir/shared/time_manager $srcdir/shared/data_override \
+#       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
+#       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
+#       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
+#	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
+#	   $srcdir/shared/strman"
+#
+#cppDef="-Duse_netCDF"
+#mkdir -p $execdir/lib_fms_nompi
+#cd $execdir/lib_fms_nompi
+#$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 
 echo "#-----------------------------MAKE FMS LIBRARY MPI---------------------------------"
@@ -116,7 +116,7 @@ paths="$srcdir/shared/mpp $srcdir/shared/include \
 	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
 	   $srcdir/shared/strman"
 
-cppDef="-Duse_netCDF -Duse_libMPI"
+cppDef="-Duse_netCDF -Duse_netCDF4par -Duse_libMPI"
 mkdir -p $execdir/lib_fms
 cd $execdir/lib_fms
 $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $paths
@@ -139,31 +139,31 @@ echo "#-------------------------------------------------------------------------
 
 
 
-echo "#--------------------------MAKE AMFI_GRID-----------------------------------"
-cppDef="-Duse_netCDF "
-exe=amfi_grid
-paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
-		$srcdir/amfi/transforms/gauss_and_legendre.F90"
-export LD=$FC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-OPTS="-I$execdir/lib_fms_nompi"
-LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
-$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
-
-
-echo "#--------------------------MAKE XGRID-----------------------------------"
-cppDef="-Duse_netCDF"
-exe=xgrid
-paths="$srcdir/preprocessing/make_grids/xgrid"
-export LD=$CC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#--------------------------MAKE AMFI_GRID-----------------------------------"
+#cppDef="-Duse_netCDF "
+#exe=amfi_grid
+#paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
+#		$srcdir/amfi/transforms/gauss_and_legendre.F90"
+#export LD=$FC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#OPTS="-I$execdir/lib_fms_nompi"
+#LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
+#
+#
+#echo "#--------------------------MAKE XGRID-----------------------------------"
+#cppDef="-Duse_netCDF"
+#exe=xgrid
+#paths="$srcdir/preprocessing/make_grids/xgrid"
+#export LD=$CC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 
 #echo "#--------------------------MAKE XREGRID-----------------------------------"
@@ -180,20 +180,20 @@ echo "#-------------------------------------------------------------------------
 #echo "#------------------------------------------------------------------------------"
 
 
-echo "#--------------------------MAKE P2R_XGRID-----------------------------------"
-cppDef="-Duse_netCDF -Dlib_xgrid"
-exe=p2r_xgrid
-paths="$srcdir/preprocessing/make_grids/xgrid \
-       $srcdir/preprocessing/make_grids/p2r_xgrid \
-		$srcdir/amfi/ocpack $srcdir/amfi/transforms/gauss_and_legendre.F90"
-export LD=$FC
-mkdir -p $execdir/$exe
-cd $execdir/$exe
-OPTS="-I$execdir/lib_fms_nompi"
-LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
-$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
-make -j $numproc
-echo "#------------------------------------------------------------------------------"
+#echo "#--------------------------MAKE P2R_XGRID-----------------------------------"
+#cppDef="-Duse_netCDF -Dlib_xgrid"
+#exe=p2r_xgrid
+#paths="$srcdir/preprocessing/make_grids/xgrid \
+#       $srcdir/preprocessing/make_grids/p2r_xgrid \
+#		$srcdir/amfi/ocpack $srcdir/amfi/transforms/gauss_and_legendre.F90"
+#export LD=$FC
+#mkdir -p $execdir/$exe
+#cd $execdir/$exe
+#OPTS="-I$execdir/lib_fms_nompi"
+#LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+#$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+#make -j $numproc
+#echo "#------------------------------------------------------------------------------"
 
 
 echo "#--------------------------MAKE StackNFoldF-----------------------------------"
@@ -205,8 +205,8 @@ paths="$srcdir/preprocessing/make_grids/xgrid \
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms_nompi"
-LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"

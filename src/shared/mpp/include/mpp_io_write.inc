@@ -849,7 +849,7 @@
       integer,           intent(in), optional :: tile_count
       integer, dimension(size(field%axes(:))) :: start, axsiz
       real(DOUBLE_KIND) :: time
-      integer :: time_level
+      integer :: time_level, time_level_inc
       logical :: newtime
       integer :: subdomain(4)
       integer :: packed_data(nwords)
@@ -892,10 +892,21 @@
       time = NULLTIME
       time_level = -1
       newtime = .FALSE.
+	  time_level_inc = 1
+	  if (mpp_file(unit)%nc4parallel.and.PRESENT(time_in)) then
+#ifdef use_netCDF4par
+        error = NF_VAR_PAR_ACCESS(mpp_file(unit)%ncid,field%id,NF_COLLECTIVE)
+        call netcdf_err( error, mpp_file(unit), field=field )
+#endif
+	  	time_level_inc = mpp_npes() 
+		if (mpp_file(unit)%time_level < 1) then
+			time_level_inc = mpp_pe() + 1
+		end if
+	  end if
       if( PRESENT(time_in) )time = time_in
 !increment time level if new time
       if( time.GT.mpp_file(unit)%time+EPSILON(time) )then !new time
-          mpp_file(unit)%time_level = mpp_file(unit)%time_level + 1
+          mpp_file(unit)%time_level = mpp_file(unit)%time_level + time_level_inc
           mpp_file(unit)%time = time
           newtime = .TRUE.
       end if
