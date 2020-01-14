@@ -3,7 +3,7 @@ program amfi_xgrid
   use iso_c_binding
 
   use netcdf
-  use mpp_mod, only : mpp_init, mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, mpp_exit, mpp_npes
+  use mpp_mod, only : mpp_init, mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, mpp_exit, mpp_npes, mpp_broadcast
   use mpp_io_mod, only : MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, mpp_io_init, mpp_get_axes
   use mpp_io_mod, only : mpp_open, mpp_get_info, mpp_get_fields, mpp_get_atts, fieldtype, axistype
   use mpp_io_mod, only : mpp_read, atttype, MPP_OVERWR, mpp_modify_meta, mpp_copy_meta, mpp_write
@@ -16,7 +16,7 @@ program amfi_xgrid
   
   implicit none
   
-  character(len=128), parameter :: gridf="amfi_grid.nc"
+  character(len=128), parameter :: gridf="amfi_grid.nc", gridf1="grid_spec.nc"
   character(len=13), dimension(6) :: lat_units=['degrees_north',& 
                                                 'degree_north ',& 
                                                 'degree_N     ',& 
@@ -50,6 +50,7 @@ program amfi_xgrid
   type(axistype), allocatable :: oaxes(:)
   type(fieldtype), allocatable :: ofields(:)
   type(fieldtype), allocatable :: fields(:)
+
   type(axistype) :: time_axis
   real, allocatable :: times(:)
   character(len=32) :: time_axis_name="NOTIME"
@@ -57,8 +58,8 @@ program amfi_xgrid
   
   integer :: stat, xn, i, np=10
   real, parameter :: eps1 = 1e-10
-  real, allocatable :: data2d(:,:), rdata2d(:,:)
-  real, allocatable :: data3d(:,:,:), rdata3d(:,:,:)
+  logical, allocatable, dimension(:,:) :: lmask
+  integer, allocatable, dimension(:,:) :: max_area_loc
   
   character(len=512) :: in_file="in.nc"
   character(len=512) :: out_file="snf_out.nc"
@@ -67,13 +68,13 @@ program amfi_xgrid
   integer, target :: kk, jj, ii
   integer, pointer :: kp, jp, ip
 
-  integer :: ocnx, ocny
+  integer :: ocnx, ocny, search_frac=4
 
-  logical :: debug=.false.
+  logical :: debug=.false., typedata=.false., landdata=.false.
   integer :: unit
 
   
-  namelist/snf_nml/in_file, var_nm, lon_nm, lat_nm, np, debug
+  namelist/snf_nml/in_file, out_file, lon_nm, lat_nm, np, debug, typedata, landdata, search_frac
   
   call mpp_init()
   call mpp_io_init()
@@ -83,13 +84,21 @@ program amfi_xgrid
     var_nm(i)="NONAME"
   end do
 
-  unit = open_namelist_file()
-  read(unit,nml=snf_nml)
-  call close_file(unit)
-
   if (mpp_pe()==mpp_root_pe()) then
+    read(*,nml=snf_nml)
     write(*,nml=snf_nml)
   endif
+
+  call broadcast_char(in_file)
+  call broadcast_char(out_file)
+  call broadcast_char(lon_nm)
+  call broadcast_char(lat_nm)
+
+  call mpp_broadcast(np,mpp_root_pe())
+  call mpp_broadcast(debug,mpp_root_pe())
+  call mpp_broadcast(typedata,mpp_root_pe())
+  call mpp_broadcast(landdata,mpp_root_pe())
+  call mpp_broadcast(search_frac,mpp_root_pe())
 
   call initialize_input_grid()
 
@@ -267,6 +276,7 @@ program amfi_xgrid
                     form=MPP_NETCDF,threading=MPP_MULTI,&
                     nc4parallel=.true.)
 
+      call mpp_write_meta(ounit,'in_file',cval=trim(in_file))
       !do n = 1, natt
       !  call mpp_copy_meta(ounit,gatt(n))
       !end do
@@ -294,12 +304,10 @@ program amfi_xgrid
       integer :: n, ndimv
       type(axistype) :: axes(ndim)
       character(len=64) :: nm
-      integer :: id_k, t, ti
-      integer :: tstart, tstep, tend
-      logical :: hstime, hslatlon
-
-      !tstart = mpp_pe()+1
-      !tstep = mpp_npes()
+      integer :: id_k, t, ti, id_x, id_y
+      integer :: tstart, tstep, tend, siz(4), siz_r(4)
+      logical :: hstime, hslatlon, istype
+      character(len=32) :: units
 
       tstart = mpp_pe()+1
       tstep = mpp_npes()
@@ -307,43 +315,72 @@ program amfi_xgrid
 
       if (mpp_pe()==mpp_root_pe()) then
         do n = 1, nvar
-          call mpp_get_atts(fields(n),name=nm,ndim=ndimv,axes=axes)
+          call mpp_get_atts(fields(n), name=nm, ndim=ndimv, axes=axes, &
+            units=units, siz=siz)
+
+          istype = typedata.or.trim(adjustl(units))=='types'
+
           hstime = hastime(axes(1:ndimv))
+
           if (hstime) cycle
+
           if (.not.haslatlon(axes(1:ndimv))) then
           
           else  
             call mpp_error(NOTE,'Interpolating .... '//trim(nm))
             call init_rearrange(axes(1:ndimv))
-            id_k=notTXY(axes(1:ndimv))
+
+            id_k=id_Kaxis(axes(1:ndimv))
+            id_x=id_Xaxis(axes(1:ndimv))
+            id_y=id_Yaxis(axes(1:ndimv))
+
+            siz_r(1)=siz(id_x)
+            siz_r(2)=siz(id_y)
+
             ti = -1
+
             if (id_k<1) then
-              call do_interpolation2d(n,ti)
+              call do_interpolation2d(fields(n), ofields(n), ti, siz, siz_r)
             else
-              call do_interpolation3d(n,ti,id_k)
+              !call do_interpolation3d(fields(n), ofields(n), itime, siz, siz_r)
             endif
+
           endif
         end do
       endif
 
       do t = tstart, tend, tstep
+        ti = t
+        if (ti > ntime) ti=ti-tstep
         do n = 1, nvar
-          call mpp_get_atts(fields(n),name=nm,ndim=ndimv,axes=axes)
+          call mpp_get_atts(fields(n), name=nm, ndim=ndimv, axes=axes, &
+            units=units, siz=siz)
+
+          istype = typedata.or.trim(adjustl(units))=='types'
+
           hstime = hastime(axes(1:ndimv))
+
           if (.not.hstime) cycle
+
           if (.not.haslatlon(axes(1:ndimv))) then
           
           else  
             call mpp_error(NOTE,'Interpolating .... '//trim(nm))
             call init_rearrange(axes(1:ndimv))
-            id_k=notTXY(axes(1:ndimv))
-            ti = t
-            if (t > ntime) ti=t-tstep
+
+            id_k=id_Kaxis(axes(1:ndimv))
+            id_x=id_Xaxis(axes(1:ndimv))
+            id_y=id_Yaxis(axes(1:ndimv))
+
+            siz_r(1)=siz(id_x)
+            siz_r(2)=siz(id_y)
+
             if (id_k<1) then
-              call do_interpolation2d(n,ti)
+              call do_interpolation2d(fields(n), ofields(n), ti, siz, siz_r)
             else
-              call do_interpolation3d(n,ti,id_k)
+              !call do_interpolation3d(fields(n), ofields(n), itime, siz, siz_r)
             endif
+
           endif
         end do
       end do
@@ -354,202 +391,278 @@ program amfi_xgrid
     end subroutine process_vars
 
 
-    subroutine modify_fields(flds)
-      type(fieldtype), intent(in) :: flds(:)
-      integer :: i, j, ndimv, ndimv1, idk
-      type(axistype) :: axes(ndim), axes1(ndim)
-      character(len=128) :: nm, units, longname
-      real :: minv, maxv, scalev, add, missing
+    subroutine do_interpolation2d(field,ofield,itime,siz,siz_r)
 
-      print *, 'ndim=', ndim
+      type(fieldtype), intent(in) :: field, ofield
+      integer, intent(in) :: itime, siz(:), siz_r(:)
 
-      allocate(ofields(nvar))
-      do i = 1, nvar
-        call mpp_get_atts(flds(i), name=nm, units=units, longname=longname, min=minv, &
-          max=maxv, missing=missing, ndim=ndimv, axes=axes, scale=scalev, add=add)
+      real, dimension(siz(1),siz(2)) :: idata
+      real, dimension(siz_r(1),siz_r(2)) :: idatar
+      real, dimension(ocny,ocnx) :: odata
+      real :: missing
+      character(len=32) :: units
+      logical :: istype
 
 
-        if (.not.haslatlon(axes(1:ndimv))) then
-          ofields(i) = flds(i)
-          cycle
-        end if
-
-        if (hastime(axes(1:ndimv))) then
-          axes1(ndimv) = time_axis
-        endif
-
-        idk=notTXY(axes(1:ndimv))
-
-        if (idk>0) then
-          axes1(1) = axes(idk)
-          axes1(2) = oaxes(yid)
-          axes1(3) = oaxes(xid)
-        else
-          axes1(1) = oaxes(yid)
-          axes1(2) = oaxes(xid)
-        endif
-
-        call mpp_write_meta(ounit, ofields(i), axes=axes1(1:ndimv), name=nm, units=units, &
-          longname=longname, standard_name=longname, min=minv, max=maxv, missing=missing, &
-          scale=scalev, add=add)
-
-     end do
-
-    end subroutine modify_fields
-
-
-    function notTXY(axes)
-      type(axistype), intent(inout) :: axes(:)
-      integer :: notTXY, i
-
-      notTXY=0
-      do i = 1, size(axes,1)
-        if (trim(get_name(axes(i)))==trim(lat_nm) .or. &
-            trim(get_name(axes(i)))==trim(lon_nm) .or. &
-            trim(get_name(axes(i)))==trim(time_axis_name)) cycle
-        notTXY=i
-        exit
-      end do
-    end function notTXY
-
-    function id_Y(axes)
-      type(axistype), intent(inout) :: axes(:)
-      integer :: id_Y, i
-
-      id_Y=0
-      do i = 1, size(axes,1)
-        if (trim(get_name(axes(i)))==trim(lat_nm)) then
-          id_Y=i
-          exit
-        endif
-      end do
-    end function id_Y
-
-    function id_X(axes)
-      type(axistype), intent(inout) :: axes(:)
-      integer :: id_X, i
-
-      id_X=0
-      do i = 1, size(axes,1)
-        if (trim(get_name(axes(i)))==trim(lon_nm)) then
-          id_X=i
-          exit
-        endif
-      end do
-    end function id_X
-
-
-    subroutine modify_axes(axes)
-      type(axistype), intent(inout) :: axes(:)
-      real, allocatable :: tmp(:)
-
-      integer :: i, j
-
-      do i = 1, size(axes,1)
-        if (trim(get_name(axes(i)))==trim(lat_nm)) then
-          allocate(tmp(ocny))
-          tmp=[(j, j=1, ocny)]
-          call mpp_modify_meta(axes(i), 'y', 'nounit', 'y', 'Y', tmp)
-          yid=i
-        elseif (trim(get_name(axes(i)))==trim(lon_nm)) then
-          allocate(tmp(ocnx))
-          tmp=[(j, j=1, ocnx)]
-          call mpp_modify_meta(axes(i), 'x', 'nounit', 'x', 'X', tmp)
-          xid=i
-        end if
-        if (allocated(tmp)) deallocate(tmp)
-      end do
-
-    end subroutine modify_axes
-
-
-    subroutine do_interpolation3d(ni, itime, id_k)
-      integer, intent(in) :: ni, id_k
-      integer, intent(in) :: itime
-      integer :: siz(4), n, t, k
-
-      call mpp_get_atts(fields(ni),siz=siz)
-
-      if (allocated(data3d)) deallocate(data3d)
-
-      allocate(data3d(siz(1),siz(2),siz(3)))
-      if (.not.allocated(rdata3d)) allocate(rdata3d(siz(id_k),ocny,ocnx))
+      call mpp_get_atts(field, units=units, missing=missing)
 
       if (itime>0) then
-        t = itime
-        print *, 'pe, time =', mpp_pe(), t
-        call mpp_read(iunit, fields(ni), data3d, t)
-        rdata3d = 0.
-        do n = 1, xn
-          ip = rxi(n)
-          jp = rxj(n)
-          do k = 1, siz(id_k)
-            kp = k
-            if (debug) print *, ii, jj, kk
-            rdata3d(k,pxj(n),pxi(n)) = rdata3d(k,pxj(n),pxi(n)) + &
-              data3d(ii,jj,kk) * pxf(n)
-          end do
-        end do
-        call mpp_write(ounit,ofields(ni),rdata3d,times(t))
+        print *, 'pe, time =', mpp_pe(), itime
+        call mpp_read(iunit, field, idata, itime)
       else
-        call mpp_read(iunit, fields(ni), data3d)
-        rdata3d = 0.
-        do n = 1, xn
-          ip = rxi(n)
-          jp = rxj(n)
-          do k = 1, siz(id_k)
-            kp = k
-            if (debug) print *, ii, jj, kk
-            rdata3d(k,pxj(n),pxi(n)) = rdata3d(k,pxj(n),pxi(n)) + &
-              data3d(ii,jj,kk) * pxf(n)
-          end do
-        end do
-        call mpp_write(ounit,ofields(ni),rdata3d)
+        call mpp_read(iunit, field, idata)
+      endif
+
+      istype = typedata.or.trim(adjustl(units))=='types'
+
+      if (istype) then
+        where(idata<1) idata=missing   !everything < 1 is considered as missing
+        call interpolate2d_type(idata,odata,missing) 
+      else
+        call interpolate2d(idata,odata,missing)
+      endif
+
+      if(any(odata==missing)) then
+        call rearrange2d(idata,idatar)
+        call fill_miss2d(odata,idatar,missing,lmask)
+        if (istype) where(odata==missing) odata=0. !zero is the missing value for type data
       end if
 
-    end subroutine do_interpolation3d
-
-
-    subroutine do_interpolation2d(ni,itime)
-      integer, intent(in) :: ni
-      integer, intent(in) :: itime
-      integer :: siz(4), n, t
-
-
-      call mpp_get_atts(fields(ni),siz=siz)
-
-      if (allocated(data2d)) deallocate(data2d)
-
-      allocate(data2d(siz(1),siz(2)))
-      if (.not.allocated(rdata2d)) allocate(rdata2d(ocny,ocnx))
-
-      if (itime>0) then
-        t = itime
-        print *, 'pe, time =', mpp_pe(), t
-        call mpp_read(iunit, fields(ni), data2d, t)
-        rdata2d = 0.
-        do n = 1, xn
-          ip = rxi(n)
-          jp = rxj(n)
-          if (debug) print *, ii, jj, kk
-          rdata2d(pxj(n),pxi(n)) = rdata2d(pxj(n),pxi(n)) + &
-            data2d(ii,jj) * pxf(n)
-        end do
-        call mpp_write(ounit,ofields(ni),rdata2d,times(t))
-      else
-        call mpp_read(iunit, fields(ni), data2d)
-        rdata2d = 0.
-        do n = 1, xn
-          ip = rxi(n)
-          jp = rxj(n)
-          rdata2d(pxj(n),pxi(n)) = rdata2d(pxj(n),pxi(n)) + &
-            data2d(ii,jj) * pxf(n)
-        end do
-        call mpp_write(ounit,ofields(ni),rdata2d)
-      end if
+      call write_data2d(ofield, itime, odata)
 
     end subroutine do_interpolation2d
 
+
+    subroutine interpolate2d_type(idata, odata, missing)
+      real, intent(in) :: idata(:,:), missing
+      real, intent(out) :: odata(:,:)
+
+      !local
+      integer :: n, t, k, ntypes, maxtype
+      integer, allocatable :: itypes(:)
+      real, dimension(size(idata,1),size(idata,2)) :: iidata
+      real, dimension(size(odata,1),size(odata,2)) :: iodata, rodata
+
+      iidata = idata
+
+      ntypes=0
+      where(iidata==missing) iidata=0.
+
+      do while (any(iidata/=0.))
+        ntypes = ntypes + 1
+        maxtype = maxval(iidata)
+        where(iidata==maxtype) iidata=0. 
+      end do
+
+      if (ntypes==0) then
+        odata=0.
+        return
+      endif
+
+      allocate(itypes(ntypes))
+
+      iidata = idata
+      where(iidata==missing) iidata=0.
+      ntypes=0
+      do while (any(iidata/=0.))
+        ntypes = ntypes + 1
+        maxtype = maxval(iidata)
+        itypes(ntypes) = maxtype
+        where(iidata==maxtype) iidata=0. 
+      end do
+
+      iodata = missing
+      rodata = 0.
+      do n = 1, ntypes
+        iidata = 0.
+        maxtype = itypes(n)
+        where(iidata==maxtype) iidata=1.
+        call interpolate2d(iidata,odata,missing)
+        where(odata>rodata) 
+          iodata = maxtype
+          rodata = odata
+        endwhere
+      end do
+
+      odata = iodata
+      deallocate(itypes)
+
+    end subroutine interpolate2d_type
+
+
+    subroutine rearrange2d(idata,idatar)
+      real, intent(in), dimension(:,:) :: idata
+      real, intent(out), dimension(:,:) :: idatar
+
+      integer :: n, j, i, j1, i1, swipe
+      real :: rval
+     
+      do n = 1, xn
+        ip = rxi(n)
+        jp = rxj(n)
+        idatar(ip,jp) = idata(ii,jj)
+      end do
+
+    end subroutine rearrange2d
+
+
+    subroutine interpolate2d(idata,odata,missing)
+      real, intent(in), dimension(:,:) :: idata
+      real, intent(out), dimension(:,:) :: odata
+      real, intent(in) :: missing
+
+      real, dimension(size(odata,1),size(odata,2)) :: denom
+      integer :: n, j, i, j1, i1, swipe
+      real :: rval
+     
+      odata = 0.
+      denom = 0.
+      do n = 1, xn
+        ip = rxi(n)
+        jp = rxj(n)
+        if (debug) print *, ii, jj, kk
+        if (idata(ii,jj)/=missing) then
+          odata(pxj(n),pxi(n)) = odata(pxj(n),pxi(n)) + &
+            idata(ii,jj) * pxf(n)
+          denom(pxj(n),pxi(n)) = denom(pxj(n),pxi(n)) + pxf(n)
+        endif
+      end do
+
+      where(denom>0.) 
+        odata=odata/denom
+      elsewhere
+        odata=missing
+      endwhere
+
+    end subroutine interpolate2d
+
+
+    subroutine fill_miss2d(odata,idatar,missing,mask)
+      real, intent(inout), dimension(:,:) :: odata
+      real, intent(in), dimension(:,:) :: idatar
+      logical, intent(in), dimension(:,:) :: mask
+      real, intent(in) :: missing
+
+      integer :: i, j, j1, i1, swipe
+      real :: rval
+
+      do i = 1, size(odata,2)
+        do j = 1, size(odata,1)
+          if (odata(j,i)==missing.and.mask(j,i)) then
+            j1 = rxj(max_area_loc(j,i))
+            i1 = rxi(max_area_loc(j,i))
+            rval = find_nn_val(i1,j1,idatar(:,:),missing,swipe) 
+            if (rval==missing) then
+              print *, "Could not find nearest neighbhor valid point after swipe: ", swipe
+              call mpp_error(FATAL, "Could not find nearest neighbhor valid point, decrease search_frac")
+            end if
+            odata(j,i) = rval
+          endif
+        end do
+      end do
+
+    end subroutine fill_miss2d
+
+
+    subroutine write_data2d(field, itime, dat)
+      type(fieldtype), intent(in) :: field
+      integer, intent(in) :: itime
+      real, intent(in) :: dat(:,:)
+      integer :: siz(4), n, t, k
+      
+      if (itime>0) then
+        t = itime
+        call mpp_write(ounit,field,dat,times(t))
+      else
+        call mpp_write(ounit,field,dat)
+      endif
+
+    end subroutine write_data2d
+
+
+
+    function find_nn_val(i_in,j_in,idat,missing,swipe)
+      integer, intent(in) :: i_in, j_in
+      real, intent(in) :: idat(:,:), missing
+      integer, intent(out), optional :: swipe
+      real :: find_nn_val
+      integer :: is, js, ie, je
+      integer :: ni, nj, nt
+      integer :: e, w, s, n, t
+
+      ni=size(idat,1)
+      nj=size(idat,2)
+      nt = 0
+
+      find_nn_val=missing
+
+      do nt = 1, max(nj,ni)/search_frac
+        if(present(swipe)) swipe = nt
+        is = i_in - nt; ie = i_in + nt
+        js = j_in - nt; je = j_in + nt
+        if ( js < 1 )  js = 1
+        if ( je > nj ) je = nj
+        if ( is < 1 )  is = ni + is
+        if ( ie > ni ) ie = ie - ni
+
+        do t = 0, nt
+          e = i_in - t; w = i_in + t
+          s = j_in - t; n = j_in + t
+          if (e < 1) e = ni + e
+          if (w > ni) w = w - ni
+          if (n > nj) n = nj
+          if (s < 1) s = 1
+
+          ! bottom left
+          if (idat(e,js)/=missing) then
+            find_nn_val=idat(e,js)
+            return
+          endif
+
+          !bottom right
+          if (idat(w,js)/=missing) then
+            find_nn_val=idat(w,js)
+            return
+          endif
+
+          !top left
+          if (idat(e,je)/=missing) then
+            find_nn_val=idat(e,je)
+            return
+          endif
+
+          !top right
+          if (idat(w,je)/=missing) then
+            find_nn_val=idat(w,je)
+            return
+          endif
+
+          !left top
+          if (idat(is,n)/=missing) then
+            find_nn_val=idat(is,n)
+            return
+          endif
+
+          !left bottom
+          if (idat(is,s)/=missing) then
+            find_nn_val=idat(is,s)
+            return
+          endif
+
+          !right top
+          if (idat(ie,n)/=missing) then
+            find_nn_val=idat(ie,n)
+            return
+          endif
+
+          !right bottom
+          if (idat(ie,s)/=missing) then
+            find_nn_val=idat(ie,s)
+            return
+          endif
+        end do
+      end do
+    end function find_nn_val
 
 
     subroutine init_rearrange(axes)
@@ -673,7 +786,6 @@ program amfi_xgrid
     
       call field_size(gridf,'latbs',siz)
       xnsize = max(xnsize,siz(1)*siz(2)*np)
-      print *, 'siz=',siz(:)
    
       ocny=siz(1)
       ocnx=siz(2)
@@ -682,6 +794,7 @@ program amfi_xgrid
       allocate(latbn(siz(1),siz(2)))
       allocate(lonbe(siz(1),siz(2)))
       allocate(lonbw(siz(1),siz(2)))
+      allocate(max_area_loc(siz(1),siz(2)))
       allocate(vtxoc(2,siz(1),siz(2)))
     
       allocate(vtxrg(2,size(latb,1)-1,size(lonb,1)-1))
@@ -690,11 +803,20 @@ program amfi_xgrid
       allocate(xj(2,xnsize))
       allocate(xf(3,xnsize))
 
+      allocate(lmask(siz(1),siz(2)))
+
+      lmask = .true.
+      if (landdata) then 
+        lmask=.false.
+        call read_data(gridf1,'AREA_LND',latbs)
+        where(latbs>0.) lmask=.true.
+      endif
+
       call read_data(gridf,'latbs',latbs)
       call read_data(gridf,'latbn',latbn)
       call read_data(gridf,'lonbw',lonbw)
       call read_data(gridf,'lonbe',lonbe)
-    
+      
       do j = 1, size(latbs,1)
         do i = 1, size(latbs,2)
           vtxoc(1,j,i)%y = latbs(j,i)
@@ -706,8 +828,13 @@ program amfi_xgrid
       
       do j = 1, size(latb,1)-1
         do i = 1, size(lonb,1)-1
-          vtxrg(1,j,i)%y = latb(j)        
-          vtxrg(2,j,i)%y = latb(j+1)        
+          if (ifs2n(latb)) then
+            vtxrg(1,j,i)%y = latb(j)        
+            vtxrg(2,j,i)%y = latb(j+1)
+          else
+            vtxrg(1,j,i)%y = latb(j+1)        
+            vtxrg(2,j,i)%y = latb(j)
+          endif
           vtxrg(1,j,i)%x = lonb(i)
           vtxrg(2,j,i)%x = lonb(i+1)
         enddo
@@ -778,13 +905,144 @@ program amfi_xgrid
       rxf=xf(2,1:xn)
       xxf=xf(3,1:xn)
 
-      print *, maxval(pxi), maxval(pxj), maxval(rxi), maxval(rxj)
+      max_area_loc = 0
+      do n = 1, xn
+        if (max_area_loc(pxj(n),pxi(n)) == 0) max_area_loc(pxj(n),pxi(n)) = n
+        if ( pxf(n) > pxf(max_area_loc(pxj(n),pxi(n))) ) max_area_loc(pxj(n),pxi(n)) = n
+      end do
+
+      if (any(max_area_loc==0)) call mpp_error(FATAL,"max_area_loc == 0")
+
+      !print *, maxval(pxi), maxval(pxj), maxval(rxi), maxval(rxj)
     
       deallocate(xi)
       deallocate(xj)
       deallocate(xf)
     
     end subroutine make_xgrid_oc2rg
+
+
+    subroutine modify_fields(flds)
+      type(fieldtype), intent(in) :: flds(:)
+      integer :: i, j, ndimv, ndimv1, idk
+      type(axistype) :: axes(ndim), axes1(ndim)
+      character(len=128) :: nm, units, longname
+      real :: minv, maxv, scalev, add, missing
+
+      allocate(ofields(nvar))
+      do i = 1, nvar
+        call mpp_get_atts(flds(i), name=nm, units=units, longname=longname, min=minv, &
+          max=maxv, missing=missing, ndim=ndimv, axes=axes, scale=scalev, add=add)
+
+
+        if (.not.haslatlon(axes(1:ndimv))) then
+          ofields(i) = flds(i)
+          cycle
+        end if
+
+        if (hastime(axes(1:ndimv))) then
+          axes1(ndimv) = time_axis
+        endif
+
+        idk=id_Kaxis(axes(1:ndimv))
+
+        if (idk>0) then
+          axes1(1) = axes(idk)
+          axes1(2) = oaxes(yid)
+          axes1(3) = oaxes(xid)
+        else
+          axes1(1) = oaxes(yid)
+          axes1(2) = oaxes(xid)
+        endif
+
+        call mpp_write_meta(ounit, ofields(i), axes=axes1(1:ndimv), name=nm, units=units, &
+          longname=longname, standard_name=longname, min=minv, max=maxv, missing=missing, &
+          scale=scalev, add=add)
+
+     end do
+
+    end subroutine modify_fields
+
+
+    function id_Kaxis(axes)
+      type(axistype), intent(inout) :: axes(:)
+      integer :: id_Kaxis, i
+
+      id_Kaxis=0
+      do i = 1, size(axes,1)
+        if (trim(get_name(axes(i)))==trim(lat_nm) .or. &
+            trim(get_name(axes(i)))==trim(lon_nm) .or. &
+            trim(get_name(axes(i)))==trim(time_axis_name)) cycle
+        id_Kaxis=i
+        exit
+      end do
+    end function id_Kaxis
+
+
+    function id_Yaxis(axes)
+      type(axistype), intent(inout) :: axes(:)
+      integer :: id_Yaxis, i
+
+      id_Yaxis=0
+      do i = 1, size(axes,1)
+        if (trim(get_name(axes(i)))==trim(lat_nm)) then
+          id_Yaxis=i
+          exit
+        endif
+      end do
+    end function id_Yaxis
+
+
+    function id_Xaxis(axes)
+      type(axistype), intent(inout) :: axes(:)
+      integer :: id_Xaxis, i
+
+      id_Xaxis=0
+      do i = 1, size(axes,1)
+        if (trim(get_name(axes(i)))==trim(lon_nm)) then
+          id_Xaxis=i
+          exit
+        endif
+      end do
+    end function id_Xaxis
+
+
+    subroutine modify_axes(axes)
+      type(axistype), intent(inout) :: axes(:)
+      real, allocatable :: tmp(:)
+
+      integer :: i, j
+
+      do i = 1, size(axes,1)
+        if (trim(get_name(axes(i)))==trim(lat_nm)) then
+          allocate(tmp(ocny))
+          tmp=[(j, j=1, ocny)]
+          call mpp_modify_meta(axes(i), 'y', 'nounit', 'y', 'Y', tmp)
+          yid=i
+        elseif (trim(get_name(axes(i)))==trim(lon_nm)) then
+          allocate(tmp(ocnx))
+          tmp=[(j, j=1, ocnx)]
+          call mpp_modify_meta(axes(i), 'x', 'nounit', 'x', 'X', tmp)
+          xid=i
+        end if
+        if (allocated(tmp)) deallocate(tmp)
+      end do
+
+    end subroutine modify_axes
+
+
+
+    subroutine broadcast_char(cdat)
+      character(len=*), intent(inout) :: cdat
+      character(len=len(cdat)) :: cdata(1)
+
+      cdata=cdat
+
+      call mpp_broadcast(cdata,len(cdat),mpp_root_pe())
+
+      cdat=cdata(1)
+
+    end subroutine broadcast_char
 
     subroutine handle_err(status)
       integer, intent ( in) :: status

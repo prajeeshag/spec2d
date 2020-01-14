@@ -897,6 +897,10 @@
 #ifdef use_netCDF4par
         error = NF_VAR_PAR_ACCESS(mpp_file(unit)%ncid,field%id,NF_COLLECTIVE)
         call netcdf_err( error, mpp_file(unit), field=field )
+
+        error = NF_VAR_PAR_ACCESS(mpp_file(unit)%ncid,mpp_file(unit)%id,NF_COLLECTIVE)
+        call netcdf_err( error, mpp_file(unit), string=' var = time' )
+        newtime = .TRUE.
 #endif
 	  	time_level_inc = mpp_npes() 
 		if (mpp_file(unit)%time_level < 1) then
@@ -954,6 +958,7 @@
                   error = NF_PUT_VAR1_REAL  ( mpp_file(unit)%ncid, mpp_file(unit)%id, mpp_file(unit)%time_level, time )
               end if
           end if  
+          call netcdf_err( error, mpp_file(unit), string=' var = time' )
           if( field%pack.LE.2 )then
               if( KIND(data).EQ.DOUBLE_KIND )then
                   error = NF_PUT_VARA_DOUBLE( mpp_file(unit)%ncid, field%id, start, axsiz, data )
