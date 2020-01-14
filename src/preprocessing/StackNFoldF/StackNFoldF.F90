@@ -4,6 +4,7 @@ program amfi_xgrid
 
   use netcdf
   use mpp_mod, only : mpp_init, mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, mpp_exit, mpp_npes, mpp_broadcast
+  use mpp_mod, only : mpp_set_current_pelist, mpp_declare_pelist, WARNING
   use mpp_io_mod, only : MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, mpp_io_init, mpp_get_axes
   use mpp_io_mod, only : mpp_open, mpp_get_info, mpp_get_fields, mpp_get_atts, fieldtype, axistype
   use mpp_io_mod, only : mpp_read, atttype, MPP_OVERWR, mpp_modify_meta, mpp_copy_meta, mpp_write
@@ -69,8 +70,9 @@ program amfi_xgrid
   integer, pointer :: kp, jp, ip
 
   integer :: ocnx, ocny, search_frac=4
+  integer, allocatable :: pes(:)
 
-  logical :: debug=.false., typedata=.false., landdata=.false.
+  logical :: debug=.false., typedata=.false., landdata=.false., valid_pe=.true.
   integer :: unit
 
   
@@ -102,13 +104,17 @@ program amfi_xgrid
 
   call initialize_input_grid()
 
-  call make_xgrid_oc2rg()
+  if (valid_pe) then
+    call make_xgrid_oc2rg()
 
-  if (open_files_copy_meta()) then
-    call process_vars()
+    if (open_files_copy_meta()) then
+      call process_vars()
+    else
+      call mpp_error(WARNING,"Nothing to do!!!!!")
+    endif
   else
-    call mpp_error(NOTE,"Nothing to do!!!!!")
-  endif 
+      call mpp_error(WARNING,"Nothing to do for this pe!!!!!")
+  endif
 
   call fms_io_exit()
   call mpp_exit()
@@ -120,11 +126,37 @@ program amfi_xgrid
       integer :: siz(4), i, j
       real :: dlon, sumwts=0., dlat
       type(axistype), allocatable :: axes(:)
+      integer :: ntime1
 
       call mpp_open(iunit,trim(in_file),action=MPP_RDONLY, &
                     form=MPP_NETCDF,threading=MPP_MULTI,fileset=MPP_SINGLE)
 
       call mpp_get_info(iunit, ndim, nvar, natt, ntime)
+
+      ntime1 = max(ntime,1)
+
+      if (ntime1<mpp_npes()) then
+        allocate(pes(ntime1))
+        do i = 0, ntime1-1
+          pes(i+1) = i
+        end do
+
+        call mpp_declare_pelist(pes)
+        
+        valid_pe = .false.
+        if (any(mpp_pe()==pes)) then
+           call mpp_set_current_pelist(pes,no_sync=.true.)
+           valid_pe=.true.
+        endif
+      else
+        valid_pe = .true.
+        allocate(pes(mpp_npes()))
+        do i = 0, mpp_npes()-1
+          pes(i+1) = i
+        end do
+      end if
+
+      if (.not.valid_pe) return
 
       allocate(fields(nvar))
       allocate(axes(ndim))
@@ -342,7 +374,8 @@ program amfi_xgrid
             if (id_k<1) then
               call do_interpolation2d(fields(n), ofields(n), ti, siz, siz_r)
             else
-              !call do_interpolation3d(fields(n), ofields(n), itime, siz, siz_r)
+              siz_r(3)=siz(id_k)
+              call do_interpolation3d(fields(n), ofields(n), ti, siz, siz_r)
             endif
 
           endif
@@ -378,7 +411,8 @@ program amfi_xgrid
             if (id_k<1) then
               call do_interpolation2d(fields(n), ofields(n), ti, siz, siz_r)
             else
-              !call do_interpolation3d(fields(n), ofields(n), itime, siz, siz_r)
+              siz_r(3)=siz(id_k)
+              call do_interpolation3d(fields(n), ofields(n), ti, siz, siz_r)
             endif
 
           endif
@@ -431,6 +465,47 @@ program amfi_xgrid
       call write_data2d(ofield, itime, odata)
 
     end subroutine do_interpolation2d
+
+
+    subroutine do_interpolation3d(field,ofield,itime,siz,siz_r)
+      type(fieldtype), intent(in) :: field, ofield
+      integer, intent(in) :: itime, siz(:), siz_r(:)
+
+      real, dimension(siz(1),siz(2),siz(3)) :: idata
+      real, dimension(siz_r(1),siz_r(2),siz_r(3)) :: idatar
+      real, dimension(siz_r(3),ocny,ocnx) :: odata
+      real :: missing
+      character(len=32) :: units
+      logical :: istype
+
+
+      call mpp_get_atts(field, units=units, missing=missing)
+
+      if (itime>0) then
+        print *, 'pe, time =', mpp_pe(), itime
+        call mpp_read(iunit, field, idata, itime)
+      else
+        call mpp_read(iunit, field, idata)
+      endif
+
+      istype = typedata.or.trim(adjustl(units))=='types'
+
+      if (istype) then
+        where (idata<1) idata = missing   !everything < 1 is considered as missing
+        call interpolate3d_type(idata,odata,missing) 
+      else
+        call interpolate3d(idata,odata,missing)
+      end if
+
+      if(any(odata==missing)) then
+        call rearrange3d(idata,idatar)
+        call fill_miss3d(odata,idatar,missing,lmask)
+        if (istype) where(odata==missing) odata=0. !zero is the missing value for type data
+      end if
+
+      call write_data3d(ofield, itime, odata)
+
+    end subroutine do_interpolation3d
 
 
     subroutine interpolate2d_type(idata, odata, missing)
@@ -490,20 +565,89 @@ program amfi_xgrid
     end subroutine interpolate2d_type
 
 
+    subroutine interpolate3d_type(idata, odata, missing)
+      real, intent(in) :: idata(:,:,:), missing
+      real, intent(out) :: odata(:,:,:)
+
+      !local
+      integer :: n, t, k, ntypes, maxtype
+      integer, allocatable :: itypes(:)
+      real, dimension(size(idata,1),size(idata,2),size(idata,3)) :: iidata
+      real, dimension(size(odata,1),size(odata,2),size(odata,3)) :: iodata, rodata
+
+      iidata = idata
+
+      ntypes=0
+      where(iidata==missing) iidata=0.
+
+      do while (any(iidata/=0.))
+        ntypes = ntypes + 1
+        maxtype = maxval(iidata)
+        where(iidata==maxtype) iidata=0. 
+      end do
+
+      if (ntypes==0) then
+        odata=0.
+        return
+      endif
+
+      allocate(itypes(ntypes))
+
+      iidata = idata
+      where(iidata==missing) iidata=0.
+      ntypes=0
+      do while (any(iidata/=0.))
+        ntypes = ntypes + 1
+        maxtype = maxval(iidata)
+        itypes(ntypes) = maxtype
+        where(iidata==maxtype) iidata=0. 
+      end do
+
+      iodata = missing
+      rodata = 0.
+      do n = 1, ntypes
+        iidata = 0.
+        maxtype = itypes(n)
+        where(iidata==maxtype) iidata=1.
+        call interpolate3d(iidata,odata,missing)
+        where(odata>rodata) 
+          iodata = maxtype
+          rodata = odata
+        endwhere
+      end do
+
+      odata = iodata
+      deallocate(itypes)
+
+    end subroutine interpolate3d_type
+
+
     subroutine rearrange2d(idata,idatar)
       real, intent(in), dimension(:,:) :: idata
       real, intent(out), dimension(:,:) :: idatar
 
-      integer :: n, j, i, j1, i1, swipe
-      real :: rval
-     
-      do n = 1, xn
-        ip = rxi(n)
-        jp = rxj(n)
-        idatar(ip,jp) = idata(ii,jj)
-      end do
+        do jj = 1, size(idata,2)
+          do ii = 1, size(idata,1)
+            idatar(ip,jp) = idata(ii,jj)
+          end do
+        end do
 
     end subroutine rearrange2d
+
+
+    subroutine rearrange3d(idata,idatar)
+      real, intent(in), dimension(:,:,:) :: idata
+      real, intent(out), dimension(:,:,:) :: idatar
+
+      do kk = 1, size(idata,3) 
+        do jj = 1, size(idata,2)
+          do ii = 1, size(idata,1)
+            idatar(ip,jp,kp) = idata(ii,jj,kk)
+          end do
+        end do
+      end do
+
+    end subroutine rearrange3d
 
 
     subroutine interpolate2d(idata,odata,missing)
@@ -537,6 +681,40 @@ program amfi_xgrid
     end subroutine interpolate2d
 
 
+    subroutine interpolate3d(idata,odata,missing)
+      real, intent(in), dimension(:,:,:) :: idata
+      real, intent(out), dimension(:,:,:) :: odata
+      real, intent(in) :: missing
+
+      real, dimension(size(odata,1),size(odata,2),size(odata,3)) :: denom
+      integer :: n, j, i, j1, i1, swipe, k
+      real :: rval
+     
+      odata = 0.
+      denom = 0.
+      do n = 1, xn
+        ip = rxi(n)
+        jp = rxj(n)
+        do k = 1, size(odata,1)
+          kp = k
+          if (debug) print *, ii, jj, kk
+          if (idata(ii,jj,kk)/=missing) then
+            odata(k,pxj(n),pxi(n)) = odata(k,pxj(n),pxi(n)) + &
+              idata(ii,jj,kk) * pxf(n)
+            denom(k,pxj(n),pxi(n)) = denom(k,pxj(n),pxi(n)) + pxf(n)
+          endif
+        end do
+      end do
+
+      where(denom>0.) 
+        odata=odata/denom
+      elsewhere
+        odata=missing
+      endwhere
+
+    end subroutine interpolate3d
+
+
     subroutine fill_miss2d(odata,idatar,missing,mask)
       real, intent(inout), dimension(:,:) :: odata
       real, intent(in), dimension(:,:) :: idatar
@@ -564,6 +742,35 @@ program amfi_xgrid
     end subroutine fill_miss2d
 
 
+    subroutine fill_miss3d(odata,idatar,missing,mask)
+      real, intent(inout), dimension(:,:,:) :: odata
+      real, intent(in), dimension(:,:,:) :: idatar
+      logical, intent(in), dimension(:,:) :: mask
+      real, intent(in) :: missing
+
+      integer :: i, j, j1, i1, swipe, k
+      real :: rval
+
+      do k = 1, size(odata,1)
+        do i = 1, size(odata,3)
+          do j = 1, size(odata,2)
+            if (odata(k,j,i)==missing.and.mask(j,i)) then
+              j1 = rxj(max_area_loc(j,i))
+              i1 = rxi(max_area_loc(j,i))
+              rval = find_nn_val(i1,j1,idatar(:,:,k),missing,swipe) 
+              if (rval==missing) then
+                print *, "Could not find nearest neighbhor valid point after swipe: ", swipe
+                call mpp_error(FATAL, "Could not find nearest neighbhor valid point, decrease search_frac")
+              end if
+              odata(k,j,i) = rval
+            endif
+          end do
+        end do
+      end do
+
+    end subroutine fill_miss3d
+
+
     subroutine write_data2d(field, itime, dat)
       type(fieldtype), intent(in) :: field
       integer, intent(in) :: itime
@@ -579,6 +786,21 @@ program amfi_xgrid
 
     end subroutine write_data2d
 
+
+    subroutine write_data3d(field, itime, dat)
+      type(fieldtype), intent(in) :: field
+      integer, intent(in) :: itime
+      real, intent(in) :: dat(:,:,:)
+      integer :: siz(4), n, t, k
+      
+      if (itime>0) then
+        t = itime
+        call mpp_write(ounit,field,dat,times(t))
+      else
+        call mpp_write(ounit,field,dat)
+      endif
+
+    end subroutine write_data3d
 
 
     function find_nn_val(i_in,j_in,idat,missing,swipe)
