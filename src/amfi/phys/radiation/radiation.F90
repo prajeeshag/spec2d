@@ -444,10 +444,10 @@ subroutine get_ozone(time,prsl,o3)
 
     if (interp_ozone_vert) then
       if (.not.allocated(o3tmp)) then
-          call field_size(trim(ozone_fnm),'level',siz)
+          call field_size(trim(ozone_fnm),'z',siz)
           allocate(o3lev(siz(1)))
           allocate(o3tmp(siz(1),js:je,is:ie))
-          call read_data(trim(ozone_fnm),'level',o3lev)
+          call read_data(trim(ozone_fnm),'z',o3lev)
           if (o3lev(2)-o3lev(1)<=0) & call mpp_error(FATAL,"get_ozone: levels of ozone file &
               & should be in hPa and monotonically increasing")
       end if
@@ -606,6 +606,7 @@ subroutine get_gases(Time,gasvmr)
         [co2vmr, n2ovmr, ch4vmr, o2vmr, covmr, f11vmr, &
         f12vmr, f22vmr, cl4vmr, f113vmr]*1.e6
       call mpp_error(NOTE,msg)
+      curr_month=mm
     endif
 
 end subroutine get_gases

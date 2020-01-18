@@ -565,8 +565,10 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo,enetot)
             tr1(1,:,:,ind_q), plyr(1,:,:), prslki(1,:,:), rsds, rsns, rldsg, &
             fprcp, lprcp, rb, ffmm, ffhh, qss, hflx, evap, stress, wind)
     call mpp_clock_end(clck_sfc)
+
     if (debug) then
         call mpp_sync()
+        !write(msg,*) tlyr1(1,:,:)
         call mpp_error(NOTE,'after sfc_fluxes')
     endif
     !End surface Fluxes

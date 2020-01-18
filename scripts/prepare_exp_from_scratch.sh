@@ -181,6 +181,7 @@ cat <<EOF >data_table
 "ATM",  "ozone",    "o3",       "./INPUT/ozone.nc",        .true.,  1.0
 "ATM",  "zorl",     "zorl",     "./INPUT/zorl.nc",         .true.,  1.0
 "ATM",  "vegfrac",  "vegfrac",  "./INPUT/vegfrac.nc",      .true.,  1.0
+"ATM",  "vegtype",  "vegtype",  "./INPUT/vegtype.nc",      .true.,  1.0
 "ATM",  "sst",      "sst",      "./INPUT/sst_forcing.nc",  .true.,  1.0
 "ATM",  "fice",     "sic",      "./INPUT/sea_ice_forcing.nc",  .true.,  1.0
 
@@ -225,9 +226,6 @@ sed -i "s|_NLAT_|$NLAT|g" input.nml
 
 mkdir -p INPUT
 mkdir -p RESTART
-
-mv *.nc INPUT/
-mv atm.res INPUT/
 
 cp $scriptdir/run_amfi_${JOBSCDLR}.sh .
 

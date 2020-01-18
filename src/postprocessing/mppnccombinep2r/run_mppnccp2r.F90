@@ -21,21 +21,6 @@ interface
         type(C_PTR), dimension(*) :: args
     end function nccp2r
     
-    real(C_DOUBLE) function modtimediff(args) bind(C,name="modtimediff")
-        import
-        type(C_PTR), dimension(*), intent(in) :: args
-    end function modtimediff
-
-    real(C_DOUBLE) function modtime(args) bind(C,name="modtime")
-        import
-        type(C_PTR), dimension(*), intent(in) :: args
-    end function modtime
-    
-    integer(C_INT) function show_status(args) bind(C,name="show_status")
-        import
-        real(C_DOUBLE), intent(in), value :: args
-    end function show_status
-
     integer(C_INT) function rmfile(args) bind(C,name="rmfile")
         import
         type(C_PTR), dimension(*), intent(in) :: args
@@ -48,6 +33,8 @@ type filenm_type
     character(len=128), allocatable :: nm(:)
     integer :: total, done
     logical :: lowfreq=.false.
+    real :: time1=0., time2=0.
+    integer :: waittime=0
 end type
 
 integer :: maxrunlength=100 !years
@@ -57,7 +44,7 @@ type(C_PTR) :: args(maxarg)
 integer :: nargs=1, i, ierr, unit=15, n, position, nf, stat
 integer :: calendar_type=-11, startdate(6)=0, enddate(6)=0
 logical :: fexist
-character(len=1024) :: msg, fnm, fnm_next
+character(len=1024) :: msg, fnm, fnm_next, fnm_curr
 type(filenm_type), allocatable :: filenms(:)
 type(time_type) :: starttime, endtime
 
@@ -79,7 +66,7 @@ integer :: lownf=0
 real :: time1, time2, endwaittime=0., minendwaittime=30., maxwait=12*3600.
 real :: mtime1, mtime2
 logical :: next_file_found=.false., end_check=.false.
-integer :: child_run=0, ov=1, verbose=0
+integer :: child_run=0, ov=1, verbose=0, deltim=600
 logical :: no_files_found=.true.
 
 call cpu_time(time1)
@@ -192,12 +179,15 @@ args(nargs) = c_loc(fnm)
 end_check = .false.
 
 call mpp_error(NOTE,"stage 1")
+
 do nf = 1, num_files
-    do n = 1, size(filenms(nf)%nm) 
+    !filenms(nf)%done = filenms(nf)%total+1
+    do n = 1, filenms(nf)%total
         if (all_files_exist(trim(filenms(nf)%nm(n)),0,1)) then
             filenms(nf)%done=n-1
             exit
         endif
+        call mpp_error(NOTE,'skipping file '//trim(filenms(nf)%nm(n)))
     end do
 end do
 
@@ -206,10 +196,12 @@ if (mpp_pe()==mpp_root_pe()) then
         call mpp_error(NOTE,"stage 2")
         no_files_found=.true. 
         tfile=0
-        mtime1 = 0.
-        mtime2 = 0.
         do while (.true.) ! Infinite Loop
-    
+   
+            if (.not.next_file_found) then
+              call mpp_error(NOTE,"Waiting for 10 seconds")
+              call wait_seconds(10.)
+            endif
             next_file_found=.false.
     
             do nf = 1, num_files
@@ -217,6 +209,29 @@ if (mpp_pe()==mpp_root_pe()) then
                 n = filenms(nf)%done+1
     
                 fnm_next = trim(filenms(nf)%nm(n+1))
+                fnm_curr = trim(filenms(nf)%nm(n))
+
+                if (all_files_exist(trim(fnm_curr),0,1).and.filenms(nf)%time1==0.) then
+                  call cpu_time(filenms(nf)%time1)
+                endif
+
+                if (all_files_exist(trim(fnm_next),0,1).and.filenms(nf)%time2==0.) then
+                  call cpu_time(filenms(nf)%time2)
+                endif
+
+                if (filenms(nf)%time2/=0. .and. filenms(nf)%time1/=0.) then
+                  filenms(nf)%waittime = ceiling((filenms(nf)%time2 - filenms(nf)%time1)*0.25)
+                  if (filenms(nf)%lowfreq.and.endwaittime<=0.) then
+                      !Find the lowest frequency output, set its frequency as
+                      !endwaittime in seconds
+                          endwaittime = (filenms(nf)%time2 - filenms(nf)%time1)*2.
+                          endwaittime=max(endwaittime,minendwaittime) 
+                          write(msg,*) endwaittime
+                          call mpp_error(NOTE,"run_mppnccp2r: end waiting time is " &
+                                         //trim(adjustl(msg))//" seconds")
+                  endif
+                endif
+    
     
                 !if (.not.all_files_exist(trim(fnm_next),0,atmpes)) then
                 if (.not.all_files_exist(trim(fnm_next),0,1)) then
@@ -228,22 +243,9 @@ if (mpp_pe()==mpp_root_pe()) then
     
                 no_files_found=.false.
     
-                if (filenms(nf)%lowfreq.and.endwaittime<=0.) then
-                    !Find the lowest frequency output, set its frequency as
-                    !endwaittime in seconds
-                    if (mtime1<=0.) then
-                        mtime1 = mod_time(trim(filenms(nf)%nm(n)),0)
-                    elseif (mtime2<=0.) then
-                        mtime2 = mod_time(trim(filenms(nf)%nm(n)),0)
-                    else
-                        endwaittime = (mtime2-mtime1)*3.
-                        endwaittime=max(endwaittime,minendwaittime) 
-                        write(msg,*) endwaittime
-                        call mpp_error(NOTE,"run_mppnccp2r: end waiting time is " &
-                                       //trim(adjustl(msg))//" seconds")
-                    endif
-                endif
-                ierr = send_jobs(nf,n)
+                filenms(nf)%waittime = ceiling((mtime2-mtime1)*0.25)
+
+                ierr = send_jobs(nf,n,filenms(nf)%waittime)
                 if (ierr/=0) call quit_jobs()
                 filenms(nf)%done=n
             end do
@@ -268,8 +270,6 @@ if (mpp_pe()==mpp_root_pe()) then
                 if (time2-time1 > maxwait) then
                     exit
                 endif
-                call mpp_error(NOTE,"Waiting for 10 seconds")
-                call wait_seconds(10.)
             endif
     
         end do
@@ -278,7 +278,10 @@ if (mpp_pe()==mpp_root_pe()) then
     
     do nf = 1, num_files
         do n = filenms(nf)%done+1, filenms(nf)%total
-            if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,1)) exit
+            if (.not.all_files_exist(trim(filenms(nf)%nm(n)),0,1)) then
+              call mpp_error(NOTE,'Could not find file '//trim(filenms(nf)%nm(n))//', assuming done')
+              exit
+            endif
             ierr = send_jobs(nf,n)
             if (ierr/=0) call quit_jobs()
             filenms(nf)%done=n
@@ -301,7 +304,7 @@ subroutine read_options()
 
     namelist/opts_nml/removein, atmpes, ocnpes, nc4, startpe, &
                       minendwaittime, startdate, calendar_type, child_run, &
-                      ov, verbose
+                      ov, verbose, deltim
     if (mpp_pe()==mpp_root_pe()) then
         read(*,nml=opts_nml,iostat=stat)
         if (stat/=0) call mpp_error(FATAL,"run_mppnccp2r: error while reading of options")
@@ -313,6 +316,7 @@ subroutine read_options()
     call mpi_bcast(ov, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(verbose, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(child_run, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+    call mpi_bcast(deltim, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(calendar_type, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
     call mpi_bcast(startdate, size(startdate), MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
 
@@ -320,8 +324,8 @@ return
 end subroutine read_options
 
 
-integer function submit_processing(nf,n)
-    integer, intent(in) :: nf, n
+integer function submit_processing(nf,n,waitime)
+    integer, intent(in) :: nf, n, waitime
     integer :: ierr
 
     fnm = trim(filenms(nf)%nm(n))//char(0)
@@ -330,6 +334,7 @@ integer function submit_processing(nf,n)
             print *, "Deleted old file "//trim(filenms(nf)%nm(n))
         endif
     endif
+    call wait_seconds(real(waitime))
     ierr = nccp2r(nargs,args)
     if (ierr/=0) then
         print *, "ERROR: nccpr failed for file "//trim(fnm)
@@ -344,20 +349,20 @@ integer function submit_processing(nf,n)
 end function submit_processing
 
 subroutine do_jobs()
-    integer :: jobids(2), done, tag
+    integer :: jobids(3), done, tag
     INTEGER :: stat(MPI_STATUS_SIZE)
-    integer :: nf, n, ierr
+    integer :: nf, n, ierr, waitime
 
     tag = 0
 
     done = mpp_pe()
     do while (.true.)
         call MPI_SEND(done, 1, MPI_INTEGER, 0, tag, MPI_COMM_WORLD, ierr)
-        call MPI_RECV(jobids, 2, MPI_INTEGER, 0, tag, MPI_COMM_WORLD, stat, ierr)
-        nf = jobids(1); n = jobids(2)
+        call MPI_RECV(jobids, size(jobids,1), MPI_INTEGER, 0, tag, MPI_COMM_WORLD, stat, ierr)
+        nf = jobids(1); n = jobids(2); waitime=jobids(3)
         if (nf==0) exit
         if(verbose>0)print *, "recieved file "//trim(filenms(nf)%nm(n))//" for processing" 
-        ierr = submit_processing(nf,n)
+        ierr = submit_processing(nf,n,waitime)
         if (ierr/=0) then
             done = done * -1
         endif
@@ -365,11 +370,16 @@ subroutine do_jobs()
 
 end subroutine do_jobs
 
-integer function send_jobs(nf,n)
+integer function send_jobs(nf,n,waitime)
     integer, intent(in) :: nf, n
-    integer :: jobids(2), free_pe, tag, ierr
+    integer, optional, intent(in) :: waitime
+    integer :: jobids(3), free_pe, tag, ierr
     INTEGER :: stat(MPI_STATUS_SIZE)
     character(len=512) :: msg, fnm
+    integer :: waitime_i
+
+    waitime_i=0
+    if (present(waitime)) waitime_i=waitime
 
     tag = 0
 
@@ -386,12 +396,13 @@ integer function send_jobs(nf,n)
         if (mpp_pe()==mpp_root_pe()) then
             jobids(1) = nf
             jobids(2) = n
+            jobids(3) = waitime_i
             call MPI_RECV(free_pe, 1, MPI_INTEGER, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, stat, ierr)
             write(msg,*) abs(free_pe)
             if (free_pe<0) then
                 jobids = 0
                 free_pe=abs(free_pe)
-                call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
+                call MPI_SEND(jobids, size(jobids,1), MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
                 send_jobs = -1
                 return
             endif
@@ -400,10 +411,10 @@ integer function send_jobs(nf,n)
             else
                 print *, "sending end job msg to pe "//trim(adjustl(msg))
             endif
-            call MPI_SEND(jobids, 2, MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
+            call MPI_SEND(jobids, size(jobids,1), MPI_INTEGER, free_pe, tag, MPI_COMM_WORLD, ierr)
         endif
     else
-        ierr = submit_processing(nf,n)
+        ierr = submit_processing(nf,n,waitime_i)
         if (ierr/=0) then
             send_jobs = -1
             return
@@ -476,9 +487,10 @@ subroutine set_filenames(n)
     dt = dt - diag_time_inc(dt, files(n)%new_file_freq, files(n)%new_file_freq_units)
     !call print_time(dt,"dt for "//trim(files(n)%name))
 
-    dt_out = set_time(0)
-    dt_out = dt_out - diag_time_inc(dt_out, files(n)%output_freq, files(n)%output_units)
+    dt_out = set_time(deltim)
+    !dt_out = dt_out - diag_time_inc(dt_out, files(n)%output_freq, files(n)%output_units)
     !call print_time(dt_out,"dt_out for "//trim(files(n)%name))
+    
 
     nfilesr = (endtime-starttime)/dt
     nfiles = ceiling(nfilesr)
@@ -489,7 +501,7 @@ subroutine set_filenames(n)
         if (nfiles<3) then
             call mpp_error(NOTE,trim(base_name)//" does not satisfy minimum 3 file criteria, "// &
                                                    "won't process this file")
-            filenms(n)%total = 0
+            filenms(n)%total = -1
             filenms(n)%done = 0
             return
         endif
@@ -501,7 +513,7 @@ subroutine set_filenames(n)
     endif
         
     if (verbose>0) print *, "number of file for "//trim(files(n)%name)//" = ", nfiles
-    nfiles = nfiles + 1
+    nfiles = nfiles + 100
 
     allocate(filenms(n)%nm(nfiles))
 
@@ -544,33 +556,35 @@ subroutine set_filenames(n)
     time = starttime
     do while(time<endtime)
         time = time + dt_out
-        last_output = next_output
-        next_output = next_output + dt_out
+        if ( time >= next_output ) then
+          last_output = next_output
+          next_output = diag_time_inc(next_output, files(n)%output_freq, files(n)%output_units)
     
-        if (time >= files(n)%next_open) then
-            IF (mid) THEN
-               middle_time = (last_output+next_output)/2
-            ELSE
-               middle_time = next_output
-            END IF
+          if (time >= files(n)%next_open) then
+              IF (mid) THEN
+                 middle_time = (last_output+next_output)/2
+              ELSE
+                 middle_time = next_output
+              END IF
 
-            base_name=files(n)%name
-            IF ( files(n)%new_file_freq < VERY_LARGE_FILE_FREQ ) THEN
-               position = INDEX(files(n)%name, '%')
-               IF ( position > 0 )  THEN
-                  base_name = base_name(1:position-1)
-               ELSE
-                  CALL mpp_error('run_mppnccp2r',&
-                       & 'file name '//TRIM(files(n)%name)// &
-                        ' does not contain % for time stamp string', FATAL) 
-               END IF
-               suffix = get_time_string(files(n)%name, middle_time)
-            ELSE
-               suffix = ''
-            END IF
-            nfiles = nfiles + 1
-            filenms(n)%nm(nfiles) = trim(base_name)//trim(suffix)//'.nc'
-            files(n)%next_open = files(n)%next_open + dt
+              base_name=files(n)%name
+              IF ( files(n)%new_file_freq < VERY_LARGE_FILE_FREQ ) THEN
+                 position = INDEX(files(n)%name, '%')
+                 IF ( position > 0 )  THEN
+                    base_name = base_name(1:position-1)
+                 ELSE
+                    CALL mpp_error('run_mppnccp2r',&
+                         & 'file name '//TRIM(files(n)%name)// &
+                          ' does not contain % for time stamp string', FATAL) 
+                 END IF
+                 suffix = get_time_string(files(n)%name, middle_time)
+              ELSE
+                 suffix = ''
+              END IF
+              nfiles = nfiles + 1
+              filenms(n)%nm(nfiles) = trim(base_name)//trim(suffix)//'.nc'
+              files(n)%next_open = diag_time_inc(files(n)%next_open, files(n)%new_file_freq, files(n)%new_file_freq_units)
+          end if
         end if
     end do
 
@@ -609,54 +623,6 @@ logical function file_exist(flnm)
 
 end function file_exist
 
-
-real function mod_time(file1,spe)
-    character(len=*), intent(in) :: file1
-    integer, intent(in), optional :: spe
-    character(len=len(file1)+10) :: f1
-    character(len=10) :: cpe
-    type(C_PTR) :: ptr(1)
-
-    cpe = ""
-
-    if (present(spe)) then
-        write(cpe,'(I4.4)')spe
-        cpe = "."//trim(adjustl(cpe))
-    endif
-
-    f1 = trim(file1)//trim(cpe)//char(0)
-
-    ptr(1) = c_loc(f1)
-
-    mod_time = modtime(ptr)
-
-    return 
-end function mod_time
-
-real function diff_modtime(file1,file2,spe)
-    character(len=*), intent(in) :: file1, file2
-    integer, intent(in), optional :: spe
-    character(len=len(file1)+10) :: f1
-    character(len=len(file2)+10) :: f2
-    character(len=10) :: cpe
-    type(C_PTR) :: ptr(2)
-
-    cpe = ""
-
-    if (present(spe)) then
-        write(cpe,'(I4.4)')spe
-        cpe = "."//trim(adjustl(cpe))
-    endif
-
-    f1 = trim(file1)//trim(cpe)//char(0)
-    f2 = trim(file2)//trim(cpe)//char(0)
-
-    ptr(1) = c_loc(f1)
-    ptr(2) = c_loc(f2)
-
-    diff_modtime = modtimediff(ptr)
-    return 
-end function diff_modtime
 
 integer function rm_file(filename)
     character(len=*), intent(in) :: filename

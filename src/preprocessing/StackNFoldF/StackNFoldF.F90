@@ -304,9 +304,14 @@ program amfi_xgrid
         return
       endif
 
-      call mpp_open(ounit,trim(out_file),action=MPP_OVERWR, &
-                    form=MPP_NETCDF,threading=MPP_MULTI,&
-                    nc4parallel=.true.)
+      if (mpp_npes()>1) then
+        call mpp_open(ounit,trim(out_file),action=MPP_OVERWR, &
+                      form=MPP_NETCDF,threading=MPP_MULTI,&
+                      nc4parallel=.true.)
+      else
+        call mpp_open(ounit,trim(out_file),action=MPP_OVERWR, &
+                      form=MPP_NETCDF,threading=MPP_SINGLE)
+      endif
 
       call mpp_write_meta(ounit,'in_file',cval=trim(in_file))
       !do n = 1, natt
@@ -339,7 +344,8 @@ program amfi_xgrid
       integer :: id_k, t, ti, id_x, id_y
       integer :: tstart, tstep, tend, siz(4), siz_r(4)
       logical :: hstime, hslatlon, istype
-      character(len=32) :: units
+      character(len=64) :: units, msg
+      real :: missing
 
       tstart = mpp_pe()+1
       tstep = mpp_npes()
@@ -348,7 +354,7 @@ program amfi_xgrid
       if (mpp_pe()==mpp_root_pe()) then
         do n = 1, nvar
           call mpp_get_atts(fields(n), name=nm, ndim=ndimv, axes=axes, &
-            units=units, siz=siz)
+            units=units, siz=siz, missing=missing)
 
           istype = typedata.or.trim(adjustl(units))=='types'
 
@@ -356,10 +362,14 @@ program amfi_xgrid
 
           if (hstime) cycle
 
+          ti = -1
+
           if (.not.haslatlon(axes(1:ndimv))) then
           
           else  
-            call mpp_error(NOTE,'Interpolating .... '//trim(nm))
+            write(msg,*) missing
+            msg=adjustl(msg)
+            call mpp_error(NOTE,'Interpolating .... '//trim(nm)//', missing='//trim(msg))
             call init_rearrange(axes(1:ndimv))
 
             id_k=id_Kaxis(axes(1:ndimv))
@@ -368,8 +378,6 @@ program amfi_xgrid
 
             siz_r(1)=siz(id_x)
             siz_r(2)=siz(id_y)
-
-            ti = -1
 
             if (id_k<1) then
               call do_interpolation2d(fields(n), ofields(n), ti, siz, siz_r)
@@ -456,6 +464,12 @@ program amfi_xgrid
         call interpolate2d(idata,odata,missing)
       endif
 
+     
+      if (all(odata==missing)) then
+        call mpp_error(FATAL,"all data missing")
+      end if
+
+
       if(any(odata==missing)) then
         call rearrange2d(idata,idatar)
         call fill_miss2d(odata,idatar,missing,lmask)
@@ -517,6 +531,7 @@ program amfi_xgrid
       integer, allocatable :: itypes(:)
       real, dimension(size(idata,1),size(idata,2)) :: iidata
       real, dimension(size(odata,1),size(odata,2)) :: iodata, rodata
+      character(len=64) :: msg
 
       iidata = idata
 
@@ -530,8 +545,13 @@ program amfi_xgrid
       end do
 
       if (ntypes==0) then
+        call mpp_error(WARNING,"No types found")
         odata=0.
         return
+      else
+        write(msg,*) ntypes
+        msg=adjustl(msg)
+        call mpp_error(NOTE,"ntypes found are: "//trim(msg))
       endif
 
       allocate(itypes(ntypes))
@@ -551,7 +571,7 @@ program amfi_xgrid
       do n = 1, ntypes
         iidata = 0.
         maxtype = itypes(n)
-        where(iidata==maxtype) iidata=1.
+        where(idata==maxtype) iidata=1.
         call interpolate2d(iidata,odata,missing)
         where(odata>rodata) 
           iodata = maxtype
@@ -608,7 +628,7 @@ program amfi_xgrid
       do n = 1, ntypes
         iidata = 0.
         maxtype = itypes(n)
-        where(iidata==maxtype) iidata=1.
+        where(idata==maxtype) iidata=1.
         call interpolate3d(iidata,odata,missing)
         where(odata>rodata) 
           iodata = maxtype
@@ -625,9 +645,12 @@ program amfi_xgrid
     subroutine rearrange2d(idata,idatar)
       real, intent(in), dimension(:,:) :: idata
       real, intent(out), dimension(:,:) :: idatar
+      integer :: i, j
 
-        do jj = 1, size(idata,2)
-          do ii = 1, size(idata,1)
+        do j = 1, size(idata,2)
+          jp=j
+          do i = 1, size(idata,1)
+            ip=i
             idatar(ip,jp) = idata(ii,jj)
           end do
         end do
@@ -638,10 +661,14 @@ program amfi_xgrid
     subroutine rearrange3d(idata,idatar)
       real, intent(in), dimension(:,:,:) :: idata
       real, intent(out), dimension(:,:,:) :: idatar
+      integer :: k, j, i
 
-      do kk = 1, size(idata,3) 
-        do jj = 1, size(idata,2)
-          do ii = 1, size(idata,1)
+      do k = 1, size(idata,3) 
+        kp=k
+        do j = 1, size(idata,2)
+          jp=j
+          do i = 1, size(idata,1)
+            ip=i
             idatar(ip,jp,kp) = idata(ii,jj,kk)
           end do
         end do
@@ -721,8 +748,10 @@ program amfi_xgrid
       logical, intent(in), dimension(:,:) :: mask
       real, intent(in) :: missing
 
-      integer :: i, j, j1, i1, swipe
+      integer :: i, j, j1, i1, swipe, nmissing
       real :: rval
+
+      nmissing=0
 
       do i = 1, size(odata,2)
         do j = 1, size(odata,1)
@@ -735,9 +764,13 @@ program amfi_xgrid
               call mpp_error(FATAL, "Could not find nearest neighbhor valid point, decrease search_frac")
             end if
             odata(j,i) = rval
+            if (debug) print *, j, i, rval, odata(j,i)
+            nmissing=nmissing+1
           endif
         end do
       end do
+
+      print *, 'no missing value replaced: ', nmissing
 
     end subroutine fill_miss2d
 
@@ -884,6 +917,7 @@ program amfi_xgrid
           endif
         end do
       end do
+
     end function find_nn_val
 
 
@@ -1002,7 +1036,7 @@ program amfi_xgrid
       real, allocatable :: xf(:,:)
     
       real :: area, area1
-      integer :: is, ie, i, j, k, n, g, i1, i2, xnsize, siz(4)
+      integer :: is, ie, i, j, k, n, g, i1, i2, xnsize, siz(4), siz1(4)
     
       xnsize=size(lonb,1)*size(latb,1)*np
     
@@ -1030,6 +1064,11 @@ program amfi_xgrid
       lmask = .true.
       if (landdata) then 
         lmask=.false.
+        call field_size(gridf1,'AREA_LND',siz1)
+          print *, 'siz1,siz=', siz1(1:2),siz(1:2)
+        if (any(siz1(1:2)-siz(1:2)/=0)) then
+          call mpp_error(FATAL,'Error 1')
+        end if
         call read_data(gridf1,'AREA_LND',latbs)
         where(latbs>0.) lmask=.true.
       endif
@@ -1246,6 +1285,8 @@ program amfi_xgrid
           tmp=[(j, j=1, ocnx)]
           call mpp_modify_meta(axes(i), 'x', 'nounit', 'x', 'X', tmp)
           xid=i
+        elseif (trim(get_name(axes(i)))/=trim(time_axis_name)) then
+          call mpp_modify_meta(axes(i), 'z', 'nounit', 'z', 'Z')
         end if
         if (allocated(tmp)) deallocate(tmp)
       end do
