@@ -1,38 +1,7 @@
-#!/bin/bash
+#!/bin/bash --login
 set -e
 
-AQUAPLANET=True
-
-# Path to the root directory.
-rootdir=_ROOTDIR_
-
-# Fortran compiler
-export FC=mpiifort
-export F77=mpiifort
-
-# C compiler
-export CC=mpiicc
-export MPICC=mpiicc
-
-# if mpi library version is 3 or above
-MPI3=True
-
-#netcdf library path
-NETCDF=$(nc-config --prefix)
-
-#Fortran compiler options
-FFLAGS=" -g -traceback -r8 -O2 -fp-model precise -convert big_endian -align array32byte"
-# C compiler options
-CFLAGS="-O2"
-#Linker options
-LDFLAGS="-mkl -lrt -lstdc++ -lm"
-
-
-#Fortran compiler debug options [OPTIONAL]
-DFFLAGS="-g -traceback -fpe0 -fp-stack-check -check all -check noarg_temp_created"
-
-# C compiler debug options [OPTIONAL]
-DCFLAGS="-g -traceback -debug all"
+AQUAPLANET=False
 
 
 #--------------------------------------------------------------------------------
@@ -42,45 +11,43 @@ DCFLAGS="-g -traceback -debug all"
 #--------------------------------------------------------------------------------
 
 
-FFLAGS=$FFLAGS" -I$NETCDF/include"
-CFLAGS=$CFLAGS" -I$NETCDF/include"
-LDFLAGS="-L$NETCDF/lib -lnetcdf -lnetcdff "$LDFLAGS
 
+# Path to the root directory.
+rootdir=_ROOTDIR_
+
+machine=$(cat $rootdir/bin/._machine_)
 execdir="$rootdir/exec"
 srcdir="$rootdir/src"
 mkmf="$rootdir/bin/mkmf"
 
-mkmftemplate="$rootdir/bin/mkmf.template"
+mkmftemp="$rootdir/bin/mkmf.template"
+envir="$rootdir/bin/env.$machine"
+
+source $envir
 
 numproc=16
 
 debug=False
+
+usage() { echo "Usage: $0 [-g] [-j numproc]" 1>&2; exit 1;}
+
+
 while getopts 'gj:' flag; do
     case "${flag}" in
 	g) debug=True ;;
 	j) numproc="$OPTARG" ;;
     *)
 		echo "error"
-		exit 1
+		usage
         ;;
     esac
 done
 
 if [[ "$debug" == True ]]; then
-cat<<EOF > $mkmftemplate
-FFLAGS = $DFFLAGS $FFLAGS
-CFLAGS = $DCFLAGS $CFLAGS
-LDFLAGS = $LDFLAGS
-EOF
+	mkmftemplate=${mkmftemp}_debug.$machine
 else
-cat<<EOF > $mkmftemplate
-FFLAGS = $FFLAGS
-CFLAGS = $CFLAGS
-LDFLAGS = $LDFLAGS
-EOF
+	mkmftemplate=${mkmftemp}.$machine
 fi
-
-shift $(expr $OPTIND - 1)
 
 cat $mkmftemplate
 
@@ -97,21 +64,25 @@ echo "#-------------------------------------------------------------------------
 
 
 # MAKE FFTW
-echo "#-------------------------------MAKE FFTW--------------------------------------"
-cppDef=""
-export LD=$FC
-if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
-	cd $srcdir/shared/fftw-3.3.8
-	./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads --disable-doc
-	make clean
-	make -j $numproc
-	make install
-	make clean
+
+if [ -z "$FFTW_DIR" ]; then
+	echo "#-------------------------------MAKE FFTW--------------------------------------"
+	cppDef=""
+	export LD=$FC
+	if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
+		cd $srcdir/shared/fftw-3.3.8
+		./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads --disable-doc
+		make clean
+		make -j $numproc
+		make install
+		make clean
+	fi
+	FFTW_DIR=$execdir/fftw
+	echo "#------------------------------------------------------------------------------"
 fi
-echo "#------------------------------------------------------------------------------"
 
 
-echo "#-----------------------------MAKE FMS LIBRARY---------------------------------"
+echo "#-----------------------------MAKE FMS LIBRARY NO-MPI---------------------------------"
 paths="$srcdir/shared/mpp $srcdir/shared/include \
        $srcdir/shared/mpp/include \
        $srcdir/shared/fms $srcdir/shared/platform \
@@ -124,7 +95,28 @@ paths="$srcdir/shared/mpp $srcdir/shared/include \
 	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
 	   $srcdir/shared/strman"
 
-cppDef="-Duse_netCDF -Duse_libMPI"
+cppDef="-Duse_netCDF"
+mkdir -p $execdir/lib_fms_nompi
+cd $execdir/lib_fms_nompi
+$mkmf -c "$cppDef" -f -p lib_fms_nompi.a -t $mkmftemplate $paths
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
+
+
+echo "#-----------------------------MAKE FMS LIBRARY MPI---------------------------------"
+paths="$srcdir/shared/mpp $srcdir/shared/include \
+       $srcdir/shared/mpp/include \
+       $srcdir/shared/fms $srcdir/shared/platform \
+       $srcdir/shared/memutils $srcdir/shared/constants \
+       $srcdir/shared/horiz_interp $srcdir/shared/mosaic \
+	   $srcdir/shared/time_manager $srcdir/shared/data_override \
+       $srcdir/shared/time_interp $srcdir/shared/axis_utils \
+       $srcdir/shared/astronomy $srcdir/shared/diag_manager \
+       $srcdir/shared/sat_vapor_pres $srcdir/shared/mersenne_twister \
+	   $srcdir/shared/tracer_manager $srcdir/shared/field_manager \
+	   $srcdir/shared/strman"
+
+cppDef="-Duse_netCDF -Duse_netCDF4par -Duse_libMPI"
 mkdir -p $execdir/lib_fms
 cd $execdir/lib_fms
 $mkmf -c "$cppDef" -f -p lib_fms.a -t $mkmftemplate $paths
@@ -133,15 +125,15 @@ echo "#-------------------------------------------------------------------------
 
 
 echo "#--------------------------MAKE AMFI_GRID-----------------------------------"
-cppDef="-Duse_netCDF -Duse_libMPI"
+cppDef="-Duse_netCDF "
 exe=amfi_grid
 paths="$srcdir/preprocessing/make_grids/amfi $srcdir/amfi/ocpack \
 		$srcdir/amfi/transforms/gauss_and_legendre.F90"
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
-OPTS="-I$execdir/lib_fms"
-LIBS="$execdir/lib_fms/lib_fms.a"
+OPTS="-I$execdir/lib_fms_nompi"
+LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
@@ -182,11 +174,29 @@ paths="$srcdir/preprocessing/make_grids/xgrid \
 export LD=$FC
 mkdir -p $execdir/$exe
 cd $execdir/$exe
+OPTS="-I$execdir/lib_fms_nompi"
+LIBS="$execdir/lib_fms_nompi/lib_fms_nompi.a"
+$mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
+make -j $numproc
+echo "#------------------------------------------------------------------------------"
+
+
+echo "#--------------------------MAKE StackNFoldF-----------------------------------"
+cppDef="-Duse_netCDF -Dlib_xgrid"
+exe=StackNFoldF
+paths="$srcdir/preprocessing/make_grids/xgrid \
+       $srcdir/preprocessing/StackNFoldF \
+		$srcdir/amfi/ocpack $srcdir/amfi/transforms/gauss_and_legendre.F90"
+export LD=$FC
+mkdir -p $execdir/$exe
+cd $execdir/$exe
 OPTS="-I$execdir/lib_fms"
 LIBS="$execdir/lib_fms/lib_fms.a"
 $mkmf -c "$cppDef" -f -p ${exe} -t $mkmftemplate -o "$OPTS" -l "$LIBS" $paths
 make -j $numproc
 echo "#------------------------------------------------------------------------------"
+
+
 
 echo "#--------------------------listlayout-----------------------------------"
 cppDef=""
@@ -201,7 +211,7 @@ make -j $numproc
 echo "#------------------------------------------------------------------------------"
 
 echo "#-------------------------MAKE RUN_NCCOMBINEP2R--------------------------------------"
-cppDef="-Dlib_mppnccp2r"
+cppDef="-Dlib_mppnccp2r -Duse_libMPI"
 exe=run_mppnccp2r
 paths="$srcdir/postprocessing/mppnccombinep2r"
 export LD=$FC
@@ -237,9 +247,13 @@ fi
 mkdir -p $execdir/$exe
 cd $execdir/$exe
 
-OPTS="-I$execdir/lib_fms -I$execdir/fftw/include"
+OPTS="-I$execdir/lib_fms"
+LIBS="$execdir/lib_fms/lib_fms.a"
 
-LIBS="$execdir/lib_fms/lib_fms.a $execdir/fftw/lib/libfftw3_mpi.a $execdir/fftw/lib/libfftw3.a"
+if [ ! -z "$FFTW_DIR" ]; then
+	OPTS="$OPTS -I$FFTW_DIR/include"
+	LIBS="$LIBS $FFTW_DIR/lib/libfftw3_mpi.a $FFTW_DIR/lib/libfftw3.a"
+fi
 
 $mkmf -c "$cppDef" -f -p ${exe}.exe -t $mkmftemplate -o "$OPTS" -l "$LIBS"  $paths
 

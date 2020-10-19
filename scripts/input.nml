@@ -15,8 +15,8 @@
 	trunc = _TRUNC_
 	num_lat = _NLAT_
   	nlev = 64
-	layout = 2,4
-	!layout = 8,32
+	!layout = 2,4
+	layout = 8,32
 /
 
 &spectral_dynamics_nml
@@ -46,9 +46,14 @@ ozone_fnm="INPUT/ozone.nc"
 !!!obliq = 0.
 /
 
-&set_aerosols_nml
-use_this_module=.false.
+&radiation_aerosol_nml
+use_this_aerosol=.false.
 /
+
+&sfc_nml
+const_vegtype=.false.
+/
+
 
 &albedo_nml
 / 
@@ -60,7 +65,7 @@ use_this_module=.false.
   max_output_fields = 699
   mix_snapshot_average_fields=.false.
   issue_oor_warnings = .false.
-  !do_diag_field_log = .true.
+  do_diag_field_log = .true.
 /
 
 &fms_io_nml

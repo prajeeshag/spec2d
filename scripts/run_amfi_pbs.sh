@@ -3,7 +3,7 @@
 #USER DEFINED PARAMETERS
 
 # queue - Queue name
-queue="cccr-res"
+queue="cccr"
 
 # WCLOCK - Wall clock limit (in hours)
 WCLOCK="240"
@@ -55,8 +55,10 @@ if [ ! "$submit_combine" == "True" ]; then
 fi
 
 lsf=True
-if ! [ -x "$(command -v bjobs)" ]; then
+if ! [ -x "$(command -v qsub)" ]; then
 	lsf=False
+	echo "Error: Cannot find pbs commands"
+	exit 1
 fi
 
 bypassrunning=False
@@ -69,10 +71,10 @@ fi
 if [ ! "$bypassrunning" == "True" ];then
 if [ "$lsf" == "True" ]; then
 	alljobs=$(bjobs -noheader -o 'exec_cwd jobid job_name' 2>/dev/null | grep "$(pwd) ")
+    alljobs=$(qstat -f  | grep "PBS_O_WORKDIR=$(pwd),")
 	if [ ! -z "$alljobs" ]; then
 		echo "Some jobs are already running in this directory!"
 	    echo "Please kill these jobs before submitting!"
-		echo $alljobs
 		exit 1
 	fi
 fi
@@ -103,28 +105,36 @@ fi
 
 STDOUT=${STDOUT}
 
+ppn=36
+nnodes=$((npes/ppn))
+rem=$((npes%ppn))
+if [ "$rem" -gt "0" ]; then
+	nnodes=$((nnodes+1))
+fi
+
+
 tfile=$(mktemp)
 echo $tfile
 cat <<EOF > $tfile
 
 #!/bin/bash
 
-#BSUB -q $queue
-#BSUB -x
-#BSUB -W ${WCLOCK}:00
-#BSUB -J $JOBNAME
-#BSUB -o $STDOUT
-#BSUB -n $npes
+#PBS -q $queue
+#PBS -l nodes=$nnodes:ppn=$ppn
+#PBS -l walltime=${WCLOCK}:00:00
+#PBS -N $JOBNAME
+#PBS -j oe
+####PBS -o $STDOUT 
 
-export I_MPI_FABRICS=shm:dapl
 
 machine=$(cat _ROOTDIR_/bin/._machine_)
 source _ROOTDIR_/bin/env.$machine
 ulimit -c unlimited
 set -xu
+cd \$PBS_O_WORKDIR
+export OMP_NUM_THREADS=1
 
-mpirun -env OMP_NUM_THREADS 1 -n $npes $EXE
-#mpirun -prepend-rank -env OMP_NUM_THREADS 1 -n $npes $EXE
+aprun -n $npes $EXE &> $STDOUT
 
 EOF
 
@@ -143,15 +153,17 @@ else
 	rm -f $STDOUT
   	cat $tfile
 	if [ "$lsf" == "True" ]; then
-		output=$(bsub < $tfile)
+		output=$(qsub < $tfile)
 		echo $output
-		jobid=$(echo $output | head -n1 | cut -d'<' -f2 | cut -d'>' -f1;)
+		jobid=$(echo $output | awk -F "." '{print $1}')
 		if [ "$jobid" -eq "$jobid" ] 2>/dev/null; then
 		  	echo "Job submitted" 
 		else
+			echo $jobid
+		  	echo "Job not submitted" 
 		  	exit 1
 		fi
-		COND="BSUB -w started($jobid)"
+		COND="PBS -W depend=after:$jobid"
 	else
 		bash $tfile
 	fi
@@ -161,34 +173,42 @@ if [ "$submit_combine" == "True" ]; then
 
 WCLOCK=$((WCLOCK*2))
 
+ppn=36
+nnodes=$((nproc_combine/ppn))
+rem=$((nproc_combine%ppn))
+if [ "$rem" -gt "0" ]; then
+	nnodes=$((nnodes+1))
+fi
+
 tfile=$(mktemp)
 echo $tfile
 cat <<EOF > $tfile
 
 #!/bin/bash
 
-#BSUB -q $queue
-#BSUB -x
-#BSUB -W ${WCLOCK}:00
-#BSUB -J ${JOBNAME}_combine
-#BSUB -o ${STDOUT}_combine
+#PBS -q $queue
+#PBS -l nodes=$nnodes:ppn=$ppn
+#PBS -l walltime=${WCLOCK}:00:00
+#PBS -N ${JOBNAME}_combine
+#PBS -j oe
+####PBS -o $STDOUT 
 #$COND
-#BSUB -n $nproc_combine
 
 machine=$(cat _ROOTDIR_/bin/._machine_)
 source _ROOTDIR_/bin/env.$machine
 ulimit -c unlimited
 set -xu
+cd \$PBS_O_WORKDIR
 
-mpirun -n $nproc_combine $RUNNCCP2R \
-<<< "&opts_nml removein=1, atmpes=$npes, child_run=$combine_child_run /"
+aprun -n $nproc_combine $RUNNCCP2R \
+<<< "&opts_nml removein=1, atmpes=$npes, child_run=$combine_child_run /" &> ${STDOUT}_combine
 EOF
 
 rm -f ${STDOUT}_combine
 
 cat $tfile
 if [ "$lsf" == "True" ]; then
-	bsub < $tfile
+	qsub < $tfile
 else 
 	bash $tfile
 fi

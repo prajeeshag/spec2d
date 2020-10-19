@@ -5,7 +5,7 @@
      &     U1,V1,T1,Q1,
      &     PSK,RBSOIL,FM,FH,QSS,HEAT,EVAP,STRESS,SPD1,KPBL,
      &     PRSI,DEL,PRSL,PRSLK,PHII,PHIL,DELTIM,
-     &     DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,HGAMQ,chck)
+     &     DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,HGAMQ)
 
       USE constants_mod, only : grav, RD => RDGAS, CP => CP_AIR
      &,             HVAP => HLV, RVGAS
@@ -29,8 +29,8 @@
      &                     dvsfc,     dtsfc,
      &                     DQSFC,     HPBL,
      &                     HGAMT,     hgamq
-      logical, intent(in) :: chck
       integer iprt,is,iun,k,kk,kmpbl,lond
+      real :: dspheat
       real evap,  heat,    phih,
      &                     phim,  rbdn,    rbup,
      &                     the1,  stress,  beta,
@@ -72,6 +72,7 @@
       PARAMETER(GAMCRT=3.,GAMCRQ=0., RLAMUN=150.0)
       PARAMETER(IUN=84)
 
+      dspheat = 0.
       DT    = 2. * DELTIM
       RDT   = 1. / DT
       KMPBL = KM / 2
@@ -330,6 +331,10 @@
             DV(k)  = DV(k)+VTEND
             DUSFC = DUSFC+CONWRC*DEL(K)*UTEND
             DVSFC = DVSFC+CONWRC*DEL(K)*VTEND
+            TTEND=0.5*RDT*((U1(K)**2-A1(K)**2) +
+     &           (V1(K)**2-A2(K)**2))/CP
+            TAU(K)=TAU(K)+TTEND
+            dspheat=dspheat+CONT*DEL(k)*TTEND
       ENDDO
       RETURN
       END SUBROUTINE

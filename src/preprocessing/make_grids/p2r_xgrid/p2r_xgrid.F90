@@ -40,8 +40,8 @@ subroutine make_xgrid_oc2rg(nlat)
     type(vtx) :: v1(2), v2(2), v_out(4)
     type(vtx), allocatable :: vtxoc(:,:,:), vtxrg(:,:,:)
     real, allocatable :: latb(:), lonfb(:)
-    real, allocatable :: lonfc(:), latc(:), sin_hem(:), wts_hem(:)
-    real :: dlonf, dlon, dlat, area, area1
+    real, allocatable :: lonfc(:), latc(:), sin_hem(:), wts_hem(:), wts_lat(:)
+    real :: dlonf, dlon, area, area1, sumwts
     integer :: nlon, is, ie, i, j, k, n, g, i1, i2
     integer :: ierr, ncid, xn_id
     integer :: pxi_id, pxj_id, pxf_id
@@ -60,6 +60,7 @@ subroutine make_xgrid_oc2rg(nlat)
 
     allocate(latc(nlat), lonfc(oc_maxlon()))
     allocate(sin_hem(nlat/2),wts_hem(nlat/2))
+    allocate(wts_lat(nlat))
 
     call compute_gaussian(sin_hem, wts_hem, nlat/2)
 
@@ -67,20 +68,25 @@ subroutine make_xgrid_oc2rg(nlat)
     latc(nlat:nlat/2+1:-1) = sin_hem
     latc = asin(latc)*180./PI
 
+    wts_lat(1:nlat/2) = wts_hem
+    wts_lat(nlat:nlat/2+1:-1) = wts_hem
+
     dlon=360./oc_maxlon()
     lonfc(1) = 0.
     do j = 2, oc_maxlon()
         lonfc(j) = lonfc(j-1) + dlon
     end do
  
-    dlat=180./nlat
-    
-    latb(1) = -90.
-    do j = 2, nlat+1
-        latb(j) = latb(j-1) + dlat
+    latb(1) = -0.5*PI
+    sumwts = 0.
+    do j = 1, nlat-1
+        sumwts = sumwts + wts_lat(j)
+        latb(j+1) = asin(sumwts-1.)
     end do
-    latb(nlat+1)=90.
-    
+    latb(nlat+1) = 0.5*PI
+
+    latb = latb*180./PI
+
     call get_ocpackP(ocP)
     
     do n = 1, oc_npack()
@@ -216,6 +222,7 @@ subroutine make_xgrid_oc2rg(nlat)
     call handle_err(ierr)
 
 end subroutine make_xgrid_oc2rg
+
 
 subroutine handle_err(status)
     integer, intent ( in) :: status

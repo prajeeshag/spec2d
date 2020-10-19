@@ -14,3 +14,6 @@ reinit.sh
 *.out
 *.synctex.gz
 *.tar.gz
+*._*
+data
+work

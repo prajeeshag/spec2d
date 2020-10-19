@@ -468,9 +468,9 @@ int read_xgrid()
 	}
 	nlat=dimsize;	
 
-	printf("no of exchange grids = %d\n",xn);
-	printf("nlon of regular grid = %d\n",nlon);
-	printf("nlat of regular grid = %d\n",nlat);
+	/*if(verbose>1) printf("no of exchange grids = %d\n",xn);
+	if(verbose>1) printf("nlon of regular grid = %d\n",nlon);
+	if(verbose>1) printf("nlat of regular grid = %d\n",nlat);*/
 
 	if ((rxi = malloc(xn * sizeof(int)))==NULL) 
 	{ fprintf(stderr,"Error: cannot allocate enough memory for rxi!\n"); ncclose(ncfid); return(1); }
@@ -565,8 +565,8 @@ int read_xgrid()
 		rxj[n]=rxj[n]-1;
 	}
 
-	printf("max value of rxi = %d, rxj = %d, pxi = %d, pxj = %d \n", 
-			maxrxi, maxrxj, maxpxi, maxpxj);
+	//if(verbose>1) printf("max value of rxi = %d, rxj = %d, pxi = %d, pxj = %d \n", 
+	//		maxrxi, maxrxj, maxpxi, maxpxj);
 
 	return(0);
 }

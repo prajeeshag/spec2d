@@ -27,7 +27,7 @@ use field_manager_mod, only : MODEL_ATMOS
 
 use spectral_dynamics_mod, only : init_spectral_dynamics, spectral_dynamics
 use spectral_dynamics_mod, only : get_latsP, get_lonsP, finish_spectral_dynamics, &
-    save_spec_restart, end_spectral_dynamics
+    save_spec_restart, end_spectral_dynamics, get_gtopo
   
 use phys_mod, only : init_phys, phys, end_phys, save_restart_phys
 
@@ -60,6 +60,7 @@ real, allocatable :: v2(:,:,:)
 real, allocatable :: vvel1(:,:,:)
 real, allocatable :: p(:,:)
 real, allocatable :: p1(:,:)
+real, allocatable :: topo(:,:)
 real, allocatable :: tem(:,:,:)
 real, allocatable :: tem1(:,:,:)
 real, allocatable :: tem2(:,:,:)
@@ -143,6 +144,7 @@ subroutine init_atmos(Time,deltim_in)
     allocate(tem(nlev,jsp:jep,isp:iep))
     allocate(tr(nlev,jsp:jep,isp:iep,ntrac))
     allocate(p(jsp:jep,isp:iep))
+    allocate(topo(jsp:jep,isp:iep))
     
     allocate(u1(nlev,jsp:jep,isp:iep))
     allocate(v1(nlev,jsp:jep,isp:iep))
@@ -163,6 +165,7 @@ subroutine init_atmos(Time,deltim_in)
 
     call get_lonsP(deglon=lon_deg)
     call get_latsP(deglat=lat_deg)
+    call get_gtopo(topo)
     
     if (do_phys) call init_phys(Time,deltim*2,deltim,domain_g,nlev,lat_deg,lon_deg,axis)
 
@@ -182,6 +185,7 @@ subroutine update_atmos(Time)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     integer :: ntr
+    real :: ene(jsp:jep,isp:iep)
 
     call spectral_dynamics(Time,u,v,tem,tr,p,u1,v1,tem1,tr1,p1,vvel1)
 
@@ -214,7 +218,7 @@ subroutine update_atmos(Time)
     !call mpp_error(FATAL,'atmos: testing...')
 
     if (do_phys) then
-        call phys(Time,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2)
+        call phys(Time,tem1,tr1,p1,u1,v1,vvel1,tem2,tr2,u2,v2,topo,ene)
     else
         tem2 = tem1
         tr2 = tr1
@@ -222,7 +226,7 @@ subroutine update_atmos(Time)
         v2 = v1
     endif
 
-    call finish_spectral_dynamics(Time,tem2,tr2,u2,v2)
+    call finish_spectral_dynamics(Time,tem2,tr2,u2,v2,ene)
 
 end subroutine update_atmos
 

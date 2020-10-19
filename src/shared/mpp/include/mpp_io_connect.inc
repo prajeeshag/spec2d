@@ -163,7 +163,7 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     subroutine mpp_open( unit, file, action, form, access, threading, &
                          fileset, iospec, nohdrs, recl,               &
-                         iostat, is_root_pe, domain )
+                         iostat, is_root_pe, domain, nc4parallel )
       integer,         intent(out)           :: unit   
       character(len=*), intent(in)           :: file
       integer,          intent(in), optional :: action, form, access 
@@ -173,6 +173,7 @@
       integer,         intent(out), optional :: iostat
       logical,          intent(in), optional :: is_root_pe      
       type(domain2d),   intent(in), optional :: domain
+      logical,          intent(in), optional :: nc4parallel
 
       character(len=16)  :: act, acc, for, pos
       character(len=128) :: mesg
@@ -193,7 +194,9 @@
       integer                               ::f_size, f_stat
       integer                               ::fsize, inital = 0
       character(len=128)                    :: f_test
-      
+
+
+
       
       
       call mpp_clock_begin(mpp_open_clock)
@@ -301,11 +304,14 @@
             threading_flag = MPP_SINGLE
          endif
       else if( fileset_flag.EQ.MPP_MULTI ) then
+	  	 if (present(nc4parallel).and.nc4parallel) then
+		 else
          if(mpp_npes() > 10000) then
             write( text,'(a,i6.6)' )trim(text)//'.', pe
          else
             write( text,'(a,i4.4)' )trim(text)//'.', pe
          endif
+		 endif
       endif
       mpp_file(unit)%name = text
       if( verbose )print '(a,2i6,x,a,5i5)', 'MPP_OPEN: PE, unit, filename, action, format, access, threading, fileset=', &
@@ -560,9 +566,20 @@
               error=NF__CREATE( trim(mpp_file(unit)%name), IOR(NF_NETCDF4,NF_CLASSIC_MODEL), inital, fsize, mpp_file(unit)%ncid )
               call netcdf_err( error, mpp_file(unit) )
               if( verbose )print '(a,i6,i16)', 'MPP_OPEN: new netCDF file: pe, ncid=', pe, mpp_file(unit)%ncid
-          else if( action_flag.EQ.MPP_OVERWR )then
+          else if( action_flag.EQ.MPP_OVERWR)then
               if(debug) write(*,*) 'Blocksize for create of ', trim(mpp_file(unit)%name),' is ', fsize
-              error=NF__CREATE( trim(mpp_file(unit)%name), IOR(NF_NETCDF4,NF_CLASSIC_MODEL), inital, fsize, mpp_file(unit)%ncid )
+			  if (present(nc4parallel).and.nc4parallel) then
+#ifdef use_netCDF4par
+        		call mpp_get_current_pelist(commID=comm) 
+              	error=NF_CREATE_PAR( trim(mpp_file(unit)%name), IOR(IOR(NF_NETCDF4,NF_MPIIO),NF_CLASSIC_MODEL), &
+					comm, MPI_INFO_NULL, mpp_file(unit)%ncid )
+				mpp_file(unit)%nc4parallel=.true.
+#else
+                call mpp_error(FATAL,'MPP_OPEN: nc4parallel=.true. require the code to be compiled with -Duse_netCDF4par option')
+#endif
+			  else
+              	error=NF__CREATE( trim(mpp_file(unit)%name), IOR(NF_NETCDF4,NF_CLASSIC_MODEL), inital, fsize, mpp_file(unit)%ncid )
+			  endif
               call netcdf_err( error, mpp_file(unit) )
               action_flag = MPP_WRONLY !after setting clobber, there is no further distinction btwn MPP_WRONLY and MPP_OVERWR
               if( verbose )print '(a,i6,i16)', 'MPP_OPEN: overwrite netCDF file: pe, ncid=', pe, mpp_file(unit)%ncid

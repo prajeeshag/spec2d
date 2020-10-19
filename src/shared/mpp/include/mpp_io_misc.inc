@@ -138,6 +138,7 @@
       mpp_file(:)%valid = .FALSE.     
       mpp_file(:)%ndim = -1
       mpp_file(:)%nvar = -1
+      mpp_file(:)%nc4parallel = .false.
 !NULLUNIT "file" is always single-threaded, open and initialized (to pass checks in mpp_write)
       mpp_file(NULLUNIT)%threading = MPP_SINGLE
       mpp_file(NULLUNIT)%opened = .TRUE.

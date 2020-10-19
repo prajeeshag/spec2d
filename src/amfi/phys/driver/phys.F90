@@ -14,7 +14,7 @@ use fms_mod, only : read_data, write_data, open_namelist_file, close_file, fms_i
 use fms_io_mod, only : restart_file_type, reg_rf => register_restart_field, restore_state, save_restart, &
     fms_io_exit
 
-use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS
+use constants_mod, only : PI, CP_AIR, RDGAS, RVGAS, GRAV, RADIUS, HLF
 
 use time_manager_mod, only : time_type, set_time, operator(==), operator(+), assignment(=), &
                              print_date
@@ -68,6 +68,8 @@ real, allocatable, dimension(:,:,:) :: htsw
 real, allocatable, dimension(:,:,:) :: htlw
 real, allocatable, dimension(:,:) :: rldsz
 real, allocatable, dimension(:,:) :: rsdsz, rsusz
+real, allocatable, dimension(:,:) :: rsdt, rsut
+real, allocatable, dimension(:,:) :: rlut
 real, allocatable, dimension(:,:) :: fprcp, lprcp
 real, allocatable, dimension(:,:) :: slmsk
 
@@ -77,7 +79,7 @@ type(restart_file_type) :: rstrt
 
 integer :: id_rsds, id_rsus, id_rsns, id_dtlw, id_dtrd, id_shflx, id_lhflx, id_taux, &
            id_tauy, id_dtvd, id_hpbl, id_duvd, id_dvvd, id_rlds, id_rlus, id_tskin, &
-           id_sfcemis
+           id_sfcemis, id_snlhflx, id_totene, id_rsdt, id_rsut, id_rlut
 integer :: id_dugwd, id_dvgwd, id_ducgwd, id_dvcgwd
 integer :: id_dtcu, id_ducu, id_dvcu, id_lprcu, id_kcnv, id_fprcu
 integer :: id_dtsc, id_dtmp, id_lprmp, id_fprmp, id_inmpclw, id_inmpq
@@ -132,7 +134,7 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
 
     time_step_rad = set_time(dt_rad)
     time_step = set_time(int(dt_rad))
-    rad_time = Time
+    rad_time = Time + set_time(int(dt_atmos))
 
     call get_number_tracers(MODEL_ATMOS, ntrac, num_prog, num_diag)
 
@@ -175,6 +177,9 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     allocate(rsdsz(js:je,is:ie))
     allocate(rsusz(js:je,is:ie))
     allocate(rldsz(js:je,is:ie))
+    allocate(rsdt(js:je,is:ie))
+    allocate(rsut(js:je,is:ie))
+    allocate(rlut(js:je,is:ie))
     allocate(fprcp(js:je,is:ie))
     allocate(lprcp(js:je,is:ie))
 
@@ -183,6 +188,9 @@ subroutine init_phys(Time, dt_phys_in, dt_atmos_in, domain_in, nlev_in, &
     rsdsz = 0.
     rsusz = 0.
     rldsz = 0.
+    rsut = 0.
+    rsdt = 0.
+    rlut = 0.
 
     fprcp = 0.
     indx = reg_rf(rstrt, resfnm, 'fprcp', fprcp, domain, mandatory=.false.)
@@ -244,6 +252,12 @@ subroutine init_diag_out(Time, axes)
     ! Diag out
     ! -------------------------------------------------------------------------------- 
     !->rd 
+    id_rsdt = reg_df(rou, 'rsdt', axes(1:2), time, 'TOA downwelling shortwave',  'w m-2')
+
+    id_rsut = reg_df(rou, 'rsut', axes(1:2), time, 'TOA upwelling shortwave',  'w m-2')
+
+    id_rlut = reg_df(rou, 'rlut', axes(1:2), time, 'TOA upwelling longtwave',  'w m-2')
+
     id_rsds = reg_df(rou, 'rsds', axes(1:2), time, 'surface downwelling shortwave',  'w m-2')
 
     id_rsus = reg_df(rou, 'rsus', axes(1:2), time, 'surface upwelling shortwave',  'w m-2')
@@ -254,6 +268,7 @@ subroutine init_diag_out(Time, axes)
 
     id_rlds = reg_df(rou, 'rlds', axes(1:2), time, 'surface downwelling longwave',  'w m-2')
     id_rlus = reg_df(rou, 'rlus', axes(1:2), time, 'surface upwelling longwave',  'w m-2')
+    id_totene = reg_df(rou, 'totene', axes(1:2), time, 'total energy flux',  'w m-2')
     id_tskin = reg_df(rou, 'tskin', axes(1:2), time, 'Surface Temperature',  'K')
 
     id_dtrd = reg_df(rou, 'dtrd', [axes(3),axes(1),axes(2)], time,  &
@@ -269,6 +284,8 @@ subroutine init_diag_out(Time, axes)
                'sensible heat flux', 'wm-2')
     id_lhflx = reg_df(rou, 'lhflx', [axes(1),axes(2)], time, &
                'latent heat flux', 'wm-2')
+    id_snlhflx = reg_df(rou, 'snlhflx', [axes(1),axes(2)], time, &
+               'heat released due snow formation)', 'wm-2')
     id_taux = reg_df(rou, 'taux', [axes(1),axes(2)], time, &
                'u-wind stress', 'pa')
     id_tauy = reg_df(rou, 'tauy', [axes(1),axes(2)], time, &
@@ -411,7 +428,7 @@ end subroutine init_diag_out
     
 
 !--------------------------------------------------------------------------------   
-subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
+subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo,enetot)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     real, intent(in), dimension(1:nlev,js:je,is:ie) :: tlyr1, u1, v1, vvel1
@@ -420,6 +437,7 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
     real, intent(out), dimension(1:nlev,js:je,is:ie) :: dtdt, dudt, dvdt 
     real, intent(out), dimension(1:nlev,js:je,is:ie,ntrac) :: dqdt
     real, intent(in), optional, dimension(js:je,is:ie) :: topo
+    real, intent(out), optional, dimension(js:je,is:ie) :: enetot
 
     real, dimension(1:nlev,js:je,is:ie) :: plyr, plyrk, prslki, delp, phil, tmp3d
     real, dimension(1:nlev+1,js:je,is:ie) :: plvl, plvlk, phii
@@ -430,7 +448,7 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
                                     rlds, rlus, rldsg, rb, ffmm, ffhh, qss, hflx, evap, &
                                     stress, wind, dusfc1, dvsfc1, dtsfc1, dqsfc1, hpbl, &
                                     gamt, gamq, topo1, sfcemis, cldwrk, rain1, rain, &
-                                    snow, snow1
+                                    snow, snow1, totene, snlhflx
 
     integer, dimension(js:je,is:ie) :: kpbl, kbot, ktop, kcnv
 
@@ -448,6 +466,7 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
     dtdt = 0.; dudt = 0.; dvdt = 0.; dqdt = 0.
     dtdt1 = 0.; dudt1 = 0.; dvdt1 = 0.; dqdt1 = 0.
     rain = 0.; snow = 0.; rain1 = 0.; snow1 = 0.
+    totene = 0.
 
     topo1 = 0.
     if(present(topo)) topo1 = topo
@@ -491,7 +510,7 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
         solcon = con_solr * rrsun
         where(coszen>0.) rcoszen = 1./coszen 
         call radiation(Time, tlyr1, tr1, plyr, plvl, phil, topo1, tskin, coszen, fracday, sfcalb, sfcemis, &
-                       solcon, htsw, rsdsz, rsusz, htlw, rldsz, rlus)
+                       solcon, htsw, rsdsz, rsusz, htlw, rldsz, rlus, rsdt, rsut, rlut)
         do k = 1, size(htsw,1)
             htsw(k,:,:) = htsw(k,:,:) * rcoszen
         enddo
@@ -518,6 +537,11 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
 
     rldsg = rlds * sfcemis !-> rldsg for land,ocn,sea-ice
 
+    totene = totene - rsds + rsus - rlds + rlus + rsdt - rsut - rlut
+
+    used = send_data(id_rsdt, rsdt, Time) 
+    used = send_data(id_rsut, rsut, Time) 
+    used = send_data(id_rlut, rlut, Time) 
     used = send_data(id_rsds, rsds, Time) 
     used = send_data(id_rsus, rsus, Time) 
     used = send_data(id_rsns, rsns, Time) 
@@ -541,8 +565,10 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
             tr1(1,:,:,ind_q), plyr(1,:,:), prslki(1,:,:), rsds, rsns, rldsg, &
             fprcp, lprcp, rb, ffmm, ffhh, qss, hflx, evap, stress, wind)
     call mpp_clock_end(clck_sfc)
+
     if (debug) then
         call mpp_sync()
+        !write(msg,*) tlyr1(1,:,:)
         call mpp_error(NOTE,'after sfc_fluxes')
     endif
     !End surface Fluxes
@@ -577,7 +603,7 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
         call mpp_error(NOTE,'after vertical_diffusion')
     endif
     !End Vertical Diffusion
-
+    totene = totene + dtsfc1 + dqsfc1
 
     !Gravity Wave Drag
     call mpp_clock_begin(clck_gwd)
@@ -725,6 +751,12 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
     lprcp = rain * rdt_phys
     fprcp = snow * rdt_phys
 
+    snlhflx(:,:) = snow(:,:)*HLF*rdt_phys*rhoh2o ! Latent heat release due to snow formation (W/m2)
+
+    totene = totene + snlhflx
+
+
+    if (id_snlhflx>0) used = send_data(id_snlhflx, snlhflx, Time)
     if (id_lpr>0) used = send_data(id_lpr, rdt_phys*rain*rhoh2o, Time)
     if (id_fpr>0) used = send_data(id_fpr, rdt_phys*snow*rhoh2o, Time)
     if (id_pr>0) used = send_data(id_pr, rdt_phys*(rain+snow)*rhoh2o, Time)
@@ -732,11 +764,16 @@ subroutine phys(Time,tlyr1,tr1,p1,u1,v1,vvel1,dtdt,dqdt,dudt,dvdt,topo)
     if (id_dtphy>0) used = send_data(id_dtphy, rdt_phys*(dtdt-tlyr1), Time)
     if (id_duphy>0) used = send_data(id_duphy, rdt_phys*(dudt-u1), Time)
     if (id_dvphy>0) used = send_data(id_dvphy, rdt_phys*(dvdt-v1), Time)
+
     do n = 1, ntrac
         if (id_dtrphy(n)>0) used = send_data(id_dtrphy(n), rdt_phys*(dqdt(:,:,:,n) &
                                                  - tr1(:,:,:,n)), Time)
         if (id_trin(n)>0) used = send_data(id_trin(n), tr1(:,:,:,n), Time)
     enddo
+
+    if (id_totene>0) used = send_data(id_totene, totene, Time)
+
+    if (present(enetot)) enetot=totene
 
     call mpp_clock_end(clck_phys)
 

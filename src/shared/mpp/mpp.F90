@@ -185,6 +185,9 @@ private
 #if defined(use_libMPI) && !defined(sgi_mipspro)
 #include <mpif.h>   
 !sgi_mipspro gets this from 'use mpi'
+  public :: MPI_INFO_NULL !Prajeesh: for parallel netcdf
+#else
+  integer, public :: MPI_INFO_NULL
 #endif
 
   !--- public paramters  -----------------------------------------------

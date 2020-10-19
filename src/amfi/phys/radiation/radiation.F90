@@ -25,7 +25,7 @@ use module_radsw_main, only : init_swrad, swrad, NBDSW
 
 use module_radlw_main, only : init_lwrad, lwrad, NBDLW=>nbands
 
-use set_aerosols_mod, only : init_set_aerosols, set_aerosols
+use radiation_aerosol_mod, only : init_aerosol_mod, set_aerosols
 
 #ifdef AQUAPLANET
 use aqua_planet_mod, only : aquape_o3
@@ -80,15 +80,17 @@ integer :: id_htlw, id_rlut, id_rlutc, id_rlds, id_rldsc, id_rlus, id_rlusc, &
 
 integer :: clck_swrad, clck_lwrad
 
-logical :: initialized=.false., debug=.false.
+integer :: curr_month=0
 
-namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm, debug
+logical :: initialized=.false., debug=.false., interp_ozone_vert=.true.
+
+namelist/radiation_nml/icwp, iovr, isubc, ozone_fnm, debug, interp_ozone_vert
 
 contains
 
 !--------------------------------------------------------------------------------   
 subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
-                          lat_deg_in,lon_deg_in,fland_in, axes_in, &
+                          lat_deg_in,lon_deg_in,fland_in,axes_in, &
                           ind_q_in,ind_clw_in,ind_oz_in)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
@@ -145,7 +147,7 @@ subroutine init_radiation(Time,domain_in,ntrac_in,nlev_in, &
 
     call rad_diag_init(Time,axes_in)
 
-    call init_set_aerosols(is,ie,js,je,nlev)
+    call init_aerosol_mod(Time,domain,nlev,axes_in)
 
     clck_swrad = mpp_clock_id('SW radiation')
     clck_lwrad = mpp_clock_id('LW radiation')
@@ -264,7 +266,8 @@ end subroutine rad_diag_init
 
 !--------------------------------------------------------------------------------   
 subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracday, &
-                     sfcalb, sfcemis, solcon, htsw, rsds, rsus, htlw, rlds, rlus)
+                     sfcalb, sfcemis, solcon, htsw, rsds, rsus, htlw, rlds, rlus, &
+                     rsdt, rsut, rlut)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     real, intent(in), dimension(1:nlev,js:je,is:ie) :: prsl, tlyr, phil
@@ -350,6 +353,7 @@ subroutine radiation(Time, tlyr, tr, prsl, prsi, phil, oro, tskin, coszen, fracd
     faerlw = 0.
 
     call set_aerosols(Time, prsi, prsl, tlyr, phil, oro, faersw, faerlw)
+
     if (debug) call mpp_error(NOTE,"radiation: after set_aerosols")
 
     if (id_aod>0) used = send_data(id_aod, faersw(:,10,1,:,:), Time)
@@ -434,24 +438,30 @@ subroutine get_ozone(time,prsl,o3)
     real, intent(in) :: prsl(:,js:,is:)
     real, intent(out) :: o3(:,js:,is:)
     integer :: siz(4), i, j
+    logical :: ov
 
     o3 = 0.
-    if (trim(ozone_fnm)=='NOOZON') return
 
-    if (.not.allocated(o3tmp)) then
-        call field_size(trim(ozone_fnm),'level',siz)
-        allocate(o3lev(siz(1)))
-        allocate(o3tmp(siz(1),js:je,is:ie))
-        call read_data(trim(ozone_fnm),'level',o3lev)
-    end if
+    if (interp_ozone_vert) then
+      if (.not.allocated(o3tmp)) then
+          call field_size(trim(ozone_fnm),'z',siz)
+          allocate(o3lev(siz(1)))
+          allocate(o3tmp(siz(1),js:je,is:ie))
+          call read_data(trim(ozone_fnm),'z',o3lev)
+          if (o3lev(2)-o3lev(1)<=0) & call mpp_error(FATAL,"get_ozone: levels of ozone file &
+              & should be in hPa and monotonically increasing")
+      end if
    
-    call data_override('ATM','ozone',o3tmp,Time,kxy=1)
+      call data_override('ATM','ozone',o3tmp,Time,ov,kxy=1)
 
-    do i = is, ie
-        do j = js, je
-            call interp_vert(o3tmp(:,j,i),o3(:,j,i),o3lev,prsl(:,j,i),.false.)
-        end do
-    end do    
+      do i = is, ie
+          do j = js, je
+              call interp_vert(o3tmp(:,j,i),o3(:,j,i),o3lev,prsl(:,j,i),.false.)
+          end do
+      end do
+    else
+      call data_override('ATM','ozone',o3,Time,ov,kxy=1)
+    endif
    
     return 
 end subroutine get_ozone
@@ -563,17 +573,20 @@ subroutine get_gases(Time,gasvmr)
 !--------------------------------------------------------------------------------   
     type(time_type), intent(in) :: Time
     real, intent(out) :: gasvmr(:,:,:,:)
+    logical :: ov
+    integer :: mm, dd, yy, hh, mns, sc
+    character(len=256) :: msg
 
-    call data_override('ATM','co2vmr',co2vmr,Time)
-    call data_override('ATM','n2ovmr',n2ovmr,Time)
-    call data_override('ATM','ch4vmr',ch4vmr,Time)
-    call data_override('ATM','o2vmr',o2vmr,Time)
-    call data_override('ATM','covmr',covmr,Time)
-    call data_override('ATM','f11vmr',f11vmr,Time)
-    call data_override('ATM','f12vmr',f12vmr,Time)
-    call data_override('ATM','f22vmr',f22vmr,Time)
-    call data_override('ATM','cl4vmr',cl4vmr,Time)
-    call data_override('ATM','f113vmr',f113vmr,Time)
+    call data_override('ATM','co2vmr',co2vmr,Time,ov)
+    call data_override('ATM','n2ovmr',n2ovmr,Time,ov)
+    call data_override('ATM','ch4vmr',ch4vmr,Time,ov)
+    call data_override('ATM','o2vmr',o2vmr,Time,ov)
+    call data_override('ATM','covmr',covmr,Time,ov)
+    call data_override('ATM','f11vmr',f11vmr,Time,ov)
+    call data_override('ATM','f12vmr',f12vmr,Time,ov)
+    call data_override('ATM','f22vmr',f22vmr,Time,ov)
+    call data_override('ATM','cl4vmr',cl4vmr,Time,ov)
+    call data_override('ATM','f113vmr',f113vmr,Time,ov)
 
     gasvmr(:,1,:,:)  = co2vmr
     gasvmr(:,2,:,:)  = n2ovmr
@@ -585,6 +598,16 @@ subroutine get_gases(Time,gasvmr)
     gasvmr(:,8,:,:)  = f22vmr
     gasvmr(:,9,:,:)  = cl4vmr
     gasvmr(:,10,:,:) = f113vmr
+
+    call get_date(Time,yy,mm,dd,hh,mns,sc)
+    if (mm/=curr_month) then
+      write(msg,'("CO2, N2O, CH4, 02, CO, F11, F12, &
+        F22, CL4, F113 (ppmv) = ",10(F8.3))') &
+        [co2vmr, n2ovmr, ch4vmr, o2vmr, covmr, f11vmr, &
+        f12vmr, f22vmr, cl4vmr, f113vmr]*1.e6
+      call mpp_error(NOTE,msg)
+      curr_month=mm
+    endif
 
 end subroutine get_gases
 
