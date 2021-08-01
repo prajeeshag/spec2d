@@ -70,12 +70,11 @@ if [ -z "$FFTW_DIR" ]; then
 	cppDef=""
 	export LD=$FC
 	if [ ! -f $execdir/fftw/lib/libfftw3.a ]; then
-		cd $srcdir/shared/fftw-3.3.8
+		cp -r $srcdir/fftw-3.3.8 $execdir/fftw/src
+		cd $execdir/fftw/src
 		./configure --prefix=$execdir/fftw --enable-mpi --enable-openmp --enable-threads --disable-doc
-		make clean
 		make -j $numproc
 		make install
-		make clean
 	fi
 	FFTW_DIR=$execdir/fftw
 	echo "#------------------------------------------------------------------------------"
