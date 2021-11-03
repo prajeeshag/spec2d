@@ -17,4 +17,5 @@ reinit.sh
 *._*
 data
 work
-src/shared/fftw-3.3.8/**/Makefile
+.env
+src/fftw/doc
