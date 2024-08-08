@@ -1,3 +1,2 @@
-AMFI model
-This is an atmospheric model. 
+An atmospheric model under construction
 
